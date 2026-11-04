@@ -113,19 +113,34 @@ function SchoolApp() {
       'Unable to load school portal data at this moment. Please check your connection and retry.';
     try {
       const healthRes = await fetch(buildApiUrl('/health'), { credentials: 'include' });
-      const healthData = await healthRes.json().catch(() => null);
-      if (healthData && healthData.connected === false) {
-        if (healthData.error) {
-          detailedMessage = `MongoDB Atlas connection is currently unreachable (${healthData.error}). Once the current server IP is allowlisted in MongoDB Atlas Network Access, the portal will connect automatically.`;
-        } else {
-          detailedMessage =
-            'Database connection is currently unavailable or still initializing. Please verify MongoDB Atlas connectivity and retry.';
+      if (healthRes.status === 404 || (lastErr as any)?.status === 404) {
+        detailedMessage =
+          'Backend API endpoint not found (HTTP 404). If your frontend is hosted on Vercel, please add the VITE_API_BASE_URL environment variable pointing to your Railway backend URL (e.g. https://your-backend.up.railway.app) in Vercel Project Settings, then redeploy.';
+      } else {
+        const healthData = await healthRes.json().catch(() => null);
+        if (healthData && healthData.connected === false) {
+          if (healthData.error) {
+            const errStr = String(healthData.error).toLowerCase();
+            if (errStr.includes('bad auth') || errStr.includes('authentication failed')) {
+              detailedMessage = `Database authentication failed (${healthData.error}). Please verify the MongoDB Atlas username and password in Railway environment variables and MongoDB Atlas Database Access.`;
+            } else if (errStr.includes('timed out') || errStr.includes('whitelisted') || errStr.includes('network') || errStr.includes('enotfound')) {
+              detailedMessage = `MongoDB Atlas network unreachable (${healthData.error}). Please ensure the server IP is allowlisted in MongoDB Atlas Network Access (or allow 0.0.0.0/0 for cloud deployments).`;
+            } else {
+              detailedMessage = `MongoDB Atlas connection error: ${healthData.error}. Please verify database configuration and retry.`;
+            }
+          } else {
+            detailedMessage =
+              'Database connection is currently unavailable or still initializing. Please verify MongoDB Atlas connectivity and retry.';
+          }
+        } else if (lastErr?.message) {
+          detailedMessage = String(lastErr.message);
         }
-      } else if (lastErr?.message && /VITE_API_BASE_URL|Invalid API response/i.test(String(lastErr.message))) {
-        detailedMessage = String(lastErr.message);
       }
     } catch {
-      if (lastErr?.message && /VITE_API_BASE_URL|Invalid API response/i.test(String(lastErr.message))) {
+      if ((lastErr as any)?.status === 404) {
+        detailedMessage =
+          'Backend API endpoint not found (HTTP 404). If your frontend is hosted on Vercel, please add the VITE_API_BASE_URL environment variable pointing to your Railway backend URL (e.g. https://your-backend.up.railway.app) in Vercel Project Settings, then redeploy.';
+      } else if (lastErr?.message) {
         detailedMessage = String(lastErr.message);
       }
     }

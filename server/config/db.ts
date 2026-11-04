@@ -19,6 +19,7 @@ let isInitialized = false;
 let listenersAttached = false;
 let memoryServerInstance: any = null;
 let lastAtlasFallbackError = '';
+let lastLoggedAtlasError = '';
 
 function ensureConnectionListeners(): void {
   if (listenersAttached) return;
@@ -66,7 +67,12 @@ export function extractConfiguredDbName(uri?: string): string {
     const slashIdx = afterAuth.indexOf('/');
     if (slashIdx === -1) return 'shawan_school';
     const dbSegment = afterAuth.slice(slashIdx + 1).split('?')[0].trim();
-    return dbSegment || 'shawan_school';
+    if (!dbSegment) return 'shawan_school';
+    try {
+      return decodeURIComponent(dbSegment);
+    } catch {
+      return dbSegment;
+    }
   } catch {
     return 'shawan_school';
   }
@@ -149,7 +155,9 @@ export async function connectDB(): Promise<typeof mongoose> {
     try {
       const maxPoolSize = Math.max(2, Number(process.env.MONGO_MAX_POOL_SIZE) || 20);
       const minPoolSize = Math.max(1, Math.min(maxPoolSize, Number(process.env.MONGO_MIN_POOL_SIZE) || 2));
-      console.log(`[MongoDB] Connecting to configured MongoDB cluster at: ${maskMongoUri(customUri)}`);
+      if (!isInitialized) {
+        console.log(`[MongoDB] Connecting to configured MongoDB cluster at: ${maskMongoUri(customUri)}`);
+      }
       await mongoose.connect(customUri, {
         maxPoolSize,
         minPoolSize,
@@ -159,11 +167,15 @@ export async function connectDB(): Promise<typeof mongoose> {
       });
       console.log(`[MongoDB] Connected successfully to MongoDB database: "${mongoose.connection.name}"`);
       lastAtlasFallbackError = '';
+      lastLoggedAtlasError = '';
       isInitialized = true;
       return mongoose;
     } catch (err: any) {
       lastAtlasFallbackError = sanitizeErrorMessage(err?.message || 'Atlas connection failed');
-      console.warn(`[MongoDB Atlas] Connection to configured MONGODB_URI deferred (silent local fallback disabled): ${lastAtlasFallbackError}`);
+      if (lastAtlasFallbackError !== lastLoggedAtlasError) {
+        lastLoggedAtlasError = lastAtlasFallbackError;
+        console.warn(`[MongoDB Atlas] Connection to configured MONGODB_URI deferred (silent local fallback disabled): ${lastAtlasFallbackError}`);
+      }
       throw new Error(lastAtlasFallbackError);
     }
   }

@@ -22,7 +22,7 @@ export function loadLocalEnvIfNeeded(): void {
   if (fs.existsSync(envPath)) {
     dotenv.config({
       path: envPath,
-      override: false,
+      override: true,
       quiet: true,
     });
   }

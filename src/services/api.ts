@@ -136,8 +136,16 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     if (res.status === 401) {
       removeStoredToken();
     }
-    const errorMsg = data?.error || data?.message || `Request failed with status ${res.status}`;
-    throw new Error(errorMsg);
+    const defaultMsg =
+      res.status === 404
+        ? 'Backend API endpoint not found (HTTP 404). If deployed on Vercel, ensure VITE_API_BASE_URL is set in Vercel to your Railway backend URL.'
+        : res.status === 503
+        ? 'Institutional database is currently unavailable (HTTP 503).'
+        : `Request failed with status ${res.status}`;
+    const errorMsg = data?.error || data?.message || defaultMsg;
+    const err = new Error(errorMsg) as any;
+    err.status = res.status;
+    throw err;
   }
 
   if (!parsedJson || contentType.includes('text/html')) {
