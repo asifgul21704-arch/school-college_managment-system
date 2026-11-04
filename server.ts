@@ -41,42 +41,35 @@ async function startServer() {
 
   let atlasRetryTimer: ReturnType<typeof setInterval> | null = null;
 
-  try {
-    await connectDB();
-    if (disableAutoSeed) {
-      console.log(
-        '[MongoDB] Automatic startup seed/migration skipped (Atlas/seed safety guard active).'
-      );
-    } else {
-      await seedMongoFromLocal();
-    }
-  } catch (err: any) {
-    if (isProd) {
+  const startDevAtlasWatcher = () => {
+    if (atlasRetryTimer || !rawMongoUri.startsWith('mongodb')) return;
+    atlasRetryTimer = setInterval(async () => {
+      const currentState = Number(mongoose.connection.readyState);
+      if (currentState === 1 || currentState === 2) {
+        return;
+      }
+      try {
+        await connectDB();
+      } catch {
+        // Remains in degraded 503 state until Atlas Network Access permits connection
+      }
+    }, 15000);
+    atlasRetryTimer.unref();
+  };
+
+  if (isProd) {
+    try {
+      await connectDB();
+      if (disableAutoSeed) {
+        console.log(
+          '[MongoDB] Automatic startup seed/migration skipped (Atlas/seed safety guard active).'
+        );
+      } else {
+        await seedMongoFromLocal();
+      }
+    } catch (err: any) {
       console.error('[FATAL Database Security Error] Production database connection failed:', sanitizeErrorMessage(err.message));
       process.exit(1);
-    }
-    console.warn('[MongoDB] Running in degraded 503 mode until configured MONGODB_URI becomes reachable (no local fallback):', sanitizeErrorMessage(err.message));
-    if (rawMongoUri.startsWith('mongodb')) {
-      atlasRetryTimer = setInterval(async () => {
-        const currentState = Number(mongoose.connection.readyState);
-        if (currentState === 1 || currentState === 2) {
-          if (currentState === 1 && atlasRetryTimer) {
-            clearInterval(atlasRetryTimer);
-            atlasRetryTimer = null;
-          }
-          return;
-        }
-        try {
-          await connectDB();
-          if (Number(mongoose.connection.readyState) === 1 && atlasRetryTimer) {
-            clearInterval(atlasRetryTimer);
-            atlasRetryTimer = null;
-          }
-        } catch {
-          // Remains in degraded 503 state until Atlas Network Access permits connection
-        }
-      }, 15000);
-      atlasRetryTimer.unref();
     }
   }
 
@@ -194,16 +187,33 @@ async function startServer() {
     express.static(uploadsDir, { dotfiles: 'deny', index: false })
   );
 
+  let viteInstance: any = null;
   if (!isProd) {
-    // In unified development mode, mount Vite middleware when frontend index.html is present
-    if (fs.existsSync(path.resolve(__dirname, 'index.html'))) {
-      const { createServer } = await import('vite');
-      const vite = await createServer({
-        server: { middlewareMode: true, port: PORT, host: '0.0.0.0' },
-        appType: 'spa',
-      });
-      app.use(vite.middlewares);
-    }
+    // Initialize Vite asynchronously so Express binds PORT immediately without startup probe timeouts
+    const indexHtmlExists = fs.existsSync(path.resolve(__dirname, 'index.html'));
+    const viteReadyPromise = indexHtmlExists
+      ? import('vite').then(({ createServer }) =>
+          createServer({
+            server: { middlewareMode: true, port: PORT, host: '0.0.0.0' },
+            appType: 'spa',
+          }).then(v => {
+            viteInstance = v;
+            return v.middlewares;
+          })
+        )
+      : Promise.resolve(null);
+
+    app.use(async (req, res, next) => {
+      try {
+        const mw = await viteReadyPromise;
+        if (mw) {
+          return mw(req, res, next);
+        }
+        next();
+      } catch (err) {
+        next(err);
+      }
+    });
   } else {
     // In production, serve built static files from dist
     const distPath = path.resolve(__dirname, 'dist');
@@ -222,6 +232,26 @@ async function startServer() {
 
   const httpServer = app.listen(PORT, '0.0.0.0', () => {
     console.log(`[Server] Shawan School and College server running at http://0.0.0.0:${PORT}`);
+    if (!isProd) {
+      startDevAtlasWatcher();
+      (async () => {
+        try {
+          await connectDB();
+          if (disableAutoSeed) {
+            console.log(
+              '[MongoDB] Automatic startup seed/migration skipped (Atlas/seed safety guard active).'
+            );
+          } else {
+            await seedMongoFromLocal();
+          }
+        } catch (err: any) {
+          console.warn(
+            '[MongoDB] Running in degraded 503 mode until configured MONGODB_URI becomes reachable (no local fallback):',
+            sanitizeErrorMessage(err?.message || String(err))
+          );
+        }
+      })();
+    }
   });
 
   let shuttingDown = false;
@@ -240,6 +270,11 @@ async function startServer() {
       atlasRetryTimer = null;
     }
     httpServer.close(async () => {
+      if (viteInstance) {
+        try {
+          await viteInstance.close();
+        } catch {}
+      }
       await closeDB();
       console.log('[Server] HTTP server and database connections closed cleanly.');
       process.exit(0);

@@ -25,8 +25,28 @@ export interface MongoConnectionStatus {
 }
 
 let isInitialized = false;
+let listenersAttached = false;
 let memoryServerInstance: any = null;
 let lastAtlasFallbackError = '';
+
+function ensureConnectionListeners(): void {
+  if (listenersAttached) return;
+  listenersAttached = true;
+  mongoose.connection.on('connected', () => {
+    lastAtlasFallbackError = '';
+  });
+  mongoose.connection.on('error', (err: any) => {
+    if (err?.message) {
+      lastAtlasFallbackError = sanitizeErrorMessage(err.message);
+    }
+  });
+  mongoose.connection.on('disconnected', () => {
+    if (!lastAtlasFallbackError && process.env.MONGODB_URI?.trim()) {
+      lastAtlasFallbackError =
+        'MongoDB Atlas connection was interrupted. Automatic reconnection is in progress.';
+    }
+  });
+}
 
 export function getLastAtlasFallbackError(): string {
   return lastAtlasFallbackError;
@@ -98,6 +118,7 @@ export async function connectDB(): Promise<typeof mongoose> {
     return mongoose;
   }
 
+  ensureConnectionListeners();
   mongoose.set('strictQuery', false);
   mongoose.set('bufferCommands', false); // Fail fast, do not hang on offline DB
 
