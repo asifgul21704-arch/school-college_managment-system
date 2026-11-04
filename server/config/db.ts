@@ -1,14 +1,5 @@
+import './env.ts';
 import mongoose from 'mongoose';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
-
-const __dbFilename = fileURLToPath(import.meta.url);
-const __dbDirname = path.dirname(__dbFilename);
-dotenv.config({
-  path: path.resolve(__dbDirname, '../../.env'),
-  override: !process.env.PORT || process.env.PORT === '3000',
-});
 
 export interface MongoConnectionStatus {
   connected: boolean;

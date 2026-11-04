@@ -1,8 +1,8 @@
+import './server/config/env.ts';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 import { connectDB, closeDB, sanitizeErrorMessage } from './server/config/db.ts';
 import { seedMongoFromLocal, isLocalSeedBlocked } from './server/config/seed.ts';
@@ -11,10 +11,6 @@ import { getJwtSecret } from './server/auth.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-dotenv.config({
-  path: path.resolve(__dirname, '.env'),
-  override: !process.env.PORT || process.env.PORT === '3000',
-});
 
 async function startServer() {
   const rawPort = process.env.PORT ? Number(process.env.PORT) : 3000;
@@ -93,9 +89,11 @@ async function startServer() {
     if (isProd) {
       // In production, allow ONLY the explicitly configured CORS_ORIGIN (never reflect arbitrary request origins)
       const configuredOrigins = process.env.CORS_ORIGIN
-        ? process.env.CORS_ORIGIN.split(',').map(o => o.trim().replace(/\/+$/, '')).filter(Boolean)
+        ? process.env.CORS_ORIGIN.split(',')
+            .map(o => o.trim().replace(/^['"]+|['"]+$/g, '').trim().replace(/\/+$/, '').toLowerCase())
+            .filter(Boolean)
         : [];
-      const normalizedOrigin = origin ? origin.trim().replace(/\/+$/, '') : '';
+      const normalizedOrigin = origin ? origin.trim().replace(/\/+$/, '').toLowerCase() : '';
       if (origin && normalizedOrigin && configuredOrigins.includes(normalizedOrigin)) {
         res.header('Access-Control-Allow-Origin', origin);
         res.header('Access-Control-Allow-Credentials', 'true');
@@ -155,11 +153,17 @@ async function startServer() {
     ? path.resolve(process.env.UPLOAD_STORAGE_DIR)
     : path.resolve(__dirname, 'data', 'uploads');
   const privateUploadsDir = path.resolve(uploadsDir, 'private');
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-  }
-  if (!fs.existsSync(privateUploadsDir)) {
-    fs.mkdirSync(privateUploadsDir, { recursive: true, mode: 0o700 });
+  try {
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+    if (!fs.existsSync(privateUploadsDir)) {
+      fs.mkdirSync(privateUploadsDir, { recursive: true, mode: 0o700 });
+    }
+  } catch (storageErr: any) {
+    console.warn(
+      `[Storage Warning] Upload directory "${uploadsDir}" could not be initialized (${sanitizeErrorMessage(storageErr?.message || 'permission error')}). Verify UPLOAD_STORAGE_DIR and attached Railway Volume permissions.`
+    );
   }
   const publicMediaExts = new Set(['.jpg', '.jpeg', '.png', '.webp']);
   app.use(

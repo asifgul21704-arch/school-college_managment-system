@@ -17,7 +17,8 @@ STANDALONE BACKEND RUN STEPS:
 INCLUDED FILES INDEX:
   01. package.json (32 lines)
   02. tsconfig.json (25 lines)
-  03. render.yaml (50 lines)
+  03. railway.json (14 lines)
+  03b. server/config/env.ts (31 lines)
   04. .env.example (44 lines)
   05. server.ts (258 lines)
   06. server/auth.ts (521 lines)
@@ -121,77 +122,77 @@ INCLUDED FILES INDEX:
 }
 // === FILE_END: tsconfig.json ===
 
-// === FILE_START: render.yaml ===
-services:
-  - type: web
-    name: shawan-school-backend
-    runtime: node
-    plan: starter
-    buildCommand: npm install --include=dev && npm run build
-    startCommand: npm start
-    healthCheckPath: /api/health
-    disk:
-      name: shawan-Persistent-Uploads
-      mountPath: /var/data/shawan_uploads
-      sizeGB: 10
-    envVars:
-      - key: NODE_VERSION
-        value: "22"
-      - key: NODE_ENV
-        value: production
-      - key: PORT
-        value: 3000
-      - key: UPLOAD_STORAGE_DIR
-        value: /var/data/shawan_uploads
-      - key: ALLOW_PRODUCTION_SEED
-        value: "false"
-      - key: DISABLE_AUTO_SEED
-        value: "true"
-      - key: MONGODB_URI
-        sync: false
-      - key: JWT_SECRET
-        sync: false
-      - key: CORS_ORIGIN
-        sync: false
-      - key: GEMINI_API_KEY
-        sync: false
-      - key: BOOTSTRAP_SECRET
-        sync: false
-      - key: APP_PUBLIC_URL
-        sync: false
-      - key: SMTP_HOST
-        sync: false
-      - key: SMTP_PORT
-        value: "587"
-      - key: SMTP_SECURE
-        value: "false"
-      - key: SMTP_USER
-        sync: false
-      - key: SMTP_PASS
-        sync: false
-      - key: SMTP_FROM
-        sync: false
-// === FILE_END: render.yaml ===
+// === FILE_START: railway.json ===
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "RAILPACK",
+    "buildCommand": "npm run build"
+  },
+  "deploy": {
+    "startCommand": "node server.ts",
+    "healthcheckPath": "/api/health",
+    "healthcheckTimeout": 60,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}
+// === FILE_END: railway.json ===
+
+// === FILE_START: server/config/env.ts ===
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+
+let envInitialized = false;
+
+export function loadLocalEnvIfNeeded(): void {
+  if (envInitialized) return;
+  envInitialized = true;
+
+  // Production deployments (e.g., Railway) inject environment variables directly via process.env
+  // and must never depend on or be overridden by a local .env file.
+  if (process.env.NODE_ENV === 'production') {
+    return;
+  }
+
+  const __envFilename = fileURLToPath(import.meta.url);
+  const __envDirname = path.dirname(__envFilename);
+  const envPath = path.resolve(__envDirname, '../../.env');
+
+  if (fs.existsSync(envPath)) {
+    dotenv.config({
+      path: envPath,
+      override: false,
+      quiet: true,
+    });
+  }
+}
+
+loadLocalEnvIfNeeded();
+// === FILE_END: server/config/env.ts ===
 
 // === FILE_START: .env.example ===
 # ============================================================================
-# BACKEND ENVIRONMENT CONFIGURATION (SAFE TEMPLATE — NO SECRETS)
+# LOCAL DEVELOPMENT & RAILWAY/VERCEL TEMPLATE (SAFE TEMPLATE — NO SECRETS)
+# Note: Production on Railway reads Railway Service Variables directly (no .env file).
 # ============================================================================
 
 NODE_ENV=development
 PORT=3000
 
-# MongoDB Atlas (Use dedicated least-privilege database user)
-MONGODB_URI=mongodb+srv://[YOUR_DATABASE_USERNAME]:[YOUR_DATABASE_PASSWORD]@[YOUR_CLUSTER_HOST]/shawan_school_test?retryWrites=true&w=majority
+# MongoDB Atlas (Include your target database name before '?')
+MONGODB_URI=mongodb+srv://[YOUR_DATABASE_USERNAME]:[YOUR_DATABASE_PASSWORD]@[YOUR_CLUSTER_HOST]/shawan-school&college?retryWrites=true&w=majority
 
-# JWT Secret (Generate safely via: openssl rand -hex 32)
+# JWT Secret (Required >= 32 characters in production; generate via: openssl rand -hex 32)
 JWT_SECRET=replace_with_minimum_32_character_cryptographic_secret
 
-# CORS Trusted Origins
+# CORS Trusted Origins (Local Vite dev or exact Vercel frontend URL, e.g. https://school-college_managment-system.vercel.app)
 CORS_ORIGIN=http://localhost:5173
 
-# Upload Storage Directory
-UPLOAD_STORAGE_DIR=./uploads
+# Upload Storage Directory (Local ./data/uploads or Railway Volume mount path, e.g. /data/uploads)
+UPLOAD_STORAGE_DIR=./data/uploads
 
 # Seed Guards (Keep ALLOW_PRODUCTION_SEED=false so Atlas data is never auto-seeded)
 ALLOW_PRODUCTION_SEED=false
@@ -200,7 +201,7 @@ DISABLE_AUTO_SEED=true
 # Gemini API Key (Optional server-side key; never expose with VITE_ prefix)
 GEMINI_API_KEY=
 
-# One-Time Initial Super Admin Bootstrap (Set temporarily for fresh DB bootstrap, then remove)
+# One-Time Initial Super Admin Bootstrap (Set temporarily >= 32 chars for fresh DB bootstrap, then remove)
 BOOTSTRAP_SECRET=
 
 # Transactional SMTP Configuration for Forgot Password Emails (Optional; fails safely with HTTP 503 if omitted)
@@ -210,22 +211,22 @@ SMTP_SECURE=false
 SMTP_USER=
 SMTP_PASS=
 SMTP_FROM="Shawan School & College <no-reply@shawanschool.edu.pk>"
-APP_PUBLIC_URL=
+APP_PUBLIC_URL=https://school-college_managment-system.vercel.app
 
 # ============================================================================
-# FRONTEND CONFIGURATION
+# FRONTEND CONFIGURATION (Vercel Environment Variables)
 # ============================================================================
 
-# Leave empty for same-origin unified server; set to https://your-backend-domain in split deployments
+# Leave empty for same-origin unified server; set on Vercel to your Railway public HTTPS URL (e.g. https://<service>.up.railway.app)
 VITE_API_BASE_URL=
 // === FILE_END: .env.example ===
 
 // === FILE_START: server.ts ===
+import './server/config/env.ts';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 import { connectDB, closeDB, sanitizeErrorMessage } from './server/config/db.ts';
 import { seedMongoFromLocal, isLocalSeedBlocked } from './server/config/seed.ts';
@@ -234,10 +235,6 @@ import { getJwtSecret } from './server/auth.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-dotenv.config({
-  path: path.resolve(__dirname, '.env'),
-  override: !process.env.PORT || process.env.PORT === '3000',
-});
 
 async function startServer() {
   const rawPort = process.env.PORT ? Number(process.env.PORT) : 3000;
@@ -316,9 +313,11 @@ async function startServer() {
     if (isProd) {
       // In production, allow ONLY the explicitly configured CORS_ORIGIN (never reflect arbitrary request origins)
       const configuredOrigins = process.env.CORS_ORIGIN
-        ? process.env.CORS_ORIGIN.split(',').map(o => o.trim().replace(/\/+$/, '')).filter(Boolean)
+        ? process.env.CORS_ORIGIN.split(',')
+            .map(o => o.trim().replace(/^['"]+|['"]+$/g, '').trim().replace(/\/+$/, '').toLowerCase())
+            .filter(Boolean)
         : [];
-      const normalizedOrigin = origin ? origin.trim().replace(/\/+$/, '') : '';
+      const normalizedOrigin = origin ? origin.trim().replace(/\/+$/, '').toLowerCase() : '';
       if (origin && normalizedOrigin && configuredOrigins.includes(normalizedOrigin)) {
         res.header('Access-Control-Allow-Origin', origin);
         res.header('Access-Control-Allow-Credentials', 'true');
@@ -378,11 +377,17 @@ async function startServer() {
     ? path.resolve(process.env.UPLOAD_STORAGE_DIR)
     : path.resolve(__dirname, 'data', 'uploads');
   const privateUploadsDir = path.resolve(uploadsDir, 'private');
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-  }
-  if (!fs.existsSync(privateUploadsDir)) {
-    fs.mkdirSync(privateUploadsDir, { recursive: true, mode: 0o700 });
+  try {
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+    if (!fs.existsSync(privateUploadsDir)) {
+      fs.mkdirSync(privateUploadsDir, { recursive: true, mode: 0o700 });
+    }
+  } catch (storageErr: any) {
+    console.warn(
+      `[Storage Warning] Upload directory "${uploadsDir}" could not be initialized (${sanitizeErrorMessage(storageErr?.message || 'permission error')}). Verify UPLOAD_STORAGE_DIR and attached Railway Volume permissions.`
+    );
   }
   const publicMediaExts = new Set(['.jpg', '.jpeg', '.png', '.webp']);
   app.use(
@@ -711,22 +716,38 @@ export function clearSessionCookie(req: Request, res: Response): void {
   res.setHeader('Set-Cookie', parts.join('; '));
 }
 
+const EXAMPLE_PLACEHOLDER_SECRET = 'replace_with_minimum_32_character_cryptographic_secret';
+
 /**
  * Validates and retrieves the JWT secret.
  * In production mode, an explicit, strong JWT_SECRET is strictly required.
  */
 export function getJwtSecret(): string {
-  const secret = process.env.JWT_SECRET;
+  const rawSecret = typeof process.env.JWT_SECRET === 'string' ? process.env.JWT_SECRET.trim() : '';
   const isProd = process.env.NODE_ENV === 'production';
   if (isProd) {
-    if (!secret || secret === DEFAULT_INSECURE_SECRET || secret.length < 32) {
+    if (!rawSecret) {
       throw new Error(
-        '[JWT Security] In production mode, a strong, unique JWT_SECRET (minimum 32 characters) must be configured in environment variables. Default fallback secrets are strictly prohibited in production.'
+        '[JWT Security] JWT_SECRET is missing or empty in process.env. Configure a unique JWT_SECRET (minimum 32 characters) in your service environment variables.'
       );
     }
-    return secret;
+    if (
+      rawSecret === DEFAULT_INSECURE_SECRET ||
+      rawSecret === EXAMPLE_PLACEHOLDER_SECRET ||
+      /^(replace_with|your_|changeme)/i.test(rawSecret)
+    ) {
+      throw new Error(
+        '[JWT Security] Default or placeholder JWT_SECRET values are strictly prohibited in production. Configure a unique cryptographic JWT_SECRET (minimum 32 characters).'
+      );
+    }
+    if (rawSecret.length < 32) {
+      throw new Error(
+        '[JWT Security] In production mode, a strong, unique JWT_SECRET (minimum 32 characters) must be configured in environment variables.'
+      );
+    }
+    return rawSecret;
   }
-  return secret || DEFAULT_INSECURE_SECRET;
+  return rawSecret || DEFAULT_INSECURE_SECRET;
 }
 
 export interface AuthenticatedRequest extends Request {
@@ -1039,17 +1060,8 @@ export function requireExactRole(allowedRoles: UserRole[]) {
 // === FILE_END: server/auth.ts ===
 
 // === FILE_START: server/config/db.ts ===
+import './env.ts';
 import mongoose from 'mongoose';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
-
-const __dbFilename = fileURLToPath(import.meta.url);
-const __dbDirname = path.dirname(__dbFilename);
-dotenv.config({
-  path: path.resolve(__dbDirname, '../../.env'),
-  override: !process.env.PORT || process.env.PORT === '3000',
-});
 
 export interface MongoConnectionStatus {
   connected: boolean;
@@ -22283,19 +22295,10 @@ export async function openAuthenticatedSmtpTransport(): Promise<OpenSmtpTranspor
 // === FILE_END: server/services/passwordResetEmailService.ts ===
 
 // === FILE_START: scripts/bootstrap-super-admin.ts ===
-import path from 'path';
-import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
+import '../server/config/env.ts';
 import mongoose from 'mongoose';
 import { connectDB, closeDB, sanitizeErrorMessage } from '../server/config/db.ts';
 import { bootstrapInitialSuperAdmin } from '../server/services/bootstrapService.ts';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-dotenv.config({
-  path: path.resolve(__dirname, '..', '.env'),
-  override: !process.env.PORT || process.env.PORT === '3000',
-});
 
 async function main() {
   const email = String(process.env.BOOTSTRAP_SUPER_ADMIN_EMAIL || '').trim();

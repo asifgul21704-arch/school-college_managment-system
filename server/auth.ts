@@ -193,22 +193,38 @@ export function clearSessionCookie(req: Request, res: Response): void {
   res.setHeader('Set-Cookie', parts.join('; '));
 }
 
+const EXAMPLE_PLACEHOLDER_SECRET = 'replace_with_minimum_32_character_cryptographic_secret';
+
 /**
  * Validates and retrieves the JWT secret.
  * In production mode, an explicit, strong JWT_SECRET is strictly required.
  */
 export function getJwtSecret(): string {
-  const secret = process.env.JWT_SECRET;
+  const rawSecret = typeof process.env.JWT_SECRET === 'string' ? process.env.JWT_SECRET.trim() : '';
   const isProd = process.env.NODE_ENV === 'production';
   if (isProd) {
-    if (!secret || secret === DEFAULT_INSECURE_SECRET || secret.length < 32) {
+    if (!rawSecret) {
       throw new Error(
-        '[JWT Security] In production mode, a strong, unique JWT_SECRET (minimum 32 characters) must be configured in environment variables. Default fallback secrets are strictly prohibited in production.'
+        '[JWT Security] JWT_SECRET is missing or empty in process.env. Configure a unique JWT_SECRET (minimum 32 characters) in your service environment variables.'
       );
     }
-    return secret;
+    if (
+      rawSecret === DEFAULT_INSECURE_SECRET ||
+      rawSecret === EXAMPLE_PLACEHOLDER_SECRET ||
+      /^(replace_with|your_|changeme)/i.test(rawSecret)
+    ) {
+      throw new Error(
+        '[JWT Security] Default or placeholder JWT_SECRET values are strictly prohibited in production. Configure a unique cryptographic JWT_SECRET (minimum 32 characters).'
+      );
+    }
+    if (rawSecret.length < 32) {
+      throw new Error(
+        '[JWT Security] In production mode, a strong, unique JWT_SECRET (minimum 32 characters) must be configured in environment variables.'
+      );
+    }
+    return rawSecret;
   }
-  return secret || DEFAULT_INSECURE_SECRET;
+  return rawSecret || DEFAULT_INSECURE_SECRET;
 }
 
 export interface AuthenticatedRequest extends Request {

@@ -1,16 +1,7 @@
-import path from 'path';
-import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
+import '../server/config/env.ts';
 import mongoose from 'mongoose';
 import { connectDB, closeDB, sanitizeErrorMessage } from '../server/config/db.ts';
 import { bootstrapInitialSuperAdmin } from '../server/services/bootstrapService.ts';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-dotenv.config({
-  path: path.resolve(__dirname, '..', '.env'),
-  override: !process.env.PORT || process.env.PORT === '3000',
-});
 
 async function main() {
   const email = String(process.env.BOOTSTRAP_SUPER_ADMIN_EMAIL || '').trim();
