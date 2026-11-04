@@ -21,4 +21,5 @@ server/models_bak_phase3/
 data/uploads/
 uploads/
 data/*.tmp
-
+bun.lock
+bun.lockb
