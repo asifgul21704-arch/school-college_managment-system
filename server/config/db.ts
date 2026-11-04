@@ -17,7 +17,6 @@ export interface MongoConnectionStatus {
 
 let isInitialized = false;
 let listenersAttached = false;
-let memoryServerInstance: any = null;
 let lastAtlasFallbackError = '';
 let lastLoggedAtlasError = '';
 
@@ -180,27 +179,14 @@ export async function connectDB(): Promise<typeof mongoose> {
     }
   }
 
-  // Development-only fallback ONLY when MONGODB_URI is not configured at all
-  try {
-    if (!memoryServerInstance) {
-      const { MongoMemoryServer } = await import('mongodb-memory-server');
-      memoryServerInstance = await MongoMemoryServer.create({
-        instance: {
-          port: 27017,
-          dbName: 'shawan_school',
-        },
-      });
-    }
-    const memUri = memoryServerInstance.getUri('shawan_school');
-    console.log(`[MongoDB] No MONGODB_URI configured; starting local development MongoDB engine (Database: shawan_school)`);
-    await mongoose.connect(memUri);
-    console.log(`[MongoDB] Successfully connected Mongoose to MongoDB engine at "${mongoose.connection.name}"`);
-    isInitialized = true;
-    return mongoose;
-  } catch (err: any) {
-    console.error('[MongoDB] Failed to initialize embedded MongoDB engine:', sanitizeErrorMessage(err.message));
-    throw err;
+  // When MONGODB_URI is not configured:
+  const noConfigMsg = 'MONGODB_URI is not configured. Please specify MONGODB_URI in your environment or .env file.';
+  lastAtlasFallbackError = noConfigMsg;
+  if (lastAtlasFallbackError !== lastLoggedAtlasError) {
+    lastLoggedAtlasError = lastAtlasFallbackError;
+    console.warn(`[MongoDB] ${noConfigMsg} Running in safe degraded 503 mode without local database fallback.`);
   }
+  throw new Error(noConfigMsg);
 }
 
 /**
@@ -251,8 +237,8 @@ export async function getMongoStatus(): Promise<MongoConnectionStatus> {
     state: isConnected ? 'connected' : pingError ? 'error' : readyState === 2 ? 'connecting' : 'disconnected',
     isAtlas,
     databaseName: mongoose.connection.name || extractConfiguredDbName(customUri),
-    host: mongoose.connection.host || (isAtlas ? 'atlas-cluster (unreachable)' : 'localhost:27017'),
-    uriMasked: customUri ? maskMongoUri(customUri) : 'mongodb://localhost:27017/shawan_school (Local Engine)',
+    host: mongoose.connection.host || (isAtlas ? 'atlas-cluster (unreachable)' : customUri ? 'mongodb-host' : 'Not Configured'),
+    uriMasked: customUri ? maskMongoUri(customUri) : 'Not Configured',
     ...(fallbackErr ? { error: fallbackErr } : {}),
     latencyMs,
     collectionsCount: collections.length,
@@ -262,7 +248,7 @@ export async function getMongoStatus(): Promise<MongoConnectionStatus> {
 }
 
 /**
- * Cleanly closes Mongoose connection pool and any development embedded server on shutdown.
+ * Cleanly closes Mongoose connection pool on shutdown.
  */
 export async function closeDB(): Promise<void> {
   try {
@@ -271,12 +257,6 @@ export async function closeDB(): Promise<void> {
     }
   } catch (err: any) {
     console.warn('[MongoDB] Error closing Mongoose connection:', sanitizeErrorMessage(err?.message || 'close error'));
-  }
-  if (memoryServerInstance) {
-    try {
-      await memoryServerInstance.stop();
-    } catch {}
-    memoryServerInstance = null;
   }
   isInitialized = false;
 }

@@ -87,19 +87,31 @@ async function startServer() {
 
     const origin = req.headers.origin;
     if (isProd) {
-      // In production, allow ONLY the explicitly configured CORS_ORIGIN (never reflect arbitrary request origins)
+      // Allow configured origins, known Vercel institutional domains, and project preview URLs
+      const allowedDefaultOrigins = [
+        'https://school-college-managment-system.vercel.app',
+        'https://school-college_managment-system.vercel.app',
+      ];
       const configuredOrigins = process.env.CORS_ORIGIN
         ? process.env.CORS_ORIGIN.split(',')
             .map(o => o.trim().replace(/^['"]+|['"]+$/g, '').trim().replace(/\/+$/, '').toLowerCase())
             .filter(Boolean)
         : [];
+
       const normalizedOrigin = origin ? origin.trim().replace(/\/+$/, '').toLowerCase() : '';
-      if (origin && normalizedOrigin && configuredOrigins.includes(normalizedOrigin)) {
+      const isAllowedVercelOrigin =
+        Boolean(normalizedOrigin) &&
+        (/^https:\/\/school-college[-_]managment[-_]system.*\.vercel\.app$/i.test(normalizedOrigin) ||
+          allowedDefaultOrigins.includes(normalizedOrigin));
+
+      const isExplicitOrigin =
+        Boolean(normalizedOrigin) && configuredOrigins.includes(normalizedOrigin);
+
+      if (origin && (isExplicitOrigin || isAllowedVercelOrigin)) {
         res.header('Access-Control-Allow-Origin', origin);
         res.header('Access-Control-Allow-Credentials', 'true');
         res.header('Vary', 'Origin');
       }
-      // If CORS_ORIGIN is not set, or origin does not match, Access-Control-Allow-Origin is not set
     } else {
       // In development, allow local dev origin or wildcard
       res.header('Access-Control-Allow-Origin', origin || '*');

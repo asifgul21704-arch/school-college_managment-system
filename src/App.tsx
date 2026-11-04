@@ -145,6 +145,14 @@ function SchoolApp() {
       }
     }
 
+    if (/failed to fetch|networkerror|load failed|network request failed/i.test(detailedMessage)) {
+      detailedMessage =
+        'Backend connection failed (Failed to fetch). The browser could not communicate with the backend server. If using Vercel, please ensure VITE_API_BASE_URL is pointing to your active Railway backend URL (e.g. https://<service>.up.railway.app) and redeploy.';
+    } else if (/not allowed to do action/i.test(detailedMessage)) {
+      detailedMessage =
+        'MongoDB Atlas permission denied (user is not allowed to do action [find]). In MongoDB Atlas -> Security -> Database Access, click Edit on user "shawan_prod_app" and set Built-in Role to "Read and write to any database" (or "Atlas admin"), then click Update User.';
+    }
+
     setLoadError(detailedMessage);
     setLoading(false);
   };
