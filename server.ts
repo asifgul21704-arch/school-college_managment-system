@@ -1,0 +1,257 @@
+import express, { type Request, type Response, type NextFunction } from 'express';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+import mongoose from 'mongoose';
+import { connectDB, closeDB, sanitizeErrorMessage } from './server/config/db.ts';
+import { seedMongoFromLocal, isLocalSeedBlocked } from './server/config/seed.ts';
+import { router as apiRouter } from './server/routes.ts';
+import { getJwtSecret } from './server/auth.ts';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({
+  path: path.resolve(__dirname, '.env'),
+  override: !process.env.PORT || process.env.PORT === '3000',
+});
+
+async function startServer() {
+  const rawPort = process.env.PORT ? Number(process.env.PORT) : 3000;
+  if (!Number.isInteger(rawPort) || rawPort < 1 || rawPort > 65535) {
+    console.error(`[FATAL Configuration Error] Invalid PORT value "${process.env.PORT}". Must be an integer between 1 and 65535.`);
+    process.exit(1);
+  }
+  const PORT = rawPort;
+  const isProd = process.env.NODE_ENV === 'production';
+
+  // In production, validate critical security secrets immediately before booting
+  if (isProd) {
+    try {
+      getJwtSecret();
+    } catch (err: any) {
+      console.error('[FATAL Security Error] Production JWT security validation failed:', err.message);
+      process.exit(1);
+    }
+  }
+
+  // Connect to MongoDB Atlas (Fresh-Start policy enforced in production and on Atlas)
+  const rawMongoUri = (process.env.MONGODB_URI || '').trim();
+  const disableAutoSeed = isLocalSeedBlocked();
+
+  let atlasRetryTimer: ReturnType<typeof setInterval> | null = null;
+
+  try {
+    await connectDB();
+    if (disableAutoSeed) {
+      console.log(
+        '[MongoDB] Automatic startup seed/migration skipped (Atlas/seed safety guard active).'
+      );
+    } else {
+      await seedMongoFromLocal();
+    }
+  } catch (err: any) {
+    if (isProd) {
+      console.error('[FATAL Database Security Error] Production database connection failed:', sanitizeErrorMessage(err.message));
+      process.exit(1);
+    }
+    console.warn('[MongoDB] Running in degraded 503 mode until configured MONGODB_URI becomes reachable (no local fallback):', sanitizeErrorMessage(err.message));
+    if (rawMongoUri.startsWith('mongodb')) {
+      atlasRetryTimer = setInterval(async () => {
+        const currentState = Number(mongoose.connection.readyState);
+        if (currentState === 1 || currentState === 2) {
+          if (currentState === 1 && atlasRetryTimer) {
+            clearInterval(atlasRetryTimer);
+            atlasRetryTimer = null;
+          }
+          return;
+        }
+        try {
+          await connectDB();
+          if (Number(mongoose.connection.readyState) === 1 && atlasRetryTimer) {
+            clearInterval(atlasRetryTimer);
+            atlasRetryTimer = null;
+          }
+        } catch {
+          // Remains in degraded 503 state until Atlas Network Access permits connection
+        }
+      }, 15000);
+      atlasRetryTimer.unref();
+    }
+  }
+
+  const app = express();
+  app.disable('x-powered-by');
+  app.set('trust proxy', 1);
+
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+  // Security headers, CORS, and Preflight handling
+  app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+    if (isProd) {
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
+
+    const origin = req.headers.origin;
+    if (isProd) {
+      // In production, allow ONLY the explicitly configured CORS_ORIGIN (never reflect arbitrary request origins)
+      const configuredOrigins = process.env.CORS_ORIGIN
+        ? process.env.CORS_ORIGIN.split(',').map(o => o.trim().replace(/\/+$/, '')).filter(Boolean)
+        : [];
+      const normalizedOrigin = origin ? origin.trim().replace(/\/+$/, '') : '';
+      if (origin && normalizedOrigin && configuredOrigins.includes(normalizedOrigin)) {
+        res.header('Access-Control-Allow-Origin', origin);
+        res.header('Access-Control-Allow-Credentials', 'true');
+        res.header('Vary', 'Origin');
+      }
+      // If CORS_ORIGIN is not set, or origin does not match, Access-Control-Allow-Origin is not set
+    } else {
+      // In development, allow local dev origin or wildcard
+      res.header('Access-Control-Allow-Origin', origin || '*');
+      if (origin) {
+        res.header('Access-Control-Allow-Credentials', 'true');
+        res.header('Vary', 'Origin');
+      }
+    }
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
+  // Request logger for API calls
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api')) {
+      console.log(`[API] ${req.method} ${req.path}`);
+    }
+    next();
+  });
+
+  // Mount API Router
+  app.use('/api', apiRouter);
+
+  // Return 404 JSON for any unmatched /api/* endpoint in both development and production
+  app.use('/api', (_req: Request, res: Response) => {
+    res.status(404).json({ error: 'API endpoint not found' });
+  });
+
+  // Mongoose / MongoDB offline & global sanitized error handling middleware
+  app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
+    if (err?.type === 'entity.parse.failed' || (err instanceof SyntaxError && 'body' in err)) {
+      return res.status(400).json({ error: 'Malformed JSON request payload.' });
+    }
+    if (err?.type === 'entity.too.large') {
+      return res.status(413).json({ error: 'Request payload exceeds maximum allowed size.' });
+    }
+    if (err?.name === 'MongooseError' || err?.name === 'MongoNetworkError' || (err?.message && err.message.includes('buffering timed out'))) {
+      return res.status(503).json({ error: 'Service temporarily unavailable (database offline)' });
+    }
+    console.error('[Server Error]', sanitizeErrorMessage(err?.message || 'Unexpected error'));
+    return res.status(500).json({ error: 'An unexpected internal server error occurred.' });
+  });
+
+  // Serve image assets statically with nosniff protection and strict public-media boundary on /uploads
+  app.use('/src/assets', express.static(path.resolve(__dirname, 'src/assets')));
+  const uploadsDir = process.env.UPLOAD_STORAGE_DIR
+    ? path.resolve(process.env.UPLOAD_STORAGE_DIR)
+    : path.resolve(__dirname, 'data', 'uploads');
+  const privateUploadsDir = path.resolve(uploadsDir, 'private');
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+  if (!fs.existsSync(privateUploadsDir)) {
+    fs.mkdirSync(privateUploadsDir, { recursive: true, mode: 0o700 });
+  }
+  const publicMediaExts = new Set(['.jpg', '.jpeg', '.png', '.webp']);
+  app.use(
+    '/uploads',
+    (req, res, next) => {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      const normalizedReqPath = decodeURIComponent(req.path || '').replace(/\\/g, '/');
+      if (
+        normalizedReqPath.includes('..') ||
+        normalizedReqPath === '/private' ||
+        normalizedReqPath.startsWith('/private/')
+      ) {
+        return res.status(403).json({
+          error: 'Private student and admission documents are not publicly accessible.',
+        });
+      }
+      const ext = path.extname(normalizedReqPath).toLowerCase();
+      if (!publicMediaExts.has(ext)) {
+        return res.status(403).json({
+          error: 'Only public school media images are served at /uploads. Private documents require authenticated access.',
+        });
+      }
+      next();
+    },
+    express.static(uploadsDir, { dotfiles: 'deny', index: false })
+  );
+
+  if (!isProd) {
+    // In unified development mode, mount Vite middleware when frontend index.html is present
+    if (fs.existsSync(path.resolve(__dirname, 'index.html'))) {
+      const { createServer } = await import('vite');
+      const vite = await createServer({
+        server: { middlewareMode: true, port: PORT, host: '0.0.0.0' },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    }
+  } else {
+    // In production, serve built static files from dist
+    const distPath = path.resolve(__dirname, 'dist');
+    if (fs.existsSync(distPath)) {
+      app.use(express.static(distPath));
+      app.get('*', (req, res) => {
+        if (req.path.startsWith('/api')) {
+          return res.status(404).json({ error: 'API endpoint not found' });
+        }
+        res.sendFile(path.resolve(distPath, 'index.html'));
+      });
+    } else {
+      console.warn('Dist directory does not exist. Run "npm run build" first.');
+    }
+  }
+
+  const httpServer = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`[Server] Shawan School and College server running at http://0.0.0.0:${PORT}`);
+  });
+
+  let shuttingDown = false;
+  const gracefulShutdown = (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[Server] Received ${signal}. Initiating graceful shutdown...`);
+    const forceTimer = setTimeout(() => {
+      console.error('[Server] Forced exit after graceful shutdown timeout.');
+      process.exit(1);
+    }, 10000);
+    forceTimer.unref();
+
+    if (atlasRetryTimer) {
+      clearInterval(atlasRetryTimer);
+      atlasRetryTimer = null;
+    }
+    httpServer.close(async () => {
+      await closeDB();
+      console.log('[Server] HTTP server and database connections closed cleanly.');
+      process.exit(0);
+    });
+  };
+
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+}
+
+startServer().catch(err => {
+  console.error('Fatal server startup failure:', sanitizeErrorMessage(err?.message || String(err)));
+  process.exit(1);
+});
+

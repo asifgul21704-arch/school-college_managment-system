@@ -1,0 +1,4718 @@
+{
+  "users": [
+    {
+      "id": "usr_super_admin",
+      "email": "admin@shawanschool.edu.pk",
+      "password_hash": "$2b$10$3b/LCmejoXEleVzibuO6neCHmQ6SZMFHB21nmnKhv8eUcqGEYJN4C",
+      "name": "Principal & Chief Administrator",
+      "role": "super_admin",
+      "phone": "+92 300 1234567",
+      "created_at": "2026-01-10T08:00:00.000Z"
+    },
+    {
+      "id": "usr_admin",
+      "email": "office@shawanschool.edu.pk",
+      "password_hash": "$2b$10$3b/LCmejoXEleVzibuO6neCHmQ6SZMFHB21nmnKhv8eUcqGEYJN4C",
+      "name": "Academic Affairs Officer",
+      "role": "admin",
+      "phone": "+92 300 7654321",
+      "created_at": "2026-01-10T08:00:00.000Z"
+    },
+    {
+      "id": "usr_teacher_1",
+      "email": "teacher@shawanschool.edu.pk",
+      "password_hash": "$2b$10$3b/LCmejoXEleVzibuO6negWjOzAdy3aqFdgcxDzuBYl6g4qRW3B.",
+      "name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "role": "teacher",
+      "phone": "+92 312 9876543",
+      "linked_id": "tch_01",
+      "created_at": "2026-01-15T08:00:00.000Z"
+    },
+    {
+      "id": "usr_student_1",
+      "email": "student@shawanschool.edu.pk",
+      "password_hash": "$2b$10$3b/LCmejoXEleVzibuO6neBAhvb.9Zu1N5oQjB0xhlXOq3RwJTD1G",
+      "name": "Muhammad Hamza",
+      "role": "student",
+      "phone": "+92 333 1122334",
+      "linked_id": "std_01",
+      "created_at": "2026-02-01T08:00:00.000Z"
+    },
+    {
+      "id": "usr_parent_1",
+      "email": "parent@shawanschool.edu.pk",
+      "password_hash": "$2b$10$3b/LCmejoXEleVzibuO6neBAhvb.9Zu1N5oQjB0xhlXOq3RwJTD1G",
+      "name": "Haji Ghulam Rasool (Parent)",
+      "role": "parent",
+      "phone": "+92 333 1122334",
+      "linked_id": "std_01",
+      "created_at": "2026-02-01T08:00:00.000Z",
+      "linked_student_ids": [
+        "std_01",
+        "std_1790704405564"
+      ]
+    },
+    {
+      "id": "usr_1790704770817",
+      "email": "asifgul21704@gmail.com",
+      "password_hash": "$2b$10$q3sDhkksBOICuHxcdVGNTO8llsW0ODLTPGA6BZnalXq1jEOMc3Dq6",
+      "name": "Asif",
+      "role": "parent",
+      "phone": "1234567890",
+      "linked_id": "std_1790704837279",
+      "linked_student_ids": [
+        "std_1790704837279"
+      ],
+      "created_at": "2026-09-29T17:59:30.817Z"
+    },
+    {
+      "id": "usr_1790704837279",
+      "email": "gul@gmai.com",
+      "password_hash": "$2b$10$rKJjjR9qI.G.keloBckD7.FS2eBVPHX5cuKVfw0a/EW1ZYBUQwEgi",
+      "name": "gul",
+      "role": "student",
+      "phone": "1234567890",
+      "linked_id": "std_1790704837279",
+      "created_at": "2026-09-29T18:00:37.279Z"
+    },
+    {
+      "id": "usr_1790705037997",
+      "email": "gul@gmail.com",
+      "password_hash": "$2b$10$s9NyoN/0EVB5OkNnjK5oeeOK33WLtlhMzyX8SNSyJyvJD3gXwHhG6",
+      "name": "gul",
+      "role": "student",
+      "phone": "123454321",
+      "linked_id": "std_1790705037997",
+      "created_at": "2026-09-29T18:03:57.997Z"
+    },
+    {
+      "id": "usr_1790785389809",
+      "email": "test_student_1790785389706@shawanschool.edu.pk",
+      "password_hash": "$2b$10$bkrknCqsb7Q9H7BxhzQr3O7FSozubMzh.4KDfLOtv79JLfUYr/rvm",
+      "name": "Zahid Khan",
+      "role": "student",
+      "phone": "+92 300 9876543",
+      "linked_id": "std_1790785389809",
+      "created_at": "2026-09-30T16:23:09.809Z"
+    },
+    {
+      "id": "usr_1790785389913",
+      "email": "test_parent_1790785389813@shawanschool.edu.pk",
+      "password_hash": "$2b$10$B5DQIGTSZVD1iwhS4E3J/uWHmd1hfkOXJFlh0vUXvGPBtX9b59/Ua",
+      "name": "Tariq Khan",
+      "role": "parent",
+      "phone": "+92 300 5551234",
+      "linked_id": "std_1790785389809",
+      "linked_student_ids": [
+        "std_1790785389809"
+      ],
+      "created_at": "2026-09-30T16:23:09.913Z"
+    }
+  ],
+  "students": [
+    {
+      "id": "std_1793112460452",
+      "admission_no": "SSC-2026-2547",
+      "full_name": "aman",
+      "father_name": "rehmn",
+      "dob": "2000-02-09",
+      "gender": "Male",
+      "class_name": "Playgroup & Nursery",
+      "section": "A",
+      "contact_no": "+923370652074",
+      "address": "Afghanistan City Kabul",
+      "emergency_contact": "+923370652074",
+      "admission_date": "2026-10-27",
+      "academic_status": "Active",
+      "roll_no": "115"
+    },
+    {
+      "id": "std_1791045672997",
+      "admission_no": "SSC-2026-5560",
+      "full_name": "Askhaq",
+      "father_name": "Gul Khan",
+      "dob": "2010-01-01",
+      "gender": "Male",
+      "class_name": "Grade 6 to 8 (Middle)",
+      "section": "A",
+      "contact_no": "+923370652074",
+      "address": "",
+      "emergency_contact": "",
+      "admission_date": "2026-10-03",
+      "academic_status": "Active",
+      "roll_no": "114"
+    },
+    {
+      "id": "std_1791004144835",
+      "admission_no": "SSC-2026-8400",
+      "full_name": "Bilal Ahmad",
+      "father_name": "Ahmad Nawaz",
+      "dob": "2011-03-20",
+      "gender": "Male",
+      "class_name": "Grade 9",
+      "section": "A",
+      "contact_no": "+92 300 4443322",
+      "address": "Near Main Bazaar, Paharpur",
+      "emergency_contact": "+92 300 4443322",
+      "admission_date": "2026-10-03",
+      "academic_status": "Active",
+      "roll_no": "113"
+    },
+    {
+      "id": "std_1790785389809",
+      "admission_no": "SSC-2026-8754",
+      "full_name": "Zahid Khan",
+      "father_name": "Tariq Khan",
+      "dob": "2010-05-15",
+      "gender": "Male",
+      "class_name": "Class 8",
+      "section": "A",
+      "contact_no": "+92 300 9876543",
+      "address": "Rangpur Road, Paharpur",
+      "emergency_contact": "+92 300 9876543",
+      "admission_date": "2026-09-30",
+      "academic_status": "Active",
+      "roll_no": "112",
+      "parent_user_id": "usr_1790785389913"
+    },
+    {
+      "id": "std_1790705037997",
+      "admission_no": "SSC-2026-2818",
+      "full_name": "gul",
+      "father_name": "khan",
+      "dob": "2009-05-15",
+      "gender": "Male",
+      "class_name": "Grade 9 - Matric",
+      "section": "Section A",
+      "contact_no": "123454321",
+      "address": "Paharpur, Dera Ismail Khan",
+      "emergency_contact": "123454321",
+      "admission_date": "2026-09-29",
+      "academic_status": "Active",
+      "roll_no": "111"
+    },
+    {
+      "id": "std_1790704837279",
+      "admission_no": "SSC-2026-4622",
+      "full_name": "gul",
+      "father_name": "Asif",
+      "dob": "2009-05-15",
+      "gender": "Male",
+      "class_name": "Grade 9 - Matric",
+      "section": "Section A",
+      "contact_no": "1234567890",
+      "address": "Paharpur, Dera Ismail Khan",
+      "emergency_contact": "1234567890",
+      "admission_date": "2026-09-29",
+      "academic_status": "Active",
+      "roll_no": "110",
+      "parent_user_id": "usr_1790704770817"
+    },
+    {
+      "id": "std_1790704517272",
+      "admission_no": "SSC-2026-7978",
+      "full_name": "Kabul Jan Hotel And Resturent",
+      "father_name": "g khan",
+      "dob": "2026-09-28",
+      "gender": "Male",
+      "class_name": "1st Year (F.Sc Pre-Medical)",
+      "section": "A",
+      "contact_no": "+923370652074",
+      "address": "Afghanistan City Kabul",
+      "emergency_contact": "+923370652074",
+      "admission_date": "2026-09-29",
+      "academic_status": "Active",
+      "roll_no": "109"
+    },
+    {
+      "id": "std_1790704405564",
+      "admission_no": "SSC-2026-8912",
+      "full_name": "Usman Ghani",
+      "father_name": "Abdul Ghani",
+      "dob": "2015-05-12",
+      "gender": "Male",
+      "class_name": "Grade 5 (Primary)",
+      "section": "A",
+      "contact_no": "+92 300 4455667",
+      "address": "Chashma Road, Paharpur",
+      "emergency_contact": "+92 300 4455667",
+      "admission_date": "2026-09-29",
+      "academic_status": "Active",
+      "roll_no": "108",
+      "parent_user_id": "usr_parent_1"
+    },
+    {
+      "id": "std_1790704403781",
+      "admission_no": "SSC-2026-9379",
+      "full_name": "Sana Gul",
+      "father_name": "Gulzar Ahmad",
+      "dob": "2008-07-19",
+      "gender": "Female",
+      "class_name": "1st Year (F.Sc Pre-Medical)",
+      "section": "A",
+      "contact_no": "+92 344 8877665",
+      "address": "Mohallah Farooqia, Paharpur",
+      "emergency_contact": "+92 344 8877665",
+      "admission_date": "2026-09-29",
+      "academic_status": "Active",
+      "roll_no": "107"
+    },
+    {
+      "id": "std_1790704402004",
+      "admission_no": "SSC-2026-3848",
+      "full_name": "Test Student",
+      "father_name": "Test Father",
+      "dob": "",
+      "gender": "Male",
+      "class_name": "1st Year (F.Sc Pre-Medical)",
+      "section": "A",
+      "contact_no": "+92 300 1112233",
+      "address": "Paharpur",
+      "emergency_contact": "+92 300 1112233",
+      "admission_date": "2026-09-29",
+      "academic_status": "Active",
+      "roll_no": "106"
+    },
+    {
+      "id": "std_01",
+      "admission_no": "SSC-2026-001",
+      "full_name": "Muhammad Hamza",
+      "father_name": "Haji Ghulam Rasool",
+      "dob": "2009-04-14",
+      "gender": "Male",
+      "class_name": "Grade 10 - Matric",
+      "section": "A (Science)",
+      "contact_no": "+92 333 1122334",
+      "address": "Rangpur Road, Mohallah Eidgah, Paharpur, DI Khan",
+      "emergency_contact": "+92 301 5566778",
+      "admission_date": "2024-04-01",
+      "academic_status": "Active",
+      "roll_no": "101",
+      "parent_user_id": "usr_parent_1"
+    },
+    {
+      "id": "std_02",
+      "admission_no": "SSC-2026-002",
+      "full_name": "Ayesha Noor",
+      "father_name": "Muhammad Aslam Khan",
+      "dob": "2010-09-22",
+      "gender": "Female",
+      "class_name": "Grade 9 - Matric",
+      "section": "A (Biology)",
+      "contact_no": "+92 345 9988776",
+      "address": "Main Bazaar Road, Near Tehsil Gate, Paharpur",
+      "emergency_contact": "+92 345 9988770",
+      "admission_date": "2025-04-05",
+      "academic_status": "Active",
+      "roll_no": "902"
+    },
+    {
+      "id": "std_03",
+      "admission_no": "SSC-2026-003",
+      "full_name": "Zubair Ahmad",
+      "father_name": "Sher Zaman",
+      "dob": "2008-01-18",
+      "gender": "Male",
+      "class_name": "1st Year (F.Sc Pre-Medical)",
+      "section": "Medical-A",
+      "contact_no": "+92 315 4433221",
+      "address": "Chashma Right Bank Canal Colony, Paharpur",
+      "emergency_contact": "+92 315 4433229",
+      "admission_date": "2025-08-10",
+      "academic_status": "Active",
+      "roll_no": "1105"
+    },
+    {
+      "id": "std_04",
+      "admission_no": "SSC-2026-004",
+      "full_name": "Fatima Bibi",
+      "father_name": "Inam Ullah",
+      "dob": "2008-06-30",
+      "gender": "Female",
+      "class_name": "2nd Year (ICS Computer Science)",
+      "section": "ICS-A",
+      "contact_no": "+92 302 7788990",
+      "address": "Band Kurai Road, Paharpur, DI Khan",
+      "emergency_contact": "+92 302 7788991",
+      "admission_date": "2024-08-12",
+      "academic_status": "Active",
+      "roll_no": "1201"
+    },
+    {
+      "id": "std_05",
+      "admission_no": "SSC-2026-005",
+      "full_name": "Bilal Khan",
+      "father_name": "Qaiser Khan",
+      "dob": "2012-11-05",
+      "gender": "Male",
+      "class_name": "Grade 7 - Middle",
+      "section": "B",
+      "contact_no": "+92 306 1239874",
+      "address": "Rangpur Road, Paharpur",
+      "emergency_contact": "+92 306 1239870",
+      "admission_date": "2023-04-10",
+      "academic_status": "Active",
+      "roll_no": "708"
+    }
+  ],
+  "teachers": [
+    {
+      "id": "tch_01",
+      "name": "Prof. Tariq Mahmood",
+      "qualification": "M.Sc Physics (Gomal University DI Khan)",
+      "subject": "Physics & Applied Science",
+      "classes": [
+        "Grade 9 - Matric",
+        "Grade 10 - Matric",
+        "1st Year F.Sc",
+        "2nd Year F.Sc"
+      ],
+      "contact_no": "+92 300 9876543",
+      "email": "tariq.physics@shawanschool.edu.pk",
+      "joining_date": "2021-03-01",
+      "experience": "9 Years in SSC & HSSC Teaching",
+      "status": "Active",
+      "bio": "Senior Professor of Physics & Applied Sciences at Shawan School and College."
+    },
+    {
+      "id": "tch_02",
+      "name": "Ma’am Saima Parveen",
+      "qualification": "M.Phil Botany / M.Ed",
+      "subject": "Biology & Environmental Sciences",
+      "classes": [
+        "Grade 9 - Matric",
+        "Grade 10 - Matric",
+        "1st Year (Pre-Medical)"
+      ],
+      "contact_no": "+92 303 5544332",
+      "email": "saima.bio@shawanschool.edu.pk",
+      "joining_date": "2022-04-15",
+      "experience": "7 Years in Senior Secondary Education",
+      "status": "Active",
+      "bio": "Dedicated botany and biology educator with hands-on lab experimentation methodology and modern visual learning techniques."
+    },
+    {
+      "id": "tch_03",
+      "name": "Sir Muhammad Naveed",
+      "qualification": "M.Sc Mathematics (QAU Islamabad)",
+      "subject": "Mathematics & Statistics",
+      "classes": [
+        "Grade 8",
+        "Grade 9 - Matric",
+        "Grade 10 - Matric",
+        "1st Year Pre-Eng"
+      ],
+      "contact_no": "+92 344 6677889",
+      "email": "naveed.math@shawanschool.edu.pk",
+      "joining_date": "2020-09-01",
+      "experience": "11 Years in Secondary Mathematics",
+      "status": "Active",
+      "bio": "Passionate mathematician focusing on building strong analytical reasoning, algebra foundations, and calculus problem-solving."
+    },
+    {
+      "id": "tch_04",
+      "name": "Engr. Kashif Rehman",
+      "qualification": "BS Computer Science & Software Engineering",
+      "subject": "Computer Science & ICT",
+      "classes": [
+        "Grade 6 to 10",
+        "ICS 1st Year",
+        "ICS 2nd Year"
+      ],
+      "contact_no": "+92 301 2233445",
+      "email": "kashif.cs@shawanschool.edu.pk",
+      "joining_date": "2023-01-10",
+      "experience": "5 Years in Tech & Coding Instruction",
+      "status": "Active",
+      "bio": "Oversees the digital computer laboratory, C++ programming syllabus, database fundamentals, and cyber safety for collegiate students."
+    },
+    {
+      "id": "tch_05",
+      "name": "Qari Abdul Rauf",
+      "qualification": "M.A Islamic Studies & Dars-e-Nizami (Wafaq)",
+      "subject": "Islamiyat, Quranic Translation & Ethics",
+      "classes": [
+        "Primary",
+        "Middle",
+        "Secondary"
+      ],
+      "contact_no": "+92 333 8899001",
+      "email": "rauf.islamiyat@shawanschool.edu.pk",
+      "joining_date": "2019-08-15",
+      "experience": "14 Years in Moral & Islamic Pedagogy",
+      "status": "Active",
+      "bio": "Responsible for moral tarbiyah, Tajweed recitation, Nazra Quran, and Islamic ethical foundation for all age cohorts."
+    }
+  ],
+  "classes": [
+    {
+      "id": "cls_01",
+      "name": "Playgroup & Nursery",
+      "grade_level": "Early Childhood Education",
+      "stream": "General Activity-Based",
+      "monthly_tuition_fee": 1800,
+      "capacity": 30,
+      "class_teacher": "Ms. Farzana Bibi"
+    },
+    {
+      "id": "cls_02",
+      "name": "Grade 1 to 5 (Primary)",
+      "grade_level": "Primary Schooling",
+      "stream": "National Single Curriculum (SNC)",
+      "monthly_tuition_fee": 2200,
+      "capacity": 35,
+      "class_teacher": "Ms. Rubina Kausar"
+    },
+    {
+      "id": "cls_03",
+      "name": "Grade 6 to 8 (Middle)",
+      "grade_level": "Middle Schooling",
+      "stream": "Science & Arts Foundation",
+      "monthly_tuition_fee": 2600,
+      "capacity": 40,
+      "class_teacher": "Sir Muhammad Naveed"
+    },
+    {
+      "id": "cls_04",
+      "name": "Grade 9 - Matric",
+      "grade_level": "Secondary School Certificate (Part I)",
+      "stream": "Science (Bio/Computer Groups)",
+      "monthly_tuition_fee": 3200,
+      "capacity": 45,
+      "class_teacher": "Ma’am Saima Parveen"
+    },
+    {
+      "id": "cls_05",
+      "name": "Grade 10 - Matric",
+      "grade_level": "Secondary School Certificate (Part II)",
+      "stream": "Science (Bio/Computer Groups)",
+      "monthly_tuition_fee": 3400,
+      "capacity": 45,
+      "class_teacher": "Prof. Tariq Mahmood"
+    },
+    {
+      "id": "cls_06",
+      "name": "1st Year (F.Sc Pre-Medical)",
+      "grade_level": "HSSC Part I (College Level)",
+      "stream": "Pre-Medical (BISE DI Khan)",
+      "monthly_tuition_fee": 4200,
+      "capacity": 40,
+      "class_teacher": "Prof. Tariq Mahmood"
+    },
+    {
+      "id": "cls_07",
+      "name": "1st Year (F.Sc Pre-Engineering)",
+      "grade_level": "HSSC Part I (College Level)",
+      "stream": "Pre-Engineering (BISE DI Khan)",
+      "monthly_tuition_fee": 4200,
+      "capacity": 40,
+      "class_teacher": "Sir Muhammad Naveed"
+    },
+    {
+      "id": "cls_08",
+      "name": "ICS (Intermediate in Computer Science)",
+      "grade_level": "HSSC Part I & II (College Level)",
+      "stream": "Computer Science, Math, Physics/Stats",
+      "monthly_tuition_fee": 4000,
+      "capacity": 40,
+      "class_teacher": "Engr. Kashif Rehman"
+    }
+  ],
+  "subjects": [
+    {
+      "id": "sb_01",
+      "class_name": "Grade 10 - Matric",
+      "name": "Physics",
+      "code": "PHY-10",
+      "teacher_name": "Prof. Tariq Mahmood",
+      "weekly_periods": 6
+    },
+    {
+      "id": "sb_02",
+      "class_name": "Grade 10 - Matric",
+      "name": "Chemistry",
+      "code": "CHM-10",
+      "teacher_name": "Prof. Tariq Mahmood",
+      "weekly_periods": 6
+    },
+    {
+      "id": "sb_03",
+      "class_name": "Grade 10 - Matric",
+      "name": "Mathematics",
+      "code": "MTH-10",
+      "teacher_name": "Sir Muhammad Naveed",
+      "weekly_periods": 7
+    },
+    {
+      "id": "sb_04",
+      "class_name": "Grade 10 - Matric",
+      "name": "Biology",
+      "code": "BIO-10",
+      "teacher_name": "Ma’am Saima Parveen",
+      "weekly_periods": 6
+    },
+    {
+      "id": "sb_05",
+      "class_name": "Grade 10 - Matric",
+      "name": "English Compulsory",
+      "code": "ENG-10",
+      "teacher_name": "Sir Rashid Khan",
+      "weekly_periods": 6
+    },
+    {
+      "id": "sb_06",
+      "class_name": "Grade 10 - Matric",
+      "name": "Urdu Compulsory",
+      "code": "URD-10",
+      "teacher_name": "Ms. Farzana Bibi",
+      "weekly_periods": 5
+    },
+    {
+      "id": "sb_07",
+      "class_name": "Grade 10 - Matric",
+      "name": "Islamiyat / Pak Studies",
+      "code": "PKS-10",
+      "teacher_name": "Qari Abdul Rauf",
+      "weekly_periods": 4
+    },
+    {
+      "id": "sb_08",
+      "class_name": "1st Year (F.Sc Pre-Medical)",
+      "name": "Physics I",
+      "code": "PHY-11",
+      "teacher_name": "Prof. Tariq Mahmood",
+      "weekly_periods": 7
+    },
+    {
+      "id": "sb_09",
+      "class_name": "1st Year (F.Sc Pre-Medical)",
+      "name": "Chemistry I",
+      "code": "CHM-11",
+      "teacher_name": "Prof. Tariq Mahmood",
+      "weekly_periods": 7
+    },
+    {
+      "id": "sb_10",
+      "class_name": "1st Year (F.Sc Pre-Medical)",
+      "name": "Biology I",
+      "code": "BIO-11",
+      "teacher_name": "Ma’am Saima Parveen",
+      "weekly_periods": 8
+    }
+  ],
+  "admissions": [
+    {
+      "id": "adm_1793112402193",
+      "application_no": "ADM-2026-5715",
+      "student_name": "aman",
+      "father_name": "rehmn",
+      "dob": "2000-02-09",
+      "gender": "Male",
+      "class_applying": "Playgroup & Nursery",
+      "previous_school": "gov",
+      "parent_phone": "+923370652074",
+      "parent_email": "asifgul21704@gmail.com",
+      "address": "Afghanistan City Kabul",
+      "documents": [],
+      "status": "Approved",
+      "remarks": "Admission confirmed and enrolled.",
+      "created_at": "2026-10-27T14:46:42.193Z"
+    },
+    {
+      "id": "adm_1790785389930",
+      "application_no": "ADM-2026-6577",
+      "student_name": "Bilal Ahmad",
+      "father_name": "Ahmad Nawaz",
+      "dob": "2011-03-20",
+      "gender": "Male",
+      "class_applying": "Grade 9",
+      "previous_school": "Govt High School Paharpur",
+      "parent_phone": "+92 300 4443322",
+      "parent_email": "ahmad.nawaz@example.com",
+      "address": "Near Main Bazaar, Paharpur",
+      "documents": [],
+      "status": "Approved",
+      "remarks": "Admission confirmed and enrolled.",
+      "created_at": "2026-09-30T16:23:09.930Z"
+    },
+    {
+      "id": "adm_1790704501404",
+      "application_no": "ADM-2026-2237",
+      "student_name": "Kabul Jan Hotel And Resturent",
+      "father_name": "g khan",
+      "dob": "2026-09-28",
+      "gender": "Male",
+      "class_applying": "1st Year (F.Sc Pre-Medical)",
+      "previous_school": "gv",
+      "parent_phone": "+923370652074",
+      "parent_email": "asifgul21704@gmail.com",
+      "address": "Afghanistan City Kabul",
+      "documents": [
+        {
+          "title": "Student B-Form / Birth Certificate",
+          "filename": "b_form_attached.pdf",
+          "verified": false
+        },
+        {
+          "title": "School Leaving Certificate / DMC",
+          "filename": "slc_dmc_attached.pdf",
+          "verified": false
+        }
+      ],
+      "status": "Approved",
+      "remarks": "Admission confirmed and enrolled.",
+      "created_at": "2026-09-29T17:55:01.404Z"
+    },
+    {
+      "id": "adm_1790607114096",
+      "application_no": "ADM-2026-4507",
+      "student_name": "Test Student",
+      "father_name": "Test Father",
+      "dob": "",
+      "gender": "Male",
+      "class_applying": "1st Year (F.Sc Pre-Medical)",
+      "previous_school": "N/A",
+      "parent_phone": "+92 300 1112233",
+      "parent_email": "",
+      "address": "Paharpur",
+      "documents": [],
+      "status": "Approved",
+      "remarks": "Admission confirmed and enrolled.",
+      "created_at": "2026-09-28T14:51:54.096Z"
+    },
+    {
+      "id": "adm_01",
+      "application_no": "ADM-2026-7841",
+      "student_name": "Kamran Ali",
+      "father_name": "Akhtar Ali",
+      "dob": "2010-02-14",
+      "gender": "Male",
+      "class_applying": "Grade 9 - Matric",
+      "previous_school": "Govt Middle School Paharpur",
+      "parent_phone": "+92 313 7766554",
+      "parent_email": "akhtar.ali@gmail.com",
+      "address": "Rangpur Road, Near Grain Market, Paharpur",
+      "documents": [
+        {
+          "title": "School Leaving Certificate",
+          "filename": "slc_certificate.pdf",
+          "verified": true
+        },
+        {
+          "title": "B-Form Copy",
+          "filename": "b_form_scanned.jpg",
+          "verified": true
+        }
+      ],
+      "status": "Approved",
+      "remarks": "Admission confirmed. Documents verified. Fee voucher issued.",
+      "created_at": "2026-09-15T10:30:00.000Z"
+    },
+    {
+      "id": "adm_02",
+      "application_no": "ADM-2026-7842",
+      "student_name": "Sana Gul",
+      "father_name": "Gulzar Ahmad",
+      "dob": "2008-07-19",
+      "gender": "Female",
+      "class_applying": "1st Year (F.Sc Pre-Medical)",
+      "previous_school": "GGHSS Paharpur DI Khan",
+      "parent_phone": "+92 344 8877665",
+      "parent_email": "gulzar.ahmad@gmail.com",
+      "address": "Mohallah Farooqia, Paharpur",
+      "documents": [
+        {
+          "title": "Matric DMC Result Card (BISE DI Khan)",
+          "filename": "matric_dmc_gul.pdf",
+          "verified": true
+        },
+        {
+          "title": "Character Certificate",
+          "filename": "character_cert.pdf",
+          "verified": false
+        }
+      ],
+      "status": "Approved",
+      "remarks": "Admission confirmed and enrolled.",
+      "created_at": "2026-09-20T14:15:00.000Z"
+    },
+    {
+      "id": "adm_03",
+      "application_no": "ADM-2026-7843",
+      "student_name": "Usman Ghani",
+      "father_name": "Abdul Ghani",
+      "dob": "2015-05-12",
+      "gender": "Male",
+      "class_applying": "Grade 5 (Primary)",
+      "previous_school": "Private Academy Paharpur",
+      "parent_phone": "+92 300 4455667",
+      "parent_email": "abdul.ghani@yahoo.com",
+      "address": "Chashma Road, Paharpur",
+      "documents": [
+        {
+          "title": "Birth Certificate",
+          "filename": "birth_cert.jpg",
+          "verified": false
+        }
+      ],
+      "status": "Approved",
+      "remarks": "Admission confirmed and enrolled.",
+      "created_at": "2026-09-25T11:00:00.000Z"
+    }
+  ],
+  "attendance": [
+    {
+      "id": "att_01",
+      "student_id": "std_01",
+      "student_name": "Muhammad Hamza",
+      "class_name": "Grade 10 - Matric",
+      "section": "A (Science)",
+      "date": "2026-09-28",
+      "status": "Present",
+      "marked_by": "Prof. Tariq Mahmood"
+    },
+    {
+      "id": "att_02",
+      "student_id": "std_02",
+      "student_name": "Ayesha Noor",
+      "class_name": "Grade 9 - Matric",
+      "section": "A (Biology)",
+      "date": "2026-09-28",
+      "status": "Present",
+      "marked_by": "Ma’am Saima Parveen"
+    },
+    {
+      "id": "att_03",
+      "student_id": "std_03",
+      "student_name": "Zubair Ahmad",
+      "class_name": "1st Year (F.Sc Pre-Medical)",
+      "section": "Medical-A",
+      "date": "2026-09-28",
+      "status": "Late",
+      "remarks": "Arrived 15 minutes late due to morning transport",
+      "marked_by": "Prof. Tariq Mahmood"
+    },
+    {
+      "id": "att_04",
+      "student_id": "std_04",
+      "student_name": "Fatima Bibi",
+      "class_name": "2nd Year (ICS Computer Science)",
+      "section": "ICS-A",
+      "date": "2026-09-28",
+      "status": "Present",
+      "marked_by": "Engr. Kashif Rehman"
+    },
+    {
+      "id": "att_05",
+      "student_id": "std_05",
+      "student_name": "Bilal Khan",
+      "class_name": "Grade 7 - Middle",
+      "section": "B",
+      "date": "2026-09-28",
+      "status": "Leave",
+      "remarks": "Medical leave approved by guardian note",
+      "marked_by": "Sir Muhammad Naveed"
+    },
+    {
+      "id": "att_1790705246779_jdhxi",
+      "student_id": "std_1790704517272",
+      "student_name": "Kabul Jan Hotel And Resturent",
+      "class_name": "1st Year (F.Sc Pre-Medical)",
+      "section": "A",
+      "date": "2026-09-29",
+      "status": "Present",
+      "marked_by": "Principal & Chief Administrator"
+    },
+    {
+      "id": "att_1790705246779_ipal9",
+      "student_id": "std_1790704403781",
+      "student_name": "Sana Gul",
+      "class_name": "1st Year (F.Sc Pre-Medical)",
+      "section": "A",
+      "date": "2026-09-29",
+      "status": "Present",
+      "marked_by": "Principal & Chief Administrator"
+    },
+    {
+      "id": "att_1790705246779_h53ci",
+      "student_id": "std_1790704402004",
+      "student_name": "Test Student",
+      "class_name": "1st Year (F.Sc Pre-Medical)",
+      "section": "A",
+      "date": "2026-09-29",
+      "status": "Present",
+      "marked_by": "Principal & Chief Administrator"
+    },
+    {
+      "id": "att_1790705246779_cailz",
+      "student_id": "std_03",
+      "student_name": "Zubair Ahmad",
+      "class_name": "1st Year (F.Sc Pre-Medical)",
+      "section": "Medical-A",
+      "date": "2026-09-29",
+      "status": "Present",
+      "marked_by": "Principal & Chief Administrator"
+    },
+    {
+      "id": "att_1791006516264_7fqrb",
+      "student_id": "std_01",
+      "student_name": "Muhammad Hamza",
+      "class_name": "Grade 10 - Matric",
+      "section": "A (Science)",
+      "date": "2026-10-03",
+      "status": "Absent",
+      "marked_by": "Prof. Tariq Mahmood",
+      "remarks": "Confirmed Present"
+    },
+    {
+      "id": "att_1792434056393_lsnop",
+      "student_id": "std_01",
+      "student_name": "Muhammad Hamza",
+      "class_name": "Grade 10 - Matric",
+      "section": "Section A",
+      "date": "2026-10-19",
+      "status": "Absent",
+      "remarks": "Confirmed Present",
+      "marked_by": "Prof. Tariq Mahmood"
+    },
+    {
+      "id": "att_1792508646357_mc73y",
+      "student_id": "std_01",
+      "student_name": "Muhammad Hamza",
+      "class_name": "Grade 10 - Matric",
+      "section": "Section A",
+      "date": "2026-10-20",
+      "status": "Absent",
+      "remarks": "Confirmed Present",
+      "marked_by": "Prof. Tariq Mahmood"
+    },
+    {
+      "id": "att_1792684083919_nh2z2",
+      "student_id": "std_01",
+      "student_name": "Muhammad Hamza",
+      "class_name": "Grade 10 - Matric",
+      "section": "Section A",
+      "date": "2026-10-22",
+      "status": "Absent",
+      "remarks": "Confirmed Present",
+      "marked_by": "Prof. Tariq Mahmood"
+    }
+  ],
+  "fees": [
+    {
+      "id": "fee_01",
+      "student_id": "std_01",
+      "student_name": "Muhammad Hamza",
+      "class_name": "Grade 10 - Matric",
+      "fee_month": "September",
+      "year": 2026,
+      "tuition_fee": 3400,
+      "admission_fee": 0,
+      "other_charges": 200,
+      "total_amount": 3600,
+      "paid_amount": 3600,
+      "pending_amount": 0,
+      "due_date": "2026-09-10",
+      "status": "Paid",
+      "payment_history": [
+        {
+          "receipt_no": "REC-90812",
+          "date": "2026-09-08",
+          "amount": 3600,
+          "method": "Bank Deposit",
+          "notes": "Paid via Allied Bank / HBL Paharpur Branch Challan"
+        }
+      ]
+    },
+    {
+      "id": "fee_02",
+      "student_id": "std_02",
+      "student_name": "Ayesha Noor",
+      "class_name": "Grade 9 - Matric",
+      "fee_month": "September",
+      "year": 2026,
+      "tuition_fee": 3200,
+      "admission_fee": 0,
+      "other_charges": 200,
+      "total_amount": 3400,
+      "paid_amount": 3400,
+      "pending_amount": 0,
+      "due_date": "2026-09-10",
+      "status": "Paid",
+      "payment_history": [
+        {
+          "receipt_no": "REC-90815",
+          "date": "2026-09-09",
+          "amount": 3400,
+          "method": "Cash",
+          "notes": "Paid at school accounts counter"
+        }
+      ]
+    },
+    {
+      "id": "fee_03",
+      "student_id": "std_03",
+      "student_name": "Zubair Ahmad",
+      "class_name": "1st Year (F.Sc Pre-Medical)",
+      "fee_month": "September",
+      "year": 2026,
+      "tuition_fee": 4200,
+      "admission_fee": 0,
+      "other_charges": 500,
+      "total_amount": 4700,
+      "paid_amount": 4700,
+      "pending_amount": 0,
+      "due_date": "2026-09-15",
+      "status": "Paid",
+      "payment_history": [
+        {
+          "receipt_no": "REC-90844",
+          "date": "2026-09-14",
+          "amount": 2500,
+          "method": "Cash",
+          "notes": "First installment submitted. Balance due by next week."
+        },
+        {
+          "receipt_no": "REC-71885",
+          "date": "2026-09-29",
+          "amount": 2200,
+          "method": "Cash",
+          "notes": "fgsdgjdfs"
+        }
+      ]
+    }
+  ],
+  "timetable": [
+    {
+      "id": "tt_01",
+      "class_name": "Grade 10 - Matric",
+      "section": "A (Science)",
+      "subject": "Physics",
+      "teacher_name": "Prof. Tariq Mahmood",
+      "day": "Monday",
+      "start_time": "08:00",
+      "end_time": "08:45",
+      "room": "Room 12 (Science Wing)"
+    },
+    {
+      "id": "tt_02",
+      "class_name": "Grade 10 - Matric",
+      "section": "A (Science)",
+      "subject": "Mathematics",
+      "teacher_name": "Sir Muhammad Naveed",
+      "day": "Monday",
+      "start_time": "08:45",
+      "end_time": "09:30",
+      "room": "Room 12 (Science Wing)"
+    },
+    {
+      "id": "tt_03",
+      "class_name": "Grade 10 - Matric",
+      "section": "A (Science)",
+      "subject": "Chemistry",
+      "teacher_name": "Prof. Tariq Mahmood",
+      "day": "Monday",
+      "start_time": "09:30",
+      "end_time": "10:15",
+      "room": "Chemistry Lab"
+    },
+    {
+      "id": "tt_04",
+      "class_name": "Grade 10 - Matric",
+      "section": "A (Science)",
+      "subject": "English",
+      "teacher_name": "Sir Rashid Khan",
+      "day": "Monday",
+      "start_time": "10:45",
+      "end_time": "11:30",
+      "room": "Room 12 (Science Wing)"
+    },
+    {
+      "id": "tt_05",
+      "class_name": "Grade 10 - Matric",
+      "section": "A (Science)",
+      "subject": "Biology",
+      "teacher_name": "Ma’am Saima Parveen",
+      "day": "Monday",
+      "start_time": "11:30",
+      "end_time": "12:15",
+      "room": "Bio Lab"
+    },
+    {
+      "id": "tt_06",
+      "class_name": "Grade 10 - Matric",
+      "section": "A (Science)",
+      "subject": "Islamiyat",
+      "teacher_name": "Qari Abdul Rauf",
+      "day": "Monday",
+      "start_time": "12:15",
+      "end_time": "01:00",
+      "room": "Room 12 (Science Wing)"
+    },
+    {
+      "id": "tt_07",
+      "class_name": "Grade 10 - Matric",
+      "section": "A (Science)",
+      "subject": "Mathematics",
+      "teacher_name": "Sir Muhammad Naveed",
+      "day": "Tuesday",
+      "start_time": "08:00",
+      "end_time": "08:45",
+      "room": "Room 12 (Science Wing)"
+    },
+    {
+      "id": "tt_08",
+      "class_name": "Grade 10 - Matric",
+      "section": "A (Science)",
+      "subject": "Physics Practical",
+      "teacher_name": "Prof. Tariq Mahmood",
+      "day": "Tuesday",
+      "start_time": "08:45",
+      "end_time": "10:15",
+      "room": "Physics Lab"
+    },
+    {
+      "id": "tt_09",
+      "class_name": "Grade 10 - Matric",
+      "section": "A (Science)",
+      "subject": "Urdu",
+      "teacher_name": "Ms. Farzana Bibi",
+      "day": "Tuesday",
+      "start_time": "10:45",
+      "end_time": "11:30",
+      "room": "Room 12 (Science Wing)"
+    }
+  ],
+  "exams": [
+    {
+      "id": "ex_01",
+      "title": "Mid-Term Assessment Examination 2026",
+      "term": "Mid-Term",
+      "academic_year": "2026-2027",
+      "start_date": "2026-10-15",
+      "end_date": "2026-10-26",
+      "classes": [
+        "Grade 6 to 8 (Middle)",
+        "Grade 9 - Matric",
+        "Grade 10 - Matric",
+        "1st Year (F.Sc Pre-Medical)",
+        "ICS"
+      ]
+    },
+    {
+      "id": "ex_02",
+      "title": "Pre-Board Preparatory Exams (BISE DI Khan Pattern)",
+      "term": "Pre-Board Send-up",
+      "academic_year": "2025-2026",
+      "start_date": "2026-02-10",
+      "end_date": "2026-02-22",
+      "classes": [
+        "Grade 9 - Matric",
+        "Grade 10 - Matric"
+      ]
+    }
+  ],
+  "results": [
+    {
+      "id": "res_01",
+      "exam_id": "ex_02",
+      "exam_title": "Pre-Board Preparatory Exams (BISE DI Khan Pattern)",
+      "student_id": "std_01",
+      "student_name": "Muhammad Hamza",
+      "class_name": "Grade 10 - Matric",
+      "section": "A (Science)",
+      "subjects": [
+        {
+          "subject_name": "Physics",
+          "total_marks": 75,
+          "obtained_marks": 68,
+          "grade": "A1"
+        },
+        {
+          "subject_name": "Chemistry",
+          "total_marks": 75,
+          "obtained_marks": 65,
+          "grade": "A1"
+        },
+        {
+          "subject_name": "Mathematics",
+          "total_marks": 75,
+          "obtained_marks": 71,
+          "grade": "A1"
+        },
+        {
+          "subject_name": "Biology",
+          "total_marks": 75,
+          "obtained_marks": 67,
+          "grade": "A1"
+        },
+        {
+          "subject_name": "English",
+          "total_marks": 75,
+          "obtained_marks": 62,
+          "grade": "A"
+        },
+        {
+          "subject_name": "Urdu",
+          "total_marks": 75,
+          "obtained_marks": 64,
+          "grade": "A"
+        },
+        {
+          "subject_name": "Islamiyat",
+          "total_marks": 50,
+          "obtained_marks": 46,
+          "grade": "A1"
+        }
+      ],
+      "total_marks": 500,
+      "obtained_marks": 443,
+      "percentage": 88.6,
+      "overall_grade": "A1 (Distinction)",
+      "remarks": "Outstanding analytical capability. High probability of securing top district rank in BISE DI Khan annual exam.",
+      "published": true
+    },
+    {
+      "id": "res_02",
+      "exam_id": "ex_02",
+      "exam_title": "Pre-Board Preparatory Exams (BISE DI Khan Pattern)",
+      "student_id": "std_02",
+      "student_name": "Ayesha Noor",
+      "class_name": "Grade 9 - Matric",
+      "section": "A (Biology)",
+      "subjects": [
+        {
+          "subject_name": "Physics",
+          "total_marks": 75,
+          "obtained_marks": 62,
+          "grade": "A"
+        },
+        {
+          "subject_name": "Chemistry",
+          "total_marks": 75,
+          "obtained_marks": 60,
+          "grade": "A"
+        },
+        {
+          "subject_name": "Mathematics",
+          "total_marks": 75,
+          "obtained_marks": 66,
+          "grade": "A1"
+        },
+        {
+          "subject_name": "Biology",
+          "total_marks": 75,
+          "obtained_marks": 69,
+          "grade": "A1"
+        },
+        {
+          "subject_name": "English",
+          "total_marks": 75,
+          "obtained_marks": 58,
+          "grade": "B"
+        }
+      ],
+      "total_marks": 375,
+      "obtained_marks": 315,
+      "percentage": 84,
+      "overall_grade": "A",
+      "remarks": "Commendable performance in Science and Biology. Strengthen English grammar.",
+      "published": true
+    },
+    {
+      "id": "res_1791006516235_gtkr0",
+      "exam_id": "ex_term1",
+      "exam_title": "First Term Assessment 2026",
+      "student_id": "std_01",
+      "student_name": "Muhammad Hamza",
+      "class_name": "Grade 10 - Matric",
+      "section": "A (Science)",
+      "subjects": [
+        {
+          "subject_name": "Physics",
+          "total_marks": 100,
+          "obtained_marks": 88,
+          "grade": "A1"
+        }
+      ],
+      "total_marks": 100,
+      "obtained_marks": 88,
+      "percentage": 88,
+      "overall_grade": "A1",
+      "remarks": "Strong conceptual grasp of mechanics",
+      "published": true
+    }
+  ],
+  "announcements": [
+    {
+      "id": "ann_01",
+      "title": "Admissions Open for Academic Session 2026–2027 (Pre-School to Intermediate)",
+      "content": "Admissions are now open at Shawan School and College Paharpur for Playgroup, Primary, Middle, SSC Matriculation (Science), and HSSC Intermediate College (Pre-Medical, Pre-Engineering & ICS). Prospectus and online registration available. Scholarships available for merit achievers.",
+      "category": "Admission",
+      "audience": "All",
+      "date": "2026-09-20",
+      "priority": "Urgent",
+      "author": "Office of the Principal"
+    },
+    {
+      "id": "ann_02",
+      "title": "BISE Dera Ismail Khan Annual Exam Registration Schedule",
+      "content": "Students of SSC Part 1 & Part 2 are informed that the deadline for submitting exam registration forms and verified B-Form documents with normal fee is October 25, 2026. Please verify candidate details in the student portal.",
+      "category": "Exam",
+      "audience": "Students",
+      "date": "2026-09-24",
+      "priority": "High",
+      "author": "Examination Controller"
+    },
+    {
+      "id": "ann_03",
+      "title": "Annual Science Fair & STEM Exhibition Announcement",
+      "content": "The Annual Inter-Class Science & Robotics Exhibition will be hosted at the campus auditorium on October 18, 2026. Working project prototypes in Renewable Solar Energy, Robotics, and Environmental Preservation are invited.",
+      "category": "Academic",
+      "audience": "All",
+      "date": "2026-09-26",
+      "priority": "Normal",
+      "author": "Science Club Patron"
+    },
+    {
+      "id": "ann_04",
+      "title": "Autumn Parent-Teacher Conference (PTM) Notice",
+      "content": "A comprehensive Parent-Teacher Meeting is scheduled for Saturday, October 10, 2026, from 9:00 AM to 1:00 PM. Parents can review mid-term diagnostic test reports, attendance records, and personal conduct evaluations.",
+      "category": "General",
+      "audience": "All",
+      "date": "2026-09-27",
+      "priority": "High",
+      "author": "Administration"
+    }
+  ],
+  "events": [
+    {
+      "id": "ev_01",
+      "title": "Annual Science, Tech & Robotics Exhibition 2026",
+      "description": "Showcasing ingenious working scientific models, computer coding demos, and biology lab investigations created by our matric and college students.",
+      "date": "2026-10-18",
+      "time": "09:00 AM - 02:00 PM",
+      "location": "College Main Hall & Science Courtyard, Rangpur Road, Paharpur",
+      "cover_image": "/src/assets/images/school_science_lab_1790606594349.jpg",
+      "status": "Upcoming"
+    },
+    {
+      "id": "ev_02",
+      "title": "Paharpur Inter-School Cricket & Athletics Tournament",
+      "description": "Annual sports festival bringing together talented youth across Paharpur and surrounding tehsil schools in cricket, athletics, and badminton.",
+      "date": "2026-11-04",
+      "time": "08:30 AM - 04:00 PM",
+      "location": "Shawan Sports Complex & Athletic Grounds",
+      "cover_image": "/src/assets/images/school_sports_ground_1790606627159.jpg",
+      "status": "Upcoming"
+    },
+    {
+      "id": "ev_03",
+      "title": "Merit Awards & High Achievers Convocation",
+      "description": "Honoring distinction holders of the Board of Intermediate and Secondary Education (BISE) Dera Ismail Khan with gold medals and university scholarships.",
+      "date": "2026-11-20",
+      "time": "10:00 AM - 01:00 PM",
+      "location": "Jinnah Auditorium, Shawan College Paharpur",
+      "cover_image": "/src/assets/images/hero_school_campus_1790606578302.jpg",
+      "status": "Upcoming"
+    }
+  ],
+  "gallery": [
+    {
+      "id": "gal_01",
+      "title": "Main Academic Campus & Limestone Facade",
+      "caption": "Spacious campus building on Rangpur Road featuring modern architectural ventilation, landscaped perimeter, and student gathering lawns.",
+      "category": "Campus",
+      "image_url": "/src/assets/images/hero_school_campus_1790606578302.jpg",
+      "date": "2026-09-10"
+    },
+    {
+      "id": "gal_02",
+      "title": "State-of-the-Art Science & Digital Computer Lab",
+      "caption": "Equipped with apparatus for Physics, Chemistry, Biology, and modern networked desktop PCs for Intermediate Computer Science students.",
+      "category": "Laboratories",
+      "image_url": "/src/assets/images/school_science_lab_1790606594349.jpg",
+      "date": "2026-09-12"
+    },
+    {
+      "id": "gal_03",
+      "title": "Central Library & Silent Research Resource Center",
+      "caption": "Over 5,000 academic reference volumes, national curriculum textbooks, past board papers, and serene individual reading desks.",
+      "category": "Academics",
+      "image_url": "/src/assets/images/school_library_hall_1790606612341.jpg",
+      "date": "2026-09-15"
+    },
+    {
+      "id": "gal_04",
+      "title": "Campus Athletic Grounds & Outdoor Recreation",
+      "caption": "Dedicated green playground facilitating physical training (PT), cricket matches, football, and annual sports days.",
+      "category": "Sports",
+      "image_url": "/src/assets/images/school_sports_ground_1790606627159.jpg",
+      "date": "2026-09-18"
+    }
+  ],
+  "contact_messages": [
+    {
+      "id": "msg_1790785389936",
+      "name": "Muhammad Imran",
+      "email": "imran@example.com",
+      "phone": "+92 300 1112233",
+      "subject": "Inquiry regarding Grade 11 Pre-Medical admission",
+      "message": "Please provide details on hostel facilities and fee structure for F.Sc Pre-Medical.",
+      "created_at": "2026-09-30T16:23:09.936Z",
+      "read": false
+    },
+    {
+      "id": "msg_01",
+      "name": "Engr. Faisal Farooq",
+      "email": "faisal.farooq@outlook.com",
+      "phone": "+92 314 5566778",
+      "subject": "Admission inquiry for F.Sc Pre-Engineering",
+      "message": "Salam. My son has scored 980 marks in matric from BISE DI Khan. What is the fee concession procedure for merit scholars in F.Sc?",
+      "created_at": "2026-09-26T09:12:00.000Z",
+      "read": false
+    }
+  ],
+  "settings": {
+    "school_name": "Shawan School and College",
+    "short_name": "Shawan College",
+    "slogan": "Inspiring Young Minds Through Academic Rigor & Moral Character",
+    "location": "4X48+MRH, Rangpur Road, Paharpur, Dera Ismail Khan, Khyber Pakhtunkhwa, Pakistan",
+    "google_maps_code": "4X48+MRH",
+    "google_maps_embed_query": "Rangpur Road, Paharpur, Dera Ismail Khan, Khyber Pakhtunkhwa, Pakistan",
+    "phone": "+92 300 0000000",
+    "alt_phone": "+92 966 000000",
+    "email": "info@shawanschool.edu.pk",
+    "admission_email": "admissions@shawanschool.edu.pk",
+    "affiliation": "Affiliated with Board of Intermediate & Secondary Education (BISE) Dera Ismail Khan & Khyber Pakhtunkhwa PSRA",
+    "registration_info": "Recognized Private Educational Institution, District Dera Ismail Khan",
+    "school_timings_summer": "07:45 AM - 01:30 PM (Mon - Thu, Sat) | Friday: 07:45 AM - 12:00 PM",
+    "school_timings_winter": "08:15 AM - 02:00 PM (Mon - Thu, Sat) | Friday: 08:15 AM - 12:30 PM",
+    "principal_name": "Principal, Shawan School and College",
+    "principal_message": "Welcome to Shawan School and College Paharpur. Our mission is to democratize world-class scientific, intellectual, and moral instruction for the sons and daughters of Paharpur and Dera Ismail Khan. We foster an academic environment where disciplined study, modern laboratories, dedicated mentors, and Islamic ethical values empower each student to realize their highest academic and career aspirations.",
+    "about_text": "Shawan School and College is a forward-looking educational institution situated on Rangpur Road in Paharpur, Dera Ismail Khan, Pakistan. With comprehensive educational offerings spanning early childhood foundation, primary, middle schooling, and higher secondary college tiers (Pre-Medical, Pre-Engineering, Computer Science), the institution bridges contemporary technological pedagogy with proven academic discipline. Guided by certified subject specialists and equipped with advanced laboratories, we prepare youth for competitive university admissions and purposeful citizenship.",
+    "mission": "To cultivate intellectually competent, morally upright, and socially proactive leaders through rigorous academic training, innovative STEM education, and values-based character development.",
+    "vision": "To stand as the leading center of academic excellence in the Dera Ismail Khan division, nurturing students who excel in provincial board examinations, national higher education, and constructive nation-building.",
+    "core_values": [
+      "Academic Rigor & Critical Thinking",
+      "Moral Integrity & Ethical Conduct",
+      "Scientific Inquiry & Technological Literacy",
+      "Compassion, Discipline & Mutual Respect"
+    ],
+    "social_facebook": "https://facebook.com",
+    "social_whatsapp": "+923000000000",
+    "hero_badge": "Admissions Open 2026–2027 · BISE DI Khan Registered",
+    "hero_title": "Building Leaders of Tomorrow in Paharpur",
+    "hero_subtitle": "A premier educational institution in Paharpur, D.I. Khan offering comprehensive schooling and higher secondary college programs with modern science facilities, proven faculty, and individualized student care.",
+    "features": [
+      {
+        "title": "Modern Science & Computer Labs",
+        "description": "Fully equipped Physics, Chemistry, Biology, and ICT computer laboratories adhering to modern board examination specifications.",
+        "icon": "FlaskConical"
+      },
+      {
+        "title": "Distinguished Faculty",
+        "description": "Subject-matter experts with master’s credentials committed to individualized mentoring and conceptual mastery.",
+        "icon": "GraduationCap"
+      },
+      {
+        "title": "BISE DI Khan Track Record",
+        "description": "Consistent top grades, distinction certificates, and entry-test foundations for medical and engineering universities.",
+        "icon": "Award"
+      },
+      {
+        "title": "Holistic Character & Tarbiyah",
+        "description": "Balanced curriculum combining rigorous secular knowledge with Nazra Quran, ethics, speech competitions, and physical sports.",
+        "icon": "HeartHandshake"
+      }
+    ],
+    "academic_levels": [
+      {
+        "level": "Early Childhood & Primary",
+        "grades": "Playgroup to Grade 5",
+        "stream": "National Single Curriculum (SNC)",
+        "description": "Activity-based foundational literacy, numeracy, phonics, general science, and Islamic character nurturing."
+      },
+      {
+        "level": "Middle School",
+        "grades": "Grade 6 to 8",
+        "stream": "Core STEM & Humanities",
+        "description": "Analytical math, physical sciences, Urdu, English communication, and computer fundamentals."
+      },
+      {
+        "level": "Matriculation (SSC)",
+        "grades": "Grade 9 & 10",
+        "stream": "Science (Biology & Computer Groups)",
+        "description": "Rigorous preparation for BISE Dera Ismail Khan board examinations with daily lab practicals and model testing."
+      },
+      {
+        "level": "Intermediate College (HSSC)",
+        "grades": "1st & 2nd Year College",
+        "stream": "F.Sc Pre-Medical, Pre-Engineering & ICS",
+        "description": "Collegiate level instruction oriented towards MDCAT, ECAT, university admissions, and professional disciplines."
+      }
+    ],
+    "facilities": [
+      {
+        "name": "Advanced Science Laboratories",
+        "description": "Separated dedicated labs for Physics, Chemistry, and Biology equipped with optical microscopes, glassware, chemicals, and safety gear.",
+        "image": "/src/assets/images/school_science_lab_1790606594349.jpg"
+      },
+      {
+        "name": "Central Academic Library",
+        "description": "Thousands of curriculum textbooks, scholarly references, international encyclopedias, and quiet study alcoves.",
+        "image": "/src/assets/images/school_library_hall_1790606612341.jpg"
+      },
+      {
+        "name": "Sports Complex & Playing Grounds",
+        "description": "Expansive natural turf grounds for cricket, football, physical drill sessions, and inter-house athletic meets.",
+        "image": "/src/assets/images/school_sports_ground_1790606627159.jpg"
+      },
+      {
+        "name": "Digital ICT Computer Center",
+        "description": "High-speed networked computer workstations running programming software, office tools, and digital learning modules.",
+        "image": "/src/assets/images/school_science_lab_1790606594349.jpg"
+      }
+    ],
+    "testimonials": [
+      {
+        "name": "Muhammad Asif (Parent)",
+        "role": "Father of 10th Grade Student",
+        "quote": "Shawan School has provided exceptional academic discipline in Paharpur. The teachers give individual attention to each boy and girl, and their regular test reporting gives us complete peace of mind.",
+        "year": "Session 2025–2026"
+      },
+      {
+        "name": "Dr. Shahzad Khan (Alumnus)",
+        "role": "Former F.Sc Pre-Medical Student, now MBBS Doctor",
+        "quote": "The conceptual foundation built by the faculty at Shawan College was instrumental in cracking the medical college entrance test. Truly a blessing for Paharpur students.",
+        "year": "Class of 2021"
+      },
+      {
+        "name": "Malik Tariq (Local Community Elder)",
+        "role": "Resident of Rangpur Road, Paharpur",
+        "quote": "Having an institution of this caliber with equipped science labs and high moral environment on Rangpur Road has elevated education in our entire tehsil.",
+        "year": "Paharpur, DI Khan"
+      }
+    ]
+  },
+  "audit_logs": [
+    {
+      "id": "log_1793114832024_cxi1",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Which of my children have low attendance?\"",
+      "timestamp": "2026-10-27T15:27:12.024Z"
+    },
+    {
+      "id": "log_1793114832017_1xdi",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my child results\"",
+      "timestamp": "2026-10-27T15:27:12.017Z"
+    },
+    {
+      "id": "log_1793114832001_rnzo",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my fee balance?\"",
+      "timestamp": "2026-10-27T15:27:12.001Z"
+    },
+    {
+      "id": "log_1793114831997_eiv8",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What are my latest examination results?\"",
+      "timestamp": "2026-10-27T15:27:11.997Z"
+    },
+    {
+      "id": "log_1793114831992_ixn5",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my attendance percentage?\"",
+      "timestamp": "2026-10-27T15:27:11.992Z"
+    },
+    {
+      "id": "log_1793114831783_4dgw",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my children status\"",
+      "timestamp": "2026-10-27T15:27:11.783Z"
+    },
+    {
+      "id": "log_1793114831775_pe6w",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"Show my academic summary\"",
+      "timestamp": "2026-10-27T15:27:11.775Z"
+    },
+    {
+      "id": "log_1793113578654_2g3i",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Which of my children have low attendance?\"",
+      "timestamp": "2026-10-27T15:06:18.654Z"
+    },
+    {
+      "id": "log_1793113578650_jxks",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my child results\"",
+      "timestamp": "2026-10-27T15:06:18.650Z"
+    },
+    {
+      "id": "log_1793113578629_p7o8",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my fee balance?\"",
+      "timestamp": "2026-10-27T15:06:18.629Z"
+    },
+    {
+      "id": "log_1793113578625_w3y0",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What are my latest examination results?\"",
+      "timestamp": "2026-10-27T15:06:18.625Z"
+    },
+    {
+      "id": "log_1793113578619_7dbc",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my attendance percentage?\"",
+      "timestamp": "2026-10-27T15:06:18.619Z"
+    },
+    {
+      "id": "log_1793113578343_94f7",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my children status\"",
+      "timestamp": "2026-10-27T15:06:18.343Z"
+    },
+    {
+      "id": "log_1793113578328_e1pg",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"Show my academic summary\"",
+      "timestamp": "2026-10-27T15:06:18.328Z"
+    },
+    {
+      "id": "log_1793113361250_on95",
+      "user_id": "usr_super_admin",
+      "user_name": "Principal & Chief Administrator",
+      "user_role": "super_admin",
+      "action": "Updated Student Record",
+      "target_type": "Student",
+      "target_id": "std_02",
+      "details": "Name: Ayesha Noor",
+      "timestamp": "2026-10-27T15:02:41.250Z"
+    },
+    {
+      "id": "log_1793113066442_0lt3",
+      "user_id": "usr_parent_1",
+      "user_name": "Haji Ghulam Rasool (Parent)",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show records for Muhammad Hamza\"",
+      "timestamp": "2026-10-27T14:57:46.442Z"
+    },
+    {
+      "id": "log_1793113061886_c2ub",
+      "user_id": "usr_parent_1",
+      "user_name": "Haji Ghulam Rasool (Parent)",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show records for Usman Ghani\"",
+      "timestamp": "2026-10-27T14:57:41.886Z"
+    },
+    {
+      "id": "log_1793113051786_43y8",
+      "user_id": "usr_parent_1",
+      "user_name": "Haji Ghulam Rasool (Parent)",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my children attendance\"",
+      "timestamp": "2026-10-27T14:57:31.786Z"
+    },
+    {
+      "id": "log_1793113035432_yqmz",
+      "user_id": "usr_parent_1",
+      "user_name": "Haji Ghulam Rasool (Parent)",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Which fees are pending across my children?\"",
+      "timestamp": "2026-10-27T14:57:15.432Z"
+    },
+    {
+      "id": "log_1793113026897_j65q",
+      "user_id": "usr_parent_1",
+      "user_name": "Haji Ghulam Rasool (Parent)",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Which of my children have low attendance?\"",
+      "timestamp": "2026-10-27T14:57:06.897Z"
+    },
+    {
+      "id": "log_1793112618280_beh0",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Which of my children have low attendance?\"",
+      "timestamp": "2026-10-27T14:50:18.280Z"
+    },
+    {
+      "id": "log_1793112618273_w6l2",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my child results\"",
+      "timestamp": "2026-10-27T14:50:18.273Z"
+    },
+    {
+      "id": "log_1793112618247_zwd1",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my fee balance?\"",
+      "timestamp": "2026-10-27T14:50:18.247Z"
+    },
+    {
+      "id": "log_1793112618243_f6mn",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What are my latest examination results?\"",
+      "timestamp": "2026-10-27T14:50:18.243Z"
+    },
+    {
+      "id": "log_1793112618238_zxj4",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my attendance percentage?\"",
+      "timestamp": "2026-10-27T14:50:18.238Z"
+    },
+    {
+      "id": "log_1793112617963_m2hp",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my children status\"",
+      "timestamp": "2026-10-27T14:50:17.963Z"
+    },
+    {
+      "id": "log_1793112617954_ucuk",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"Show my academic summary\"",
+      "timestamp": "2026-10-27T14:50:17.954Z"
+    },
+    {
+      "id": "log_1793112460453_bpaj",
+      "user_id": "usr_super_admin",
+      "user_name": "Principal & Chief Administrator",
+      "user_role": "super_admin",
+      "action": "Updated Admission Status",
+      "target_type": "Admission",
+      "target_id": "adm_1793112402193",
+      "details": "Application ADM-2026-5715 set to Approved",
+      "timestamp": "2026-10-27T14:47:40.453Z"
+    },
+    {
+      "id": "log_1793112456073_vbll",
+      "user_id": "usr_super_admin",
+      "user_name": "Principal & Chief Administrator",
+      "user_role": "super_admin",
+      "action": "Updated Admission Status",
+      "target_type": "Admission",
+      "target_id": "adm_1793112402193",
+      "details": "Application ADM-2026-5715 set to Under Review",
+      "timestamp": "2026-10-27T14:47:36.073Z"
+    },
+    {
+      "id": "log_1793111985204_idqe",
+      "user_id": "usr_student_1",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"my fee\"",
+      "timestamp": "2026-10-27T14:39:45.204Z"
+    },
+    {
+      "id": "log_1793111970653_jqdz",
+      "user_id": "usr_student_1",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"hello\"",
+      "timestamp": "2026-10-27T14:39:30.653Z"
+    },
+    {
+      "id": "log_1793111961194_6444",
+      "user_id": "usr_student_1",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"When is my next class?\"",
+      "timestamp": "2026-10-27T14:39:21.194Z"
+    },
+    {
+      "id": "log_1793111944301_1icv",
+      "user_id": "usr_student_1",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What announcements are there?\"",
+      "timestamp": "2026-10-27T14:39:04.301Z"
+    },
+    {
+      "id": "log_1793111933222_15z0",
+      "user_id": "usr_student_1",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my attendance percentage?\"",
+      "timestamp": "2026-10-27T14:38:53.222Z"
+    },
+    {
+      "id": "log_1793037624343_clmi",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my children status\"",
+      "timestamp": "2026-10-26T18:00:24.343Z"
+    },
+    {
+      "id": "log_1793037624336_tr1r",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"Show my academic summary\"",
+      "timestamp": "2026-10-26T18:00:24.336Z"
+    },
+    {
+      "id": "log_1793037548509_s7by",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Which of my children have low attendance?\"",
+      "timestamp": "2026-10-26T17:59:08.509Z"
+    },
+    {
+      "id": "log_1793037548506_4jn4",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my child results\"",
+      "timestamp": "2026-10-26T17:59:08.506Z"
+    },
+    {
+      "id": "log_1793037548493_j2fj",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my fee balance?\"",
+      "timestamp": "2026-10-26T17:59:08.493Z"
+    },
+    {
+      "id": "log_1793037548490_5gld",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What are my latest examination results?\"",
+      "timestamp": "2026-10-26T17:59:08.490Z"
+    },
+    {
+      "id": "log_1793037548486_nq7o",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my attendance percentage?\"",
+      "timestamp": "2026-10-26T17:59:08.486Z"
+    },
+    {
+      "id": "log_1793033780645_9iy6",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Which of my children have low attendance?\"",
+      "timestamp": "2026-10-26T16:56:20.645Z"
+    },
+    {
+      "id": "log_1793033780642_0uw4",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my child results\"",
+      "timestamp": "2026-10-26T16:56:20.642Z"
+    },
+    {
+      "id": "log_1793033780629_j75s",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my fee balance?\"",
+      "timestamp": "2026-10-26T16:56:20.629Z"
+    },
+    {
+      "id": "log_1793033780625_zvys",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What are my latest examination results?\"",
+      "timestamp": "2026-10-26T16:56:20.625Z"
+    },
+    {
+      "id": "log_1793033780622_mpbu",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my attendance percentage?\"",
+      "timestamp": "2026-10-26T16:56:20.622Z"
+    },
+    {
+      "id": "log_1793033780056_ivdh",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my children status\"",
+      "timestamp": "2026-10-26T16:56:20.056Z"
+    },
+    {
+      "id": "log_1793033780049_mvby",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"Show my academic summary\"",
+      "timestamp": "2026-10-26T16:56:20.049Z"
+    },
+    {
+      "id": "log_1792686447160_nfyf",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Which of my children have low attendance?\"",
+      "timestamp": "2026-10-22T16:27:27.160Z"
+    },
+    {
+      "id": "log_1792686447156_18px",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my child results\"",
+      "timestamp": "2026-10-22T16:27:27.156Z"
+    },
+    {
+      "id": "log_1792686447140_vfrk",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my fee balance?\"",
+      "timestamp": "2026-10-22T16:27:27.140Z"
+    },
+    {
+      "id": "log_1792686447132_jl60",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What are my latest examination results?\"",
+      "timestamp": "2026-10-22T16:27:27.132Z"
+    },
+    {
+      "id": "log_1792686447126_01hz",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my attendance percentage?\"",
+      "timestamp": "2026-10-22T16:27:27.126Z"
+    },
+    {
+      "id": "log_1792686430324_1ls2",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my children status\"",
+      "timestamp": "2026-10-22T16:27:10.324Z"
+    },
+    {
+      "id": "log_1792686430318_a5y3",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"Show my academic summary\"",
+      "timestamp": "2026-10-22T16:27:10.318Z"
+    },
+    {
+      "id": "log_1792686319306_6iex",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my children status\"",
+      "timestamp": "2026-10-22T16:25:19.306Z"
+    },
+    {
+      "id": "log_1792686319298_ovi2",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"Show my academic summary\"",
+      "timestamp": "2026-10-22T16:25:19.298Z"
+    },
+    {
+      "id": "log_1792684083983_jnkr",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Executed AI Attendance Action",
+      "target_type": "Attendance",
+      "target_id": "std_01",
+      "details": "Status: Absent for Muhammad Hamza",
+      "timestamp": "2026-10-22T15:48:03.984Z"
+    },
+    {
+      "id": "log_1792684083980_6qor",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Mark absent for Muhammad Hamza\"",
+      "timestamp": "2026-10-22T15:48:03.980Z"
+    },
+    {
+      "id": "log_1792684083977_5xlw",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Show attendance for gul\"",
+      "timestamp": "2026-10-22T15:48:03.977Z"
+    },
+    {
+      "id": "log_1792684083971_6kd1",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"What classes do I teach?\"",
+      "timestamp": "2026-10-22T15:48:03.971Z"
+    },
+    {
+      "id": "log_1792684083955_ujt0",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Recorded Student Marks",
+      "target_type": "Result",
+      "target_id": "res_1791006516235_gtkr0",
+      "details": "Student: Muhammad Hamza, Subject: Physics, Marks: 88/100",
+      "timestamp": "2026-10-22T15:48:03.955Z"
+    },
+    {
+      "id": "log_1792684083944_o0t3",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-22, Records: 1",
+      "timestamp": "2026-10-22T15:48:03.944Z"
+    },
+    {
+      "id": "log_1792684083935_whk5",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-22, Records: 1",
+      "timestamp": "2026-10-22T15:48:03.935Z"
+    },
+    {
+      "id": "log_1792684083931_7efe",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-22, Records: 1",
+      "timestamp": "2026-10-22T15:48:03.931Z"
+    },
+    {
+      "id": "log_1792684083925_mzay",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-22, Records: 1",
+      "timestamp": "2026-10-22T15:48:03.925Z"
+    },
+    {
+      "id": "log_1792684083919_oq9o",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-22, Records: 1",
+      "timestamp": "2026-10-22T15:48:03.919Z"
+    },
+    {
+      "id": "log_1792684080008_vd6h",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Which of my children have low attendance?\"",
+      "timestamp": "2026-10-22T15:48:00.008Z"
+    },
+    {
+      "id": "log_1792684080004_lje6",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my child results\"",
+      "timestamp": "2026-10-22T15:48:00.004Z"
+    },
+    {
+      "id": "log_1792684079991_g8oy",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my fee balance?\"",
+      "timestamp": "2026-10-22T15:47:59.991Z"
+    },
+    {
+      "id": "log_1792684079988_1zbc",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What are my latest examination results?\"",
+      "timestamp": "2026-10-22T15:47:59.988Z"
+    },
+    {
+      "id": "log_1792684079985_aywk",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my attendance percentage?\"",
+      "timestamp": "2026-10-22T15:47:59.985Z"
+    },
+    {
+      "id": "log_1792684076550_q858",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my children status\"",
+      "timestamp": "2026-10-22T15:47:56.550Z"
+    },
+    {
+      "id": "log_1792684076545_pqlh",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"Show my academic summary\"",
+      "timestamp": "2026-10-22T15:47:56.545Z"
+    },
+    {
+      "id": "log_1792508646439_pca2",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Executed AI Attendance Action",
+      "target_type": "Attendance",
+      "target_id": "std_01",
+      "details": "Status: Absent for Muhammad Hamza",
+      "timestamp": "2026-10-20T15:04:06.439Z"
+    },
+    {
+      "id": "log_1792508646434_aa2n",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Mark absent for Muhammad Hamza\"",
+      "timestamp": "2026-10-20T15:04:06.434Z"
+    },
+    {
+      "id": "log_1792508646429_mzm5",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Show attendance for gul\"",
+      "timestamp": "2026-10-20T15:04:06.429Z"
+    },
+    {
+      "id": "log_1792508646421_owzd",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"What classes do I teach?\"",
+      "timestamp": "2026-10-20T15:04:06.422Z"
+    },
+    {
+      "id": "log_1792508646394_gb4n",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Recorded Student Marks",
+      "target_type": "Result",
+      "target_id": "res_1791006516235_gtkr0",
+      "details": "Student: Muhammad Hamza, Subject: Physics, Marks: 88/100",
+      "timestamp": "2026-10-20T15:04:06.394Z"
+    },
+    {
+      "id": "log_1792508646380_s6yh",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-20, Records: 1",
+      "timestamp": "2026-10-20T15:04:06.380Z"
+    },
+    {
+      "id": "log_1792508646374_q9xf",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-20, Records: 1",
+      "timestamp": "2026-10-20T15:04:06.374Z"
+    },
+    {
+      "id": "log_1792508646369_3xyb",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-20, Records: 1",
+      "timestamp": "2026-10-20T15:04:06.369Z"
+    },
+    {
+      "id": "log_1792508646363_deqr",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-20, Records: 1",
+      "timestamp": "2026-10-20T15:04:06.363Z"
+    },
+    {
+      "id": "log_1792508646357_j2jz",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-20, Records: 1",
+      "timestamp": "2026-10-20T15:04:06.357Z"
+    },
+    {
+      "id": "log_1792508640070_dbbm",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Which of my children have low attendance?\"",
+      "timestamp": "2026-10-20T15:04:00.070Z"
+    },
+    {
+      "id": "log_1792508640067_xa8p",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my child results\"",
+      "timestamp": "2026-10-20T15:04:00.067Z"
+    },
+    {
+      "id": "log_1792508640055_reig",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my fee balance?\"",
+      "timestamp": "2026-10-20T15:04:00.055Z"
+    },
+    {
+      "id": "log_1792508640051_jljp",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What are my latest examination results?\"",
+      "timestamp": "2026-10-20T15:04:00.051Z"
+    },
+    {
+      "id": "log_1792508640046_idl7",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my attendance percentage?\"",
+      "timestamp": "2026-10-20T15:04:00.046Z"
+    },
+    {
+      "id": "log_1792508635362_3xxu",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my children status\"",
+      "timestamp": "2026-10-20T15:03:55.362Z"
+    },
+    {
+      "id": "log_1792508635356_yobx",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"Show my academic summary\"",
+      "timestamp": "2026-10-20T15:03:55.356Z"
+    },
+    {
+      "id": "log_1792506265096_ee7z",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Which of my children have low attendance?\"",
+      "timestamp": "2026-10-20T14:24:25.096Z"
+    },
+    {
+      "id": "log_1792506265091_ge1q",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my child results\"",
+      "timestamp": "2026-10-20T14:24:25.091Z"
+    },
+    {
+      "id": "log_1792506265079_urrb",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my fee balance?\"",
+      "timestamp": "2026-10-20T14:24:25.079Z"
+    },
+    {
+      "id": "log_1792506265075_jgqg",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What are my latest examination results?\"",
+      "timestamp": "2026-10-20T14:24:25.075Z"
+    },
+    {
+      "id": "log_1792506265069_mzfy",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my attendance percentage?\"",
+      "timestamp": "2026-10-20T14:24:25.069Z"
+    },
+    {
+      "id": "log_1792506260229_ztge",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my children status\"",
+      "timestamp": "2026-10-20T14:24:20.229Z"
+    },
+    {
+      "id": "log_1792506260223_28cr",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"Show my academic summary\"",
+      "timestamp": "2026-10-20T14:24:20.223Z"
+    },
+    {
+      "id": "log_1792435030204_3erl",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Executed AI Attendance Action",
+      "target_type": "Attendance",
+      "target_id": "std_01",
+      "details": "Status: Absent for Muhammad Hamza",
+      "timestamp": "2026-10-19T18:37:10.204Z"
+    },
+    {
+      "id": "log_1792435030200_ekwh",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Mark absent for Muhammad Hamza\"",
+      "timestamp": "2026-10-19T18:37:10.200Z"
+    },
+    {
+      "id": "log_1792435030196_q8f2",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Show attendance for gul\"",
+      "timestamp": "2026-10-19T18:37:10.196Z"
+    },
+    {
+      "id": "log_1792435030190_4nab",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"What classes do I teach?\"",
+      "timestamp": "2026-10-19T18:37:10.190Z"
+    },
+    {
+      "id": "log_1792435030174_i7wm",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Recorded Student Marks",
+      "target_type": "Result",
+      "target_id": "res_1791006516235_gtkr0",
+      "details": "Student: Muhammad Hamza, Subject: Physics, Marks: 88/100",
+      "timestamp": "2026-10-19T18:37:10.174Z"
+    },
+    {
+      "id": "log_1792435030160_e707",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-19, Records: 1",
+      "timestamp": "2026-10-19T18:37:10.160Z"
+    },
+    {
+      "id": "log_1792435030154_9y7x",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-19, Records: 1",
+      "timestamp": "2026-10-19T18:37:10.154Z"
+    },
+    {
+      "id": "log_1792435030149_jlzb",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-19, Records: 1",
+      "timestamp": "2026-10-19T18:37:10.149Z"
+    },
+    {
+      "id": "log_1792435030144_osc0",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-19, Records: 1",
+      "timestamp": "2026-10-19T18:37:10.144Z"
+    },
+    {
+      "id": "log_1792435030139_5cop",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-19, Records: 1",
+      "timestamp": "2026-10-19T18:37:10.139Z"
+    },
+    {
+      "id": "log_1792435004830_k128",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Which of my children have low attendance?\"",
+      "timestamp": "2026-10-19T18:36:44.830Z"
+    },
+    {
+      "id": "log_1792435004827_2y3j",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my child results\"",
+      "timestamp": "2026-10-19T18:36:44.827Z"
+    },
+    {
+      "id": "log_1792435004816_1yf0",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my fee balance?\"",
+      "timestamp": "2026-10-19T18:36:44.816Z"
+    },
+    {
+      "id": "log_1792435004813_p63t",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What are my latest examination results?\"",
+      "timestamp": "2026-10-19T18:36:44.813Z"
+    },
+    {
+      "id": "log_1792435004805_ptue",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my attendance percentage?\"",
+      "timestamp": "2026-10-19T18:36:44.805Z"
+    },
+    {
+      "id": "log_1792434997148_qqvu",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my children status\"",
+      "timestamp": "2026-10-19T18:36:37.148Z"
+    },
+    {
+      "id": "log_1792434997143_6i90",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"Show my academic summary\"",
+      "timestamp": "2026-10-19T18:36:37.143Z"
+    },
+    {
+      "id": "log_1792434306273_erqi",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Executed AI Attendance Action",
+      "target_type": "Attendance",
+      "target_id": "std_01",
+      "details": "Status: Absent for Muhammad Hamza",
+      "timestamp": "2026-10-19T18:25:06.273Z"
+    },
+    {
+      "id": "log_1792434306268_g0zl",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Mark absent for Muhammad Hamza\"",
+      "timestamp": "2026-10-19T18:25:06.268Z"
+    },
+    {
+      "id": "log_1792434306265_7gtr",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Show attendance for gul\"",
+      "timestamp": "2026-10-19T18:25:06.265Z"
+    },
+    {
+      "id": "log_1792434306260_fxyv",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"What classes do I teach?\"",
+      "timestamp": "2026-10-19T18:25:06.260Z"
+    },
+    {
+      "id": "log_1792434306243_ply7",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Recorded Student Marks",
+      "target_type": "Result",
+      "target_id": "res_1791006516235_gtkr0",
+      "details": "Student: Muhammad Hamza, Subject: Physics, Marks: 88/100",
+      "timestamp": "2026-10-19T18:25:06.243Z"
+    },
+    {
+      "id": "log_1792434306229_s07j",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-19, Records: 1",
+      "timestamp": "2026-10-19T18:25:06.229Z"
+    },
+    {
+      "id": "log_1792434306222_jum4",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-19, Records: 1",
+      "timestamp": "2026-10-19T18:25:06.222Z"
+    },
+    {
+      "id": "log_1792434306217_js7v",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-19, Records: 1",
+      "timestamp": "2026-10-19T18:25:06.218Z"
+    },
+    {
+      "id": "log_1792434306212_32f4",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-19, Records: 1",
+      "timestamp": "2026-10-19T18:25:06.212Z"
+    },
+    {
+      "id": "log_1792434306207_1w1c",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-19, Records: 1",
+      "timestamp": "2026-10-19T18:25:06.207Z"
+    },
+    {
+      "id": "log_1792434300940_y9b6",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Which of my children have low attendance?\"",
+      "timestamp": "2026-10-19T18:25:00.940Z"
+    },
+    {
+      "id": "log_1792434300936_he06",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my child results\"",
+      "timestamp": "2026-10-19T18:25:00.936Z"
+    },
+    {
+      "id": "log_1792434300922_hf2z",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my fee balance?\"",
+      "timestamp": "2026-10-19T18:25:00.922Z"
+    },
+    {
+      "id": "log_1792434300911_1tm3",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What are my latest examination results?\"",
+      "timestamp": "2026-10-19T18:25:00.911Z"
+    },
+    {
+      "id": "log_1792434300908_yeps",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my attendance percentage?\"",
+      "timestamp": "2026-10-19T18:25:00.908Z"
+    },
+    {
+      "id": "log_1792434293974_ah4z",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my children status\"",
+      "timestamp": "2026-10-19T18:24:53.974Z"
+    },
+    {
+      "id": "log_1792434293968_slj3",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"Show my academic summary\"",
+      "timestamp": "2026-10-19T18:24:53.968Z"
+    },
+    {
+      "id": "log_1792434056466_vylz",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Executed AI Attendance Action",
+      "target_type": "Attendance",
+      "target_id": "std_01",
+      "details": "Status: Absent for Muhammad Hamza",
+      "timestamp": "2026-10-19T18:20:56.466Z"
+    },
+    {
+      "id": "log_1792434056463_hiip",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Mark absent for Muhammad Hamza\"",
+      "timestamp": "2026-10-19T18:20:56.463Z"
+    },
+    {
+      "id": "log_1792434056460_y4j1",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Show attendance for gul\"",
+      "timestamp": "2026-10-19T18:20:56.460Z"
+    },
+    {
+      "id": "log_1792434056454_xrko",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"What classes do I teach?\"",
+      "timestamp": "2026-10-19T18:20:56.454Z"
+    },
+    {
+      "id": "log_1792434056434_5h04",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Recorded Student Marks",
+      "target_type": "Result",
+      "target_id": "res_1791006516235_gtkr0",
+      "details": "Student: Muhammad Hamza, Subject: Physics, Marks: 88/100",
+      "timestamp": "2026-10-19T18:20:56.434Z"
+    },
+    {
+      "id": "log_1792434056416_11k5",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-19, Records: 1",
+      "timestamp": "2026-10-19T18:20:56.416Z"
+    },
+    {
+      "id": "log_1792434056409_5yct",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-19, Records: 1",
+      "timestamp": "2026-10-19T18:20:56.409Z"
+    },
+    {
+      "id": "log_1792434056404_9tia",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-19, Records: 1",
+      "timestamp": "2026-10-19T18:20:56.404Z"
+    },
+    {
+      "id": "log_1792434056399_u9gh",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-19, Records: 1",
+      "timestamp": "2026-10-19T18:20:56.399Z"
+    },
+    {
+      "id": "log_1792434056393_1di2",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-19, Records: 1",
+      "timestamp": "2026-10-19T18:20:56.393Z"
+    },
+    {
+      "id": "log_1792434049068_ak6i",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Which of my children have low attendance?\"",
+      "timestamp": "2026-10-19T18:20:49.068Z"
+    },
+    {
+      "id": "log_1792434049066_40c5",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my child results\"",
+      "timestamp": "2026-10-19T18:20:49.066Z"
+    },
+    {
+      "id": "log_1792434049056_do8p",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my fee balance?\"",
+      "timestamp": "2026-10-19T18:20:49.056Z"
+    },
+    {
+      "id": "log_1792434049053_e835",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What are my latest examination results?\"",
+      "timestamp": "2026-10-19T18:20:49.053Z"
+    },
+    {
+      "id": "log_1792434049050_d1ju",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my attendance percentage?\"",
+      "timestamp": "2026-10-19T18:20:49.050Z"
+    },
+    {
+      "id": "log_1792434043821_7f7t",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my children status\"",
+      "timestamp": "2026-10-19T18:20:43.821Z"
+    },
+    {
+      "id": "log_1792434043815_ym6p",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"Show my academic summary\"",
+      "timestamp": "2026-10-19T18:20:43.815Z"
+    },
+    {
+      "id": "log_1791045884543_i9dq",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Executed AI Attendance Action",
+      "target_type": "Attendance",
+      "target_id": "std_01",
+      "details": "Status: Absent for Muhammad Hamza",
+      "timestamp": "2026-10-03T16:44:44.543Z"
+    },
+    {
+      "id": "log_1791045884539_1qdd",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Mark absent for Muhammad Hamza\"",
+      "timestamp": "2026-10-03T16:44:44.539Z"
+    },
+    {
+      "id": "log_1791045884535_l16c",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Show attendance for gul\"",
+      "timestamp": "2026-10-03T16:44:44.535Z"
+    },
+    {
+      "id": "log_1791045884529_2xsq",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"What classes do I teach?\"",
+      "timestamp": "2026-10-03T16:44:44.529Z"
+    },
+    {
+      "id": "log_1791045884439_uh8j",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Recorded Student Marks",
+      "target_type": "Result",
+      "target_id": "res_1791006516235_gtkr0",
+      "details": "Student: Muhammad Hamza, Subject: Physics, Marks: 88/100",
+      "timestamp": "2026-10-03T16:44:44.439Z"
+    },
+    {
+      "id": "log_1791045884425_6iie",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T16:44:44.425Z"
+    },
+    {
+      "id": "log_1791045884419_504j",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T16:44:44.419Z"
+    },
+    {
+      "id": "log_1791045884414_lgon",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T16:44:44.414Z"
+    },
+    {
+      "id": "log_1791045884410_rz7r",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T16:44:44.410Z"
+    },
+    {
+      "id": "log_1791045884406_xoe7",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T16:44:44.406Z"
+    },
+    {
+      "id": "log_1791045684643_tgj4",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my children status\"",
+      "timestamp": "2026-10-03T16:41:24.643Z"
+    },
+    {
+      "id": "log_1791045684639_bdh2",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"Show my academic summary\"",
+      "timestamp": "2026-10-03T16:41:24.639Z"
+    },
+    {
+      "id": "log_1791045674742_6qhf",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Which of my children have low attendance?\"",
+      "timestamp": "2026-10-03T16:41:14.742Z"
+    },
+    {
+      "id": "log_1791045674737_21n2",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my child results\"",
+      "timestamp": "2026-10-03T16:41:14.737Z"
+    },
+    {
+      "id": "log_1791045674720_256u",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my fee balance?\"",
+      "timestamp": "2026-10-03T16:41:14.720Z"
+    },
+    {
+      "id": "log_1791045674716_kk07",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What are my latest examination results?\"",
+      "timestamp": "2026-10-03T16:41:14.716Z"
+    },
+    {
+      "id": "log_1791045674713_vywh",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my attendance percentage?\"",
+      "timestamp": "2026-10-03T16:41:14.713Z"
+    },
+    {
+      "id": "log_1791045672997_k0mx",
+      "user_id": "usr_super_admin",
+      "user_name": "Principal & Chief Administrator",
+      "user_role": "super_admin",
+      "action": "Created Student Record",
+      "target_type": "Student",
+      "target_id": "std_1791045672997",
+      "details": "Name: Askhaq (SSC-2026-5560)",
+      "timestamp": "2026-10-03T16:41:12.997Z"
+    },
+    {
+      "id": "log_1791045665892_9hus",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Executed AI Attendance Action",
+      "target_type": "Attendance",
+      "target_id": "std_01",
+      "details": "Status: Absent for Muhammad Hamza",
+      "timestamp": "2026-10-03T16:41:05.892Z"
+    },
+    {
+      "id": "log_1791045665888_r8i3",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Mark absent for Muhammad Hamza\"",
+      "timestamp": "2026-10-03T16:41:05.888Z"
+    },
+    {
+      "id": "log_1791045665883_y1uw",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Show attendance for gul\"",
+      "timestamp": "2026-10-03T16:41:05.884Z"
+    },
+    {
+      "id": "log_1791045665878_shi8",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"What classes do I teach?\"",
+      "timestamp": "2026-10-03T16:41:05.878Z"
+    },
+    {
+      "id": "log_1791045665791_2xnx",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Recorded Student Marks",
+      "target_type": "Result",
+      "target_id": "res_1791006516235_gtkr0",
+      "details": "Student: Muhammad Hamza, Subject: Physics, Marks: 88/100",
+      "timestamp": "2026-10-03T16:41:05.791Z"
+    },
+    {
+      "id": "log_1791045665774_1u4f",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T16:41:05.774Z"
+    },
+    {
+      "id": "log_1791045665767_nj76",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T16:41:05.767Z"
+    },
+    {
+      "id": "log_1791045665763_863z",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T16:41:05.763Z"
+    },
+    {
+      "id": "log_1791045665759_7j11",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T16:41:05.759Z"
+    },
+    {
+      "id": "log_1791045665753_4t28",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T16:41:05.753Z"
+    },
+    {
+      "id": "log_1791045110891_d13b",
+      "user_id": "usr_student_1",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"Hamza ki parents ko sms kro k app ka beta late hotha hain di\"",
+      "timestamp": "2026-10-03T16:31:50.891Z"
+    },
+    {
+      "id": "log_1791045046734_ur70",
+      "user_id": "usr_student_1",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"When was I absent?\"",
+      "timestamp": "2026-10-03T16:30:46.734Z"
+    },
+    {
+      "id": "log_1791045031292_a5su",
+      "user_id": "usr_student_1",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What are my latest examination results?\"",
+      "timestamp": "2026-10-03T16:30:31.292Z"
+    },
+    {
+      "id": "log_1791045029502_h3yl",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my children status\"",
+      "timestamp": "2026-10-03T16:30:29.502Z"
+    },
+    {
+      "id": "log_1791045029496_3cpi",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"Show my academic summary\"",
+      "timestamp": "2026-10-03T16:30:29.496Z"
+    },
+    {
+      "id": "log_1791045023158_7w2j",
+      "user_id": "usr_student_1",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"When is my next class?\"",
+      "timestamp": "2026-10-03T16:30:23.158Z"
+    },
+    {
+      "id": "log_1791045018691_0v0c",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Which of my children have low attendance?\"",
+      "timestamp": "2026-10-03T16:30:18.691Z"
+    },
+    {
+      "id": "log_1791045018689_di7b",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my child results\"",
+      "timestamp": "2026-10-03T16:30:18.689Z"
+    },
+    {
+      "id": "log_1791045018661_wbgx",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my fee balance?\"",
+      "timestamp": "2026-10-03T16:30:18.661Z"
+    },
+    {
+      "id": "log_1791045018657_01cu",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What are my latest examination results?\"",
+      "timestamp": "2026-10-03T16:30:18.657Z"
+    },
+    {
+      "id": "log_1791045018652_rdkl",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my attendance percentage?\"",
+      "timestamp": "2026-10-03T16:30:18.652Z"
+    },
+    {
+      "id": "log_1791045009946_6km5",
+      "user_id": "usr_student_1",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my fee balance?\"",
+      "timestamp": "2026-10-03T16:30:09.946Z"
+    },
+    {
+      "id": "log_1791045007957_o1vy",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Executed AI Attendance Action",
+      "target_type": "Attendance",
+      "target_id": "std_01",
+      "details": "Status: Absent for Muhammad Hamza",
+      "timestamp": "2026-10-03T16:30:07.957Z"
+    },
+    {
+      "id": "log_1791045007951_fom6",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Mark absent for Muhammad Hamza\"",
+      "timestamp": "2026-10-03T16:30:07.951Z"
+    },
+    {
+      "id": "log_1791045007948_jpqo",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Show attendance for gul\"",
+      "timestamp": "2026-10-03T16:30:07.948Z"
+    },
+    {
+      "id": "log_1791045007942_vlea",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"What classes do I teach?\"",
+      "timestamp": "2026-10-03T16:30:07.942Z"
+    },
+    {
+      "id": "log_1791045007847_4vwq",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Recorded Student Marks",
+      "target_type": "Result",
+      "target_id": "res_1791006516235_gtkr0",
+      "details": "Student: Muhammad Hamza, Subject: Physics, Marks: 88/100",
+      "timestamp": "2026-10-03T16:30:07.847Z"
+    },
+    {
+      "id": "log_1791045007820_mmcw",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T16:30:07.820Z"
+    },
+    {
+      "id": "log_1791045007810_5yox",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T16:30:07.810Z"
+    },
+    {
+      "id": "log_1791045007806_7tji",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T16:30:07.806Z"
+    },
+    {
+      "id": "log_1791045007802_kgdd",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T16:30:07.802Z"
+    },
+    {
+      "id": "log_1791045007796_luyn",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T16:30:07.796Z"
+    },
+    {
+      "id": "log_1791044995236_4w7a",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Show attendance for gul\"",
+      "timestamp": "2026-10-03T16:29:55.236Z"
+    },
+    {
+      "id": "log_1791044951384_c98h",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Show attendance for gul\"",
+      "timestamp": "2026-10-03T16:29:11.384Z"
+    },
+    {
+      "id": "log_1791044942802_u6zo",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Executed AI Attendance Action",
+      "target_type": "Attendance",
+      "target_id": "std_01",
+      "details": "Status: Absent for Muhammad Hamza",
+      "timestamp": "2026-10-03T16:29:02.802Z"
+    },
+    {
+      "id": "log_1791044942798_nyyi",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Mark absent for Muhammad Hamza\"",
+      "timestamp": "2026-10-03T16:29:02.798Z"
+    },
+    {
+      "id": "log_1791044942795_c7b2",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Show attendance for gul\"",
+      "timestamp": "2026-10-03T16:29:02.795Z"
+    },
+    {
+      "id": "log_1791044942790_gilj",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"What classes do I teach?\"",
+      "timestamp": "2026-10-03T16:29:02.790Z"
+    },
+    {
+      "id": "log_1791044942706_ys7d",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Recorded Student Marks",
+      "target_type": "Result",
+      "target_id": "res_1791006516235_gtkr0",
+      "details": "Student: Muhammad Hamza, Subject: Physics, Marks: 88/100",
+      "timestamp": "2026-10-03T16:29:02.706Z"
+    },
+    {
+      "id": "log_1791044942692_he18",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T16:29:02.692Z"
+    },
+    {
+      "id": "log_1791044942686_64pz",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T16:29:02.686Z"
+    },
+    {
+      "id": "log_1791044942682_0k5o",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T16:29:02.682Z"
+    },
+    {
+      "id": "log_1791044942678_809f",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T16:29:02.678Z"
+    },
+    {
+      "id": "log_1791044942672_se1p",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T16:29:02.672Z"
+    },
+    {
+      "id": "log_1791044876770_z0pc",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Executed AI Attendance Action",
+      "target_type": "Attendance",
+      "target_id": "std_01",
+      "details": "Status: Absent for Muhammad Hamza",
+      "timestamp": "2026-10-03T16:27:56.770Z"
+    },
+    {
+      "id": "log_1791044876767_cmd6",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Mark absent for Muhammad Hamza\"",
+      "timestamp": "2026-10-03T16:27:56.767Z"
+    },
+    {
+      "id": "log_1791044876764_bzuk",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Show attendance for khan\"",
+      "timestamp": "2026-10-03T16:27:56.764Z"
+    },
+    {
+      "id": "log_1791044876759_394d",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"What classes do I teach?\"",
+      "timestamp": "2026-10-03T16:27:56.759Z"
+    },
+    {
+      "id": "log_1791044876669_8xq5",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Recorded Student Marks",
+      "target_type": "Result",
+      "target_id": "res_1791006516235_gtkr0",
+      "details": "Student: Muhammad Hamza, Subject: Physics, Marks: 88/100",
+      "timestamp": "2026-10-03T16:27:56.669Z"
+    },
+    {
+      "id": "log_1791044876651_kfe9",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T16:27:56.651Z"
+    },
+    {
+      "id": "log_1791044876645_glm6",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T16:27:56.645Z"
+    },
+    {
+      "id": "log_1791044876641_mea1",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T16:27:56.641Z"
+    },
+    {
+      "id": "log_1791044876638_ocwj",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T16:27:56.638Z"
+    },
+    {
+      "id": "log_1791044876633_auof",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood (M.Sc Physics)",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T16:27:56.633Z"
+    },
+    {
+      "id": "log_1791006566808_sn6v",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my children status\"",
+      "timestamp": "2026-10-03T05:49:26.808Z"
+    },
+    {
+      "id": "log_1791006566802_feer",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"Show my academic summary\"",
+      "timestamp": "2026-10-03T05:49:26.802Z"
+    },
+    {
+      "id": "log_1791006554816_sc2u",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Which of my children have low attendance?\"",
+      "timestamp": "2026-10-03T05:49:14.816Z"
+    },
+    {
+      "id": "log_1791006554812_zvnr",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my child results\"",
+      "timestamp": "2026-10-03T05:49:14.812Z"
+    },
+    {
+      "id": "log_1791006554786_0vb0",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my fee balance?\"",
+      "timestamp": "2026-10-03T05:49:14.786Z"
+    },
+    {
+      "id": "log_1791006554783_nizm",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What are my latest examination results?\"",
+      "timestamp": "2026-10-03T05:49:14.783Z"
+    },
+    {
+      "id": "log_1791006554780_yqe9",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my attendance percentage?\"",
+      "timestamp": "2026-10-03T05:49:14.780Z"
+    },
+    {
+      "id": "log_1791006546525_ie7h",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood",
+      "user_role": "teacher",
+      "action": "Executed AI Attendance Action",
+      "target_type": "Attendance",
+      "target_id": "std_01",
+      "details": "Status: Absent for Muhammad Hamza",
+      "timestamp": "2026-10-03T05:49:06.525Z"
+    },
+    {
+      "id": "log_1791006546520_txvt",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Mark absent for Muhammad Hamza\"",
+      "timestamp": "2026-10-03T05:49:06.520Z"
+    },
+    {
+      "id": "log_1791006546514_q57v",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Show my timetable schedule\"",
+      "timestamp": "2026-10-03T05:49:06.514Z"
+    },
+    {
+      "id": "log_1791006546511_cxol",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"What classes do I teach?\"",
+      "timestamp": "2026-10-03T05:49:06.511Z"
+    },
+    {
+      "id": "log_1791006546496_tsaf",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood",
+      "user_role": "teacher",
+      "action": "Recorded Student Marks",
+      "target_type": "Result",
+      "target_id": "res_1791006516235_gtkr0",
+      "details": "Student: Muhammad Hamza, Subject: Physics, Marks: 88/100",
+      "timestamp": "2026-10-03T05:49:06.496Z"
+    },
+    {
+      "id": "log_1791006546485_wu87",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood",
+      "user_role": "teacher",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Class: Grade 10 - Matric, Date: 2026-10-03, Records: 1",
+      "timestamp": "2026-10-03T05:49:06.485Z"
+    },
+    {
+      "id": "log_1791006546469_p9jz",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood",
+      "user_role": "teacher",
+      "action": "Updated Teacher Profile",
+      "target_type": "Teacher",
+      "target_id": "tch_01",
+      "details": "Self-service profile update",
+      "timestamp": "2026-10-03T05:49:06.469Z"
+    },
+    {
+      "id": "log_1791006516264_lfbb",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood",
+      "user_role": "teacher",
+      "action": "Executed AI Attendance Action",
+      "target_type": "Attendance",
+      "target_id": "std_01",
+      "details": "Status: Absent for Muhammad Hamza",
+      "timestamp": "2026-10-03T05:48:36.264Z"
+    },
+    {
+      "id": "log_1791006516258_sj11",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Mark absent for Muhammad Hamza\"",
+      "timestamp": "2026-10-03T05:48:36.258Z"
+    },
+    {
+      "id": "log_1791006516252_6j9c",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"Show my timetable schedule\"",
+      "timestamp": "2026-10-03T05:48:36.252Z"
+    },
+    {
+      "id": "log_1791006516249_9l8n",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood",
+      "user_role": "teacher",
+      "action": "Queried Teacher AI",
+      "target_type": "TeacherAI",
+      "target_id": "tch_01",
+      "details": "Query: \"What classes do I teach?\"",
+      "timestamp": "2026-10-03T05:48:36.249Z"
+    },
+    {
+      "id": "log_1791006516235_xfrd",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood",
+      "user_role": "teacher",
+      "action": "Recorded Student Marks",
+      "target_type": "Result",
+      "target_id": "res_1791006516235_gtkr0",
+      "details": "Student: Muhammad Hamza, Subject: Physics, Marks: 88/100",
+      "timestamp": "2026-10-03T05:48:36.235Z"
+    },
+    {
+      "id": "log_1791006516200_zu72",
+      "user_id": "usr_teacher_1",
+      "user_name": "Prof. Tariq Mahmood",
+      "user_role": "teacher",
+      "action": "Updated Teacher Profile",
+      "target_type": "Teacher",
+      "target_id": "tch_01",
+      "details": "Self-service profile update",
+      "timestamp": "2026-10-03T05:48:36.200Z"
+    },
+    {
+      "id": "log_1791005633360_3yyd",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my children status\"",
+      "timestamp": "2026-10-03T05:33:53.360Z"
+    },
+    {
+      "id": "log_1791005633356_xev6",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"Show my academic summary\"",
+      "timestamp": "2026-10-03T05:33:53.356Z"
+    },
+    {
+      "id": "log_1791005619211_nez9",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Which of my children have low attendance?\"",
+      "timestamp": "2026-10-03T05:33:39.211Z"
+    },
+    {
+      "id": "log_1791005619208_are7",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my child results\"",
+      "timestamp": "2026-10-03T05:33:39.208Z"
+    },
+    {
+      "id": "log_1791005619191_eg7x",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my fee balance?\"",
+      "timestamp": "2026-10-03T05:33:39.191Z"
+    },
+    {
+      "id": "log_1791005619187_0fnm",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What are my latest examination results?\"",
+      "timestamp": "2026-10-03T05:33:39.187Z"
+    },
+    {
+      "id": "log_1791005619182_ofpg",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my attendance percentage?\"",
+      "timestamp": "2026-10-03T05:33:39.182Z"
+    },
+    {
+      "id": "log_1791005544611_p5qs",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Which of my children have low attendance?\"",
+      "timestamp": "2026-10-03T05:32:24.611Z"
+    },
+    {
+      "id": "log_1791005544608_ol61",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my child results\"",
+      "timestamp": "2026-10-03T05:32:24.608Z"
+    },
+    {
+      "id": "log_1791005544592_jb8h",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my fee balance?\"",
+      "timestamp": "2026-10-03T05:32:24.592Z"
+    },
+    {
+      "id": "log_1791005544585_adt4",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my attendance percentage?\"",
+      "timestamp": "2026-10-03T05:32:24.585Z"
+    },
+    {
+      "id": "log_1791005504132_vkbh",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Which of my children have low attendance?\"",
+      "timestamp": "2026-10-03T05:31:44.132Z"
+    },
+    {
+      "id": "log_1791005504123_v087",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my child results\"",
+      "timestamp": "2026-10-03T05:31:44.123Z"
+    },
+    {
+      "id": "log_1791005504115_tv8q",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What are Bilal Khan attendance records?\"",
+      "timestamp": "2026-10-03T05:31:44.115Z"
+    },
+    {
+      "id": "log_1791005504111_im9d",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"Show me staff salaries\"",
+      "timestamp": "2026-10-03T05:31:44.111Z"
+    },
+    {
+      "id": "log_1791005504108_yyiu",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my fee balance?\"",
+      "timestamp": "2026-10-03T05:31:44.108Z"
+    },
+    {
+      "id": "log_1791005504104_t6tf",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What are my latest examination results?\"",
+      "timestamp": "2026-10-03T05:31:44.104Z"
+    },
+    {
+      "id": "log_1791005504100_1veq",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"What is my attendance percentage?\"",
+      "timestamp": "2026-10-03T05:31:44.100Z"
+    },
+    {
+      "id": "log_1791004816433_0kaa",
+      "user_id": "usr_parent_1",
+      "user_name": "Parent Tariq",
+      "user_role": "parent",
+      "action": "Queried Parent Portal AI",
+      "target_type": "Parent",
+      "target_id": "usr_parent_1",
+      "details": "Query: \"Show my children status\"",
+      "timestamp": "2026-10-03T05:20:16.433Z"
+    },
+    {
+      "id": "log_1791004816426_waqp",
+      "user_id": "usr_student_hamza",
+      "user_name": "Muhammad Hamza",
+      "user_role": "student",
+      "action": "Queried Student Portal AI",
+      "target_type": "Student",
+      "target_id": "std_01",
+      "details": "Query: \"Show my academic summary\"",
+      "timestamp": "2026-10-03T05:20:16.426Z"
+    },
+    {
+      "id": "log_1790785389924_sfmi",
+      "user_id": "usr_1790785389913",
+      "user_name": "Tariq Khan",
+      "user_role": "parent",
+      "action": "Linked Student to Guardian Account",
+      "target_type": "Student",
+      "target_id": "std_1790785389809",
+      "details": "Name: Zahid Khan, Class: Class 8, Roll: 112",
+      "timestamp": "2026-09-30T16:23:09.924Z"
+    },
+    {
+      "id": "log_1790785389913_tn0y",
+      "user_id": "usr_1790785389913",
+      "user_name": "Tariq Khan",
+      "user_role": "parent",
+      "action": "Parent Account Registered",
+      "target_type": "Parent",
+      "target_id": "usr_1790785389913",
+      "details": "Linked students: 0",
+      "timestamp": "2026-09-30T16:23:09.913Z"
+    },
+    {
+      "id": "log_1790785389809_5ors",
+      "user_id": "usr_1790785389809",
+      "user_name": "Zahid Khan",
+      "user_role": "student",
+      "action": "Student Account Registered",
+      "target_type": "Student",
+      "target_id": "std_1790785389809",
+      "details": "Class: Class 8",
+      "timestamp": "2026-09-30T16:23:09.809Z"
+    },
+    {
+      "id": "log_1790784776336_w22r",
+      "user_id": "usr_super_admin",
+      "user_name": "Principal & Chief Administrator",
+      "user_role": "super_admin",
+      "action": "Deleted Exam Result",
+      "target_type": "Result",
+      "target_id": "res_1790784776325",
+      "details": "Student: gul, Exam: Mid-Term Assessment Examination 2026",
+      "timestamp": "2026-09-30T16:12:56.336Z"
+    },
+    {
+      "id": "log_1790784776325_s9q3",
+      "user_id": "usr_super_admin",
+      "user_name": "Principal & Chief Administrator",
+      "user_role": "super_admin",
+      "action": "Recorded Exam Result",
+      "target_type": "Result",
+      "target_id": "res_1790784776325",
+      "details": "Student: gul, Grade: A1 (Distinction)",
+      "timestamp": "2026-09-30T16:12:56.325Z"
+    },
+    {
+      "id": "log_1790784677208_cg9m",
+      "user_id": "usr_parent_1",
+      "user_name": "Haji Ghulam Rasool (Parent)",
+      "user_role": "parent",
+      "action": "Unlinked Student from Guardian Account",
+      "target_type": "Student",
+      "target_id": "std_1790705037997",
+      "details": "Student: gul",
+      "timestamp": "2026-09-30T16:11:17.208Z"
+    },
+    {
+      "id": "log_1790784677185_ypyk",
+      "user_id": "usr_parent_1",
+      "user_name": "Haji Ghulam Rasool (Parent)",
+      "user_role": "parent",
+      "action": "Linked Student to Guardian Account",
+      "target_type": "Student",
+      "target_id": "std_1790705037997",
+      "details": "Name: gul, Class: Grade 9 - Matric, Roll: 111",
+      "timestamp": "2026-09-30T16:11:17.185Z"
+    },
+    {
+      "id": "log_1790784634611_8z7h",
+      "user_id": "usr_super_admin",
+      "user_name": "Principal & Chief Administrator",
+      "user_role": "super_admin",
+      "action": "Deleted Exam Result",
+      "target_type": "Result",
+      "target_id": "res_1790784634606",
+      "details": "Student: gul, Exam: Final Term Assessment",
+      "timestamp": "2026-09-30T16:10:34.611Z"
+    },
+    {
+      "id": "log_1790784634606_2qml",
+      "user_id": "usr_super_admin",
+      "user_name": "Principal & Chief Administrator",
+      "user_role": "super_admin",
+      "action": "Recorded Exam Result",
+      "target_type": "Result",
+      "target_id": "res_1790784634606",
+      "details": "Student: gul, Grade: A1 (Distinction)",
+      "timestamp": "2026-09-30T16:10:34.607Z"
+    },
+    {
+      "id": "log_1790783783258_iwfe",
+      "user_id": "usr_super_admin",
+      "user_name": "Principal & Chief Administrator",
+      "user_role": "super_admin",
+      "action": "Admin Linked Student to Parent",
+      "target_type": "ParentLink",
+      "target_id": "std_1790704405564",
+      "details": "Parent: Haji Ghulam Rasool (Parent), Student: Usman Ghani",
+      "timestamp": "2026-09-30T15:56:23.258Z"
+    },
+    {
+      "id": "log_1790783783136_yhjh",
+      "user_id": "usr_parent_1",
+      "user_name": "Haji Ghulam Rasool (Parent)",
+      "user_role": "parent",
+      "action": "Unlinked Student from Guardian Account",
+      "target_type": "Student",
+      "target_id": "std_1790704405564",
+      "details": "Student: Usman Ghani",
+      "timestamp": "2026-09-30T15:56:23.136Z"
+    },
+    {
+      "id": "log_1790783783101_c15t",
+      "user_id": "usr_parent_1",
+      "user_name": "Haji Ghulam Rasool (Parent)",
+      "user_role": "parent",
+      "action": "Linked Student to Guardian Account",
+      "target_type": "Student",
+      "target_id": "std_1790704405564",
+      "details": "Name: Usman Ghani, Class: Grade 5 (Primary), Roll: 108",
+      "timestamp": "2026-09-30T15:56:23.101Z"
+    },
+    {
+      "id": "log_1790705246779_lnj2",
+      "user_id": "usr_super_admin",
+      "user_name": "Principal & Chief Administrator",
+      "user_role": "super_admin",
+      "action": "Marked Class Attendance",
+      "target_type": "Attendance",
+      "details": "Date: 2026-09-29, Records: 4",
+      "timestamp": "2026-09-29T18:07:26.779Z"
+    },
+    {
+      "id": "log_1790705037997_didu",
+      "user_id": "usr_1790705037997",
+      "user_name": "gul",
+      "user_role": "student",
+      "action": "Student Account Registered",
+      "target_type": "Student",
+      "target_id": "std_1790705037997",
+      "details": "Class: Grade 9 - Matric",
+      "timestamp": "2026-09-29T18:03:57.997Z"
+    },
+    {
+      "id": "log_1790704837279_hihd",
+      "user_id": "usr_1790704837279",
+      "user_name": "gul",
+      "user_role": "student",
+      "action": "Student Account Registered",
+      "target_type": "Student",
+      "target_id": "std_1790704837279",
+      "details": "Class: Grade 9 - Matric",
+      "timestamp": "2026-09-29T18:00:37.279Z"
+    },
+    {
+      "id": "log_1790704770817_gv9r",
+      "user_id": "usr_1790704770817",
+      "user_name": "Asif",
+      "user_role": "parent",
+      "action": "Parent Account Registered",
+      "target_type": "Parent",
+      "target_id": "usr_1790704770817",
+      "details": "Linked students: 0",
+      "timestamp": "2026-09-29T17:59:30.817Z"
+    },
+    {
+      "id": "log_1790704422756_0ga3",
+      "user_id": "usr_super_admin",
+      "user_name": "Principal & Chief Administrator",
+      "user_role": "super_admin",
+      "action": "Recorded Fee Payment",
+      "target_type": "Fee",
+      "target_id": "fee_03",
+      "details": "Amount: PKR 2200, Receipt: REC-71885",
+      "timestamp": "2026-09-29T17:53:42.756Z"
+    }
+  ],
+  "sections": [
+    {
+      "id": "sec_01",
+      "name": "A",
+      "class_name": "Grade 9 - Matric",
+      "capacity": 40,
+      "room": "Room 10",
+      "teacher_name": "Prof. Tariq Mahmood"
+    },
+    {
+      "id": "sec_02",
+      "name": "B",
+      "class_name": "Grade 9 - Matric",
+      "capacity": 40,
+      "room": "Room 11",
+      "teacher_name": "Sir Muhammad Naveed"
+    },
+    {
+      "id": "sec_03",
+      "name": "A",
+      "class_name": "Grade 10 - Matric",
+      "capacity": 40,
+      "room": "Room 12",
+      "teacher_name": "Prof. Tariq Mahmood"
+    },
+    {
+      "id": "sec_04",
+      "name": "B",
+      "class_name": "Grade 10 - Matric",
+      "capacity": 40,
+      "room": "Room 13",
+      "teacher_name": "Sir Rashid Khan"
+    }
+  ],
+  "enrollments": [
+    {
+      "id": "enr_std_1791045672997",
+      "student_id": "std_1791045672997",
+      "student_name": "Askhaq",
+      "class_name": "Grade 6 to 8 (Middle)",
+      "section": "A",
+      "academic_year": "2026-2027",
+      "roll_no": "114",
+      "enrollment_date": "2026-10-03",
+      "status": "Active"
+    },
+    {
+      "id": "enr_std_1791004144835",
+      "student_id": "std_1791004144835",
+      "student_name": "Bilal Ahmad",
+      "class_name": "Grade 9",
+      "section": "A",
+      "academic_year": "2026-2027",
+      "roll_no": "113",
+      "enrollment_date": "2026-10-03",
+      "status": "Active"
+    },
+    {
+      "id": "enr_std_1790785389809",
+      "student_id": "std_1790785389809",
+      "student_name": "Zahid Khan",
+      "class_name": "Class 8",
+      "section": "A",
+      "academic_year": "2026-2027",
+      "roll_no": "112",
+      "enrollment_date": "2026-09-30",
+      "status": "Active"
+    },
+    {
+      "id": "enr_std_1790705037997",
+      "student_id": "std_1790705037997",
+      "student_name": "gul",
+      "class_name": "Grade 9 - Matric",
+      "section": "Section A",
+      "academic_year": "2026-2027",
+      "roll_no": "111",
+      "enrollment_date": "2026-09-29",
+      "status": "Active"
+    },
+    {
+      "id": "enr_std_1790704837279",
+      "student_id": "std_1790704837279",
+      "student_name": "gul",
+      "class_name": "Grade 9 - Matric",
+      "section": "Section A",
+      "academic_year": "2026-2027",
+      "roll_no": "110",
+      "enrollment_date": "2026-09-29",
+      "status": "Active"
+    },
+    {
+      "id": "enr_std_1790704517272",
+      "student_id": "std_1790704517272",
+      "student_name": "Kabul Jan Hotel And Resturent",
+      "class_name": "1st Year (F.Sc Pre-Medical)",
+      "section": "A",
+      "academic_year": "2026-2027",
+      "roll_no": "109",
+      "enrollment_date": "2026-09-29",
+      "status": "Active"
+    },
+    {
+      "id": "enr_std_1790704405564",
+      "student_id": "std_1790704405564",
+      "student_name": "Usman Ghani",
+      "class_name": "Grade 5 (Primary)",
+      "section": "A",
+      "academic_year": "2026-2027",
+      "roll_no": "108",
+      "enrollment_date": "2026-09-29",
+      "status": "Active"
+    },
+    {
+      "id": "enr_std_1790704403781",
+      "student_id": "std_1790704403781",
+      "student_name": "Sana Gul",
+      "class_name": "1st Year (F.Sc Pre-Medical)",
+      "section": "A",
+      "academic_year": "2026-2027",
+      "roll_no": "107",
+      "enrollment_date": "2026-09-29",
+      "status": "Active"
+    },
+    {
+      "id": "enr_std_1790704402004",
+      "student_id": "std_1790704402004",
+      "student_name": "Test Student",
+      "class_name": "1st Year (F.Sc Pre-Medical)",
+      "section": "A",
+      "academic_year": "2026-2027",
+      "roll_no": "106",
+      "enrollment_date": "2026-09-29",
+      "status": "Active"
+    },
+    {
+      "id": "enr_std_01",
+      "student_id": "std_01",
+      "student_name": "Muhammad Hamza",
+      "class_name": "Grade 10 - Matric",
+      "section": "A (Science)",
+      "academic_year": "2026-2027",
+      "roll_no": "101",
+      "enrollment_date": "2024-04-01",
+      "status": "Active"
+    },
+    {
+      "id": "enr_std_02",
+      "student_id": "std_02",
+      "student_name": "Ayesha Noor",
+      "class_name": "Grade 9 - Matric",
+      "section": "A (Biology)",
+      "academic_year": "2026-2027",
+      "roll_no": "902",
+      "enrollment_date": "2025-04-05",
+      "status": "Active"
+    },
+    {
+      "id": "enr_std_03",
+      "student_id": "std_03",
+      "student_name": "Zubair Ahmad",
+      "class_name": "1st Year (F.Sc Pre-Medical)",
+      "section": "Medical-A",
+      "academic_year": "2026-2027",
+      "roll_no": "1105",
+      "enrollment_date": "2025-08-10",
+      "status": "Active"
+    },
+    {
+      "id": "enr_std_04",
+      "student_id": "std_04",
+      "student_name": "Fatima Bibi",
+      "class_name": "2nd Year (ICS Computer Science)",
+      "section": "ICS-A",
+      "academic_year": "2026-2027",
+      "roll_no": "1201",
+      "enrollment_date": "2024-08-12",
+      "status": "Active"
+    },
+    {
+      "id": "enr_std_05",
+      "student_id": "std_05",
+      "student_name": "Bilal Khan",
+      "class_name": "Grade 7 - Middle",
+      "section": "B",
+      "academic_year": "2026-2027",
+      "roll_no": "708",
+      "enrollment_date": "2023-04-10",
+      "status": "Active"
+    }
+  ],
+  "teacher_assignments": [
+    {
+      "id": "asg_01",
+      "teacher_id": "tch_01",
+      "teacher_name": "Prof. Tariq Mahmood",
+      "class_name": "Grade 9 - Matric",
+      "section": "A",
+      "subject": "Physics",
+      "academic_session": "2026-2027",
+      "assigned_date": "2026-08-15"
+    },
+    {
+      "id": "asg_02",
+      "teacher_id": "tch_01",
+      "teacher_name": "Prof. Tariq Mahmood",
+      "class_name": "Grade 10 - Matric",
+      "section": "A",
+      "subject": "Physics",
+      "academic_session": "2026-2027",
+      "assigned_date": "2026-08-15"
+    }
+  ]
+}

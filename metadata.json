@@ -1,0 +1,6 @@
+{
+  "name": "Shawan School and College",
+  "description": "Official portal and management system for Shawan School and College, Paharpur, Dera Ismail Khan, Pakistan.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
