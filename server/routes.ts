@@ -92,6 +92,7 @@ import { processAdminAiQuery, ControlledSchoolTools, type AdminAiQueryContext, g
 import { AuditLogModel } from './models/AuditLog.ts';
 import {
   bootstrapInitialSuperAdmin,
+  ensureDefaultSuperAdminIfEmpty,
   verifyBootstrapSecretConstantTime,
   BootstrapValidationError,
   BootstrapConflictError,
@@ -803,6 +804,8 @@ router.get('/health', async (_req: Request, res: Response) => {
     const start = Date.now();
     await mongoose.connection.db.admin().ping();
     const latencyMs = Date.now() - start;
+    const usersCount = await UserModel.countDocuments().catch(() => 0);
+    const superAdminCount = await UserModel.countDocuments({ role: 'super_admin' }).catch(() => 0);
     return res.status(200).json({
       status: storage.writable ? 'ok' : 'degraded',
       connected: true,
@@ -812,6 +815,8 @@ router.get('/health', async (_req: Request, res: Response) => {
         isAtlas,
         databaseName: dbName,
         latencyMs,
+        usersCount,
+        superAdminCount,
       },
       storage,
       timestamp: new Date().toISOString(),
@@ -935,7 +940,16 @@ router.post('/auth/login', authRateLimiter, async (req: Request, res: Response) 
 
   try {
     const cleanEmail = email.trim().toLowerCase();
-    const userDoc = await UserModel.findOne({ email: cleanEmail });
+    let userDoc = await UserModel.findOne({ email: cleanEmail });
+
+    // On a fresh database with 0 administrators, auto-bootstrap the initial admin account
+    if (!userDoc && (cleanEmail === 'admin@shawanschool.edu.pk' || cleanEmail === 'office@shawanschool.edu.pk')) {
+      const superCount = await UserModel.countDocuments({ role: 'super_admin' }).catch(() => 1);
+      if (superCount === 0) {
+        await ensureDefaultSuperAdminIfEmpty().catch(() => {});
+        userDoc = await UserModel.findOne({ email: cleanEmail });
+      }
+    }
 
     // Prevent account enumeration with unified error message
     if (!userDoc || !userDoc.password_hash) {

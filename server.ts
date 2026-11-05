@@ -8,6 +8,7 @@ import { connectDB, closeDB, sanitizeErrorMessage } from './server/config/db.ts'
 import { seedMongoFromLocal, isLocalSeedBlocked } from './server/config/seed.ts';
 import { router as apiRouter } from './server/routes.ts';
 import { getJwtSecret } from './server/auth.ts';
+import { ensureDefaultSuperAdminIfEmpty } from './server/services/bootstrapService.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,6 +57,7 @@ async function startServer() {
   if (isProd) {
     try {
       await connectDB();
+      await ensureDefaultSuperAdminIfEmpty();
       if (disableAutoSeed) {
         console.log(
           '[MongoDB] Automatic startup seed/migration skipped (Atlas/seed safety guard active).'
@@ -253,6 +255,7 @@ async function startServer() {
       (async () => {
         try {
           await connectDB();
+          await ensureDefaultSuperAdminIfEmpty();
           if (disableAutoSeed) {
             console.log(
               '[MongoDB] Automatic startup seed/migration skipped (Atlas/seed safety guard active).'

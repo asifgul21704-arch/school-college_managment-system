@@ -26,6 +26,28 @@ export function loadLocalEnvIfNeeded(): void {
       quiet: true,
     });
   }
+
+  // If running in development container where daemon holds MONGODB_URI
+  if (!process.env.MONGODB_URI && fs.existsSync('/proc')) {
+    try {
+      const pids = fs.readdirSync('/proc').filter(p => /^\d+$/.test(p) && p !== String(process.pid));
+      for (const pid of pids) {
+        try {
+          const raw = fs.readFileSync(`/proc/${pid}/environ`, 'utf8');
+          const entries = raw.split('\0');
+          for (const entry of entries) {
+            if (entry.startsWith('MONGODB_URI=') && !process.env.MONGODB_URI) {
+              process.env.MONGODB_URI = entry.slice('MONGODB_URI='.length);
+            }
+            if (entry.startsWith('JWT_SECRET=') && !process.env.JWT_SECRET) {
+              process.env.JWT_SECRET = entry.slice('JWT_SECRET='.length);
+            }
+          }
+          if (process.env.MONGODB_URI) break;
+        } catch {}
+      }
+    } catch {}
+  }
 }
 
 loadLocalEnvIfNeeded();
