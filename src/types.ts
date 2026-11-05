@@ -42,17 +42,74 @@ export interface Student {
 
 export interface Teacher {
   id: string;
+  user_id?: string;
   name: string;
+  father_name?: string;
+  cnic?: string;
   profile_photo?: string;
   qualification: string;
   subject: string;
+  specialization?: string;
   classes: string[];
   contact_no: string;
   email: string;
   joining_date: string;
   experience: string;
-  status: 'Active' | 'On Leave' | 'Resigned';
+  status: 'Active' | 'Pending' | 'On Leave' | 'Resigned' | 'Suspended';
   bio: string;
+}
+
+export interface TeacherTask {
+  id: string;
+  task_id: string;
+  title: string;
+  description: string;
+  teacher_id: string;
+  teacher_name: string;
+  class_name: string;
+  section: string;
+  priority: 'Low' | 'Medium' | 'High' | 'Urgent';
+  status: 'Pending' | 'In Progress' | 'Completed';
+  due_date: string;
+  assigned_by: string;
+  completion_notes: string;
+  completed_at: string;
+  created_at: string;
+}
+
+export interface HomeworkItem {
+  id: string;
+  homework_id: string;
+  title: string;
+  description: string;
+  class_name: string;
+  section: string;
+  subject: string;
+  teacher_id: string;
+  teacher_name: string;
+  assigned_date: string;
+  due_date: string;
+  total_marks?: number;
+  instructions: string;
+  created_at: string;
+}
+
+export interface TeacherSignupRequest {
+  id: string;
+  user_id: string;
+  teacher_id: string;
+  name: string;
+  email: string;
+  phone: string;
+  father_name: string;
+  cnic: string;
+  qualification: string;
+  subject: string;
+  specialization: string;
+  experience: string;
+  bio: string;
+  status: string;
+  created_at: string;
 }
 
 export interface ClassItem {

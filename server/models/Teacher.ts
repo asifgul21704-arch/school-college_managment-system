@@ -4,15 +4,18 @@ export interface ITeacher extends Document {
   record_id?: string;
   user_id?: string;
   name: string;
+  father_name?: string;
+  cnic?: string;
   profile_photo?: string;
   qualification: string;
   subject: string;
+  specialization?: string;
   classes: string[];
   contact_no: string;
   email?: string;
   joining_date: string;
   experience: string;
-  status: 'Active' | 'On Leave' | 'Resigned';
+  status: 'Active' | 'Pending' | 'On Leave' | 'Resigned' | 'Suspended';
   bio: string;
   created_at: Date;
   updated_at: Date;
@@ -22,15 +25,18 @@ export interface TeacherDto {
   id: string;
   user_id?: string;
   name: string;
+  father_name?: string;
+  cnic?: string;
   profile_photo: string;
   qualification: string;
   subject: string;
+  specialization?: string;
   classes: string[];
   contact_no: string;
   email: string;
   joining_date: string;
   experience: string;
-  status: 'Active' | 'On Leave' | 'Resigned';
+  status: 'Active' | 'Pending' | 'On Leave' | 'Resigned' | 'Suspended';
   bio: string;
 }
 
@@ -51,6 +57,16 @@ const TeacherSchema = new Schema<ITeacher>(
       trim: true,
       index: true,
     },
+    father_name: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    cnic: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     profile_photo: {
       type: String,
       default: '',
@@ -65,6 +81,11 @@ const TeacherSchema = new Schema<ITeacher>(
       required: true,
       trim: true,
       index: true,
+    },
+    specialization: {
+      type: String,
+      trim: true,
+      default: '',
     },
     classes: {
       type: [String],
@@ -90,7 +111,7 @@ const TeacherSchema = new Schema<ITeacher>(
     },
     status: {
       type: String,
-      enum: ['Active', 'On Leave', 'Resigned'],
+      enum: ['Active', 'Pending', 'On Leave', 'Resigned', 'Suspended'],
       default: 'Active',
       index: true,
     },
@@ -109,22 +130,27 @@ TeacherSchema.index({ email: 1 }, { unique: true, sparse: true });
 
 export function toTeacherDto(doc: any): TeacherDto {
   const id = String(doc?.record_id || doc?.id || doc?._id || '');
+  const rawStatus = String(doc?.status || 'Active');
+  const validStatus = ['Active', 'Pending', 'On Leave', 'Resigned', 'Suspended'].includes(rawStatus)
+    ? (rawStatus as 'Active' | 'Pending' | 'On Leave' | 'Resigned' | 'Suspended')
+    : 'Active';
+
   return {
     id,
     ...(doc?.user_id ? { user_id: String(doc.user_id) } : {}),
     name: String(doc?.name || ''),
+    father_name: String(doc?.father_name || ''),
+    cnic: String(doc?.cnic || ''),
     profile_photo: String(doc?.profile_photo || ''),
     qualification: String(doc?.qualification || ''),
     subject: String(doc?.subject || ''),
+    specialization: String(doc?.specialization || doc?.subject || ''),
     classes: Array.isArray(doc?.classes) ? doc.classes.map((c: unknown) => String(c)).filter(Boolean) : [],
     contact_no: String(doc?.contact_no || ''),
     email: doc?.email ? String(doc.email).toLowerCase() : '',
     joining_date: String(doc?.joining_date || ''),
     experience: String(doc?.experience || ''),
-    status: (doc?.status === 'On Leave' || doc?.status === 'Resigned' ? doc.status : 'Active') as
-      | 'Active'
-      | 'On Leave'
-      | 'Resigned',
+    status: validStatus,
     bio: String(doc?.bio || ''),
   };
 }

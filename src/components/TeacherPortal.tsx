@@ -27,11 +27,15 @@ import {
   X,
   TrendingUp,
   AlertTriangle,
+  ClipboardList,
+  Briefcase,
+  Plus,
+  Trash2,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { AiResponseRenderer } from './ui/AiResponseRenderer';
-import { Teacher, Student, AttendanceRecord, TimetableEntry, Exam, ResultRecord, Announcement } from '../types';
+import { Teacher, Student, AttendanceRecord, TimetableEntry, Exam, ResultRecord, Announcement, TeacherTask, HomeworkItem } from '../types';
 
 interface TeacherPortalProps {
   onBackToWebsite: () => void;
@@ -40,7 +44,7 @@ interface TeacherPortalProps {
 export const TeacherPortal: React.FC<TeacherPortalProps> = ({ onBackToWebsite }) => {
   const { user, teacherProfile, refreshUser, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'profile' | 'classes' | 'students' | 'attendance' | 'marks' | 'timetable' | 'notices' | 'notifications' | 'ai'
+    'overview' | 'tasks' | 'homework' | 'profile' | 'classes' | 'students' | 'attendance' | 'marks' | 'timetable' | 'notices' | 'notifications' | 'ai'
   >('overview');
 
   // Teacher State
@@ -155,6 +159,88 @@ export const TeacherPortal: React.FC<TeacherPortalProps> = ({ onBackToWebsite })
     profileSaving,
   ]);
 
+  // Responsibilities & Tasks State
+  const [tasks, setTasks] = useState<TeacherTask[]>([]);
+  const [taskFilter, setTaskFilter] = useState<'all' | 'pending' | 'completed'>('all');
+  const [taskUpdatingId, setTaskUpdatingId] = useState<string | null>(null);
+
+  // Homework State
+  const [homeworkList, setHomeworkList] = useState<HomeworkItem[]>([]);
+  const [showCreateHomeworkModal, setShowCreateHomeworkModal] = useState<boolean>(false);
+  const [homeworkClassFilter, setHomeworkClassFilter] = useState<string>('all');
+  const [homeworkForm, setHomeworkForm] = useState({
+    title: '',
+    description: '',
+    class_name: '',
+    section: 'A',
+    subject: '',
+    due_date: new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0],
+    total_marks: 10,
+    instructions: '',
+  });
+  const [homeworkSaveLoading, setHomeworkSaveLoading] = useState<boolean>(false);
+  const [homeworkMsg, setHomeworkMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const handleUpdateTaskStatus = async (taskId: string, newStatus: 'Pending' | 'In Progress' | 'Completed') => {
+    setTaskUpdatingId(taskId);
+    try {
+      const res = await api.updateTeacherTask(taskId, { status: newStatus });
+      setTasks(prev => prev.map(t => (t.task_id === taskId || t.id === taskId ? res.task : t)));
+    } catch {
+      // safe fallback
+    } finally {
+      setTaskUpdatingId(null);
+    }
+  };
+
+  const handleCreateHomework = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!homeworkForm.title.trim() || !homeworkForm.class_name || !homeworkForm.subject || !homeworkForm.due_date) {
+      setHomeworkMsg({ type: 'error', text: 'Please fill all required homework fields.' });
+      return;
+    }
+    setHomeworkSaveLoading(true);
+    setHomeworkMsg(null);
+    try {
+      const res = await api.createTeacherHomework({
+        title: homeworkForm.title.trim(),
+        description: homeworkForm.description.trim() || homeworkForm.title.trim(),
+        class_name: homeworkForm.class_name,
+        section: homeworkForm.section || 'A',
+        subject: homeworkForm.subject,
+        due_date: homeworkForm.due_date,
+        total_marks: Number(homeworkForm.total_marks) || 10,
+        instructions: homeworkForm.instructions.trim(),
+      });
+      setHomeworkList(prev => [res.homework, ...prev]);
+      setShowCreateHomeworkModal(false);
+      setHomeworkMsg({ type: 'success', text: 'Homework assigned to students successfully!' });
+      setHomeworkForm({
+        title: '',
+        description: '',
+        class_name: assignedClasses[0]?.name || '',
+        section: 'A',
+        subject: teacher?.subject || '',
+        due_date: new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0],
+        total_marks: 10,
+        instructions: '',
+      });
+    } catch (err: any) {
+      setHomeworkMsg({ type: 'error', text: err?.message || 'Failed to post homework assignment.' });
+    } finally {
+      setHomeworkSaveLoading(false);
+    }
+  };
+
+  const handleDeleteHomework = async (hwId: string) => {
+    try {
+      await api.deleteTeacherHomework(hwId);
+      setHomeworkList(prev => prev.filter(h => h.homework_id !== hwId && h.id !== hwId));
+    } catch {
+      // safe fallback
+    }
+  };
+
   // 1. Initial Load of Teacher Dashboard and Academic Data
   const loadInitialData = async () => {
     if (!user || !['teacher', 'admin', 'super_admin'].includes(user.role)) {
@@ -164,7 +250,7 @@ export const TeacherPortal: React.FC<TeacherPortalProps> = ({ onBackToWebsite })
     setLoading(true);
     setPortalError(null);
     try {
-      const [dashRes, profRes, classes, ttable, exms, anns, notifs, unread] = await Promise.all([
+      const [dashRes, profRes, classes, ttable, exms, anns, notifs, unread, taskRes, hwkRes] = await Promise.all([
         api.getTeacherDashboard().then(v => ({ ok: true as const, v })).catch((e: any) => ({ ok: false as const, e })),
         api.getTeacherProfile().then(v => ({ ok: true as const, v })).catch((e: any) => ({ ok: false as const, e })),
         api.getTeacherClasses().catch(() => []),
@@ -173,6 +259,8 @@ export const TeacherPortal: React.FC<TeacherPortalProps> = ({ onBackToWebsite })
         api.getAnnouncements({ audience: 'Teachers' }).catch(() => []),
         api.getNotifications().catch(() => []),
         api.getUnreadNotificationCount().catch(() => ({ unreadCount: 0 })),
+        api.getTeacherTasks().catch(() => ({ tasks: [] })),
+        api.getTeacherHomework().catch(() => ({ homework: [] })),
       ]);
 
       const dash = dashRes.ok ? dashRes.v : null;
@@ -205,6 +293,8 @@ export const TeacherPortal: React.FC<TeacherPortalProps> = ({ onBackToWebsite })
       setAnnouncements(anns || []);
       setNotifications(notifs || []);
       setUnreadCount(unread.unreadCount || 0);
+      setTasks(taskRes?.tasks || dash?.tasks || []);
+      setHomeworkList(hwkRes?.homework || []);
 
       // Load initial students for the default selected class
       const targetClass = dash?.assignedClasses?.[0] || prof?.classes?.[0];
@@ -533,14 +623,18 @@ export const TeacherPortal: React.FC<TeacherPortalProps> = ({ onBackToWebsite })
       ? teacherTimetable
       : teacherTimetable.filter(t => t.day.toLowerCase() === selectedDayFilter.toLowerCase());
 
+  const pendingTasksCount = tasks.filter(t => t.status !== 'Completed').length;
+
   const teacherTabs = [
     { id: 'overview', label: 'Dashboard', icon: UserIcon },
-    { id: 'profile', label: 'My Profile', icon: GraduationCap },
+    { id: 'tasks', label: 'My Responsibilities', icon: ClipboardList, badge: pendingTasksCount },
+    { id: 'homework', label: 'Homework', icon: Briefcase },
     { id: 'classes', label: 'Assigned Classes', icon: BookOpen },
     { id: 'students', label: 'Student Roster', icon: Users },
     { id: 'attendance', label: 'Attendance', icon: Calendar },
     { id: 'marks', label: 'Exams & Marks', icon: Award },
     { id: 'timetable', label: 'Timetable', icon: Clock },
+    { id: 'profile', label: 'My Profile', icon: GraduationCap },
     { id: 'notices', label: 'Announcements', icon: FileText },
     { id: 'notifications', label: 'Notifications', icon: Bell, badge: unreadCount },
     { id: 'ai', label: 'Teacher AI', icon: Sparkles },
@@ -634,6 +728,12 @@ export const TeacherPortal: React.FC<TeacherPortalProps> = ({ onBackToWebsite })
                   <span className="text-xs font-semibold text-emerald-800">
                     &middot; {teacher.status || 'Active'}
                   </span>
+                  {dashboardData?.isClassTeacher && (
+                    <span className="bg-amber-100 text-amber-900 border border-amber-300 font-bold px-2.5 py-0.5 rounded-full text-[10px] flex items-center gap-1">
+                      <Award className="w-3 h-3" />
+                      <span>Class Incharge: {dashboardData.classTeacherAssignments?.map((a: any) => `${a.class_name}-${a.section}`).join(', ') || 'Assigned'}</span>
+                    </span>
+                  )}
                 </div>
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-500 mt-1">
                   <span>
@@ -651,7 +751,7 @@ export const TeacherPortal: React.FC<TeacherPortalProps> = ({ onBackToWebsite })
               </div>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-xs text-neutral-600 bg-neutral-50 p-4 rounded-xl border border-neutral-200/80 w-full md:w-auto">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs text-neutral-600 bg-neutral-50 p-4 rounded-xl border border-neutral-200/80 w-full md:w-auto">
               <div>
                 <span className="text-neutral-500 block text-[11px] font-semibold">Assigned Classes</span>
                 <span className="font-bold text-emerald-900 tabular-nums">{teacher.classes?.length || 0} Classes</span>
@@ -662,7 +762,17 @@ export const TeacherPortal: React.FC<TeacherPortalProps> = ({ onBackToWebsite })
                   {dashboardData?.totalStudents || students.length || 0}
                 </span>
               </div>
-              <div className="col-span-2 sm:col-span-1">
+              <div>
+                <span className="text-neutral-500 block text-[11px] font-semibold">Duties &amp; Tasks</span>
+                <span className="font-bold text-neutral-900">
+                  {pendingTasksCount > 0 ? (
+                    <span className="text-amber-800 font-bold tabular-nums">{pendingTasksCount} Pending</span>
+                  ) : (
+                    <span className="text-emerald-800 font-semibold">All Done</span>
+                  )}
+                </span>
+              </div>
+              <div>
                 <span className="text-neutral-500 block text-[11px] font-semibold">Attendance Today</span>
                 <span className="font-bold text-neutral-900">
                   {dashboardData?.attendanceStatus?.markedToday ? (
@@ -2289,6 +2399,467 @@ export const TeacherPortal: React.FC<TeacherPortalProps> = ({ onBackToWebsite })
                 <span>Ask Assistant</span>
               </button>
             </form>
+          </div>
+        )}
+        {/* ==================================================== */}
+        {/* TAB: MY RESPONSIBILITIES & TASKS                     */}
+        {/* ==================================================== */}
+        {activeTab === 'tasks' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-xl font-bold text-neutral-900 font-display">
+                  My Academic Duties &amp; Responsibilities
+                </h3>
+                <p className="text-xs text-neutral-500">
+                  Official assignments, examination duties, and committee roles delegated by School Administration
+                </p>
+              </div>
+
+              {/* Status Filter */}
+              <div className="flex items-center gap-1.5 p-1 bg-white border border-neutral-200 rounded-xl shadow-2xs self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => setTaskFilter('all')}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                    taskFilter === 'all' ? 'bg-neutral-900 text-white' : 'text-neutral-600 hover:text-neutral-900'
+                  }`}
+                >
+                  All ({tasks.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTaskFilter('pending')}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                    taskFilter === 'pending' ? 'bg-amber-800 text-white' : 'text-neutral-600 hover:text-neutral-900'
+                  }`}
+                >
+                  Pending ({tasks.filter(t => t.status !== 'Completed').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTaskFilter('completed')}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                    taskFilter === 'completed' ? 'bg-emerald-800 text-white' : 'text-neutral-600 hover:text-neutral-900'
+                  }`}
+                >
+                  Completed ({tasks.filter(t => t.status === 'Completed').length})
+                </button>
+              </div>
+            </div>
+
+            {/* Task Cards List */}
+            {(() => {
+              const visibleTasks = tasks.filter(t => {
+                if (taskFilter === 'pending') return t.status !== 'Completed';
+                if (taskFilter === 'completed') return t.status === 'Completed';
+                return true;
+              });
+
+              if (visibleTasks.length === 0) {
+                return (
+                  <div className="bg-white p-12 text-center rounded-2xl border border-neutral-200 shadow-xs space-y-3">
+                    <div className="w-12 h-12 bg-neutral-100 text-neutral-500 rounded-full mx-auto flex items-center justify-center">
+                      <ClipboardList className="w-6 h-6 text-emerald-800" />
+                    </div>
+                    <h4 className="text-base font-bold text-neutral-900">No Duties Found</h4>
+                    <p className="text-xs text-neutral-500 max-w-md mx-auto">
+                      {taskFilter === 'completed'
+                        ? 'You have not completed any tasks yet.'
+                        : taskFilter === 'pending'
+                        ? 'Great job! You have no pending duties or administrative responsibilities.'
+                        : 'No institutional tasks have been assigned by Administration yet.'}
+                    </p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {visibleTasks.map(t => (
+                    <div
+                      key={t.id}
+                      className={`p-5 rounded-2xl border shadow-xs flex flex-col justify-between space-y-4 transition-all ${
+                        t.status === 'Completed'
+                          ? 'bg-emerald-50/40 border-emerald-200'
+                          : t.priority === 'Urgent'
+                          ? 'bg-rose-50/30 border-rose-200'
+                          : 'bg-white border-neutral-200'
+                      }`}
+                    >
+                      <div className="space-y-2.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <h4 className="text-sm font-bold text-neutral-900">{t.title}</h4>
+                          <span
+                            className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full shrink-0 ${
+                              t.priority === 'Urgent'
+                                ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                                : t.priority === 'High'
+                                ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                : 'bg-neutral-100 text-neutral-700'
+                            }`}
+                          >
+                            {t.priority}
+                          </span>
+                        </div>
+
+                        {t.description && (
+                          <p className="text-xs text-neutral-600 leading-relaxed">{t.description}</p>
+                        )}
+
+                        <div className="text-xs space-y-1 text-neutral-600 pt-1">
+                          {t.class_name && (
+                            <div>
+                              <strong className="text-neutral-700">Class:</strong> {t.class_name}{' '}
+                              {t.section ? `(${t.section})` : ''}
+                            </div>
+                          )}
+                          <div className="flex items-center gap-1.5">
+                            <Clock className="w-3.5 h-3.5 text-neutral-400" />
+                            <strong className="text-neutral-700">Due Date:</strong>{' '}
+                            <span className="font-mono font-bold text-emerald-950">{t.due_date}</span>
+                          </div>
+                          <div>
+                            <strong className="text-neutral-700">Assigned By:</strong>{' '}
+                            <span>{t.assigned_by || 'Administration'}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="pt-3 border-t border-neutral-200/60 flex items-center justify-between text-xs">
+                        <span
+                          className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${
+                            t.status === 'Completed'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : t.status === 'In Progress'
+                              ? 'bg-sky-100 text-sky-800'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          {t.status}
+                        </span>
+
+                        <div className="flex items-center gap-1.5">
+                          {t.status === 'Pending' && (
+                            <button
+                              type="button"
+                              disabled={taskUpdatingId === t.task_id}
+                              onClick={() => handleUpdateTaskStatus(t.task_id || t.id, 'In Progress')}
+                              className="px-2.5 py-1 rounded-lg text-sky-800 bg-sky-50 hover:bg-sky-100 font-semibold text-[11px] cursor-pointer"
+                            >
+                              Start
+                            </button>
+                          )}
+
+                          {t.status !== 'Completed' ? (
+                            <button
+                              type="button"
+                              disabled={taskUpdatingId === t.task_id}
+                              onClick={() => handleUpdateTaskStatus(t.task_id || t.id, 'Completed')}
+                              className="px-3 py-1 rounded-lg text-white bg-emerald-900 hover:bg-emerald-800 font-bold text-[11px] cursor-pointer flex items-center gap-1"
+                            >
+                              <Check className="w-3 h-3" />
+                              <span>Done</span>
+                            </button>
+                          ) : (
+                            <span className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Completed</span>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* ==================================================== */}
+        {/* TAB: HOMEWORK & ASSIGNMENTS                          */}
+        {/* ==================================================== */}
+        {activeTab === 'homework' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-xl font-bold text-neutral-900 font-display">
+                  Class Homework &amp; Coursework
+                </h3>
+                <p className="text-xs text-neutral-500">
+                  Assign homework tasks, reading assignments, and coursework to your enrolled classes
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 self-start sm:self-auto">
+                <select
+                  value={homeworkClassFilter}
+                  onChange={e => setHomeworkClassFilter(e.target.value)}
+                  className="text-xs py-2 px-3 bg-white border border-neutral-300 rounded-xl"
+                >
+                  <option value="all">All Classes</option>
+                  {(teacher?.classes || []).map(c => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHomeworkForm({
+                      title: '',
+                      description: '',
+                      class_name: (teacher?.classes && teacher.classes[0]) || 'Class 9',
+                      section: 'A',
+                      subject: teacher?.subject || 'Mathematics',
+                      due_date: new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0],
+                      total_marks: 10,
+                      instructions: '',
+                    });
+                    setShowCreateHomeworkModal(true);
+                  }}
+                  className="px-4 py-2 text-xs font-bold text-white bg-emerald-900 hover:bg-emerald-800 rounded-xl flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Assign Homework</span>
+                </button>
+              </div>
+            </div>
+
+            {homeworkMsg && (
+              <div
+                className={`p-3.5 rounded-xl text-xs flex items-center gap-2 ${
+                  homeworkMsg.type === 'success'
+                    ? 'bg-emerald-50 text-emerald-900 border border-emerald-200'
+                    : 'bg-rose-50 text-rose-900 border border-rose-200'
+                }`}
+              >
+                {homeworkMsg.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-700 shrink-0" />
+                )}
+                <span>{homeworkMsg.text}</span>
+              </div>
+            )}
+
+            {/* Homework List */}
+            {(() => {
+              const visibleHw = homeworkList.filter(h => {
+                if (homeworkClassFilter !== 'all' && h.class_name.toLowerCase() !== homeworkClassFilter.toLowerCase()) {
+                  return false;
+                }
+                return true;
+              });
+
+              if (visibleHw.length === 0) {
+                return (
+                  <div className="bg-white p-12 text-center rounded-2xl border border-neutral-200 shadow-xs space-y-3">
+                    <div className="w-12 h-12 bg-neutral-100 text-neutral-500 rounded-full mx-auto flex items-center justify-center">
+                      <Briefcase className="w-6 h-6 text-emerald-800" />
+                    </div>
+                    <h4 className="text-base font-bold text-neutral-900">No Homework Posted Yet</h4>
+                    <p className="text-xs text-neutral-500 max-w-md mx-auto">
+                      You have not assigned homework to your classes yet. Click &ldquo;Assign Homework&rdquo; to post coursework for your students.
+                    </p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {visibleHw.map(hw => (
+                    <div key={hw.id} className="bg-white p-5 rounded-2xl border border-neutral-200 shadow-xs flex flex-col justify-between space-y-3">
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                              {hw.subject}
+                            </span>
+                            <span className="text-[10px] font-bold text-neutral-600 bg-neutral-100 px-2 py-0.5 rounded-full ml-1.5">
+                              {hw.class_name} ({hw.section})
+                            </span>
+                          </div>
+                          {hw.total_marks !== undefined && (
+                            <span className="text-[10px] font-mono font-bold text-neutral-700 bg-neutral-100 px-2 py-0.5 rounded">
+                              {hw.total_marks} Marks
+                            </span>
+                          )}
+                        </div>
+
+                        <h4 className="text-sm font-bold text-neutral-900">{hw.title}</h4>
+                        <p className="text-xs text-neutral-600 leading-relaxed">{hw.description}</p>
+
+                        {hw.instructions && (
+                          <div className="p-2.5 bg-neutral-50 rounded-xl text-xs text-neutral-600">
+                            <span className="font-semibold text-neutral-800 block">Instructions:</span>
+                            <span>{hw.instructions}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-3 border-t border-neutral-100 flex items-center justify-between text-xs">
+                        <div className="text-neutral-500 flex items-center gap-1">
+                          <Clock className="w-3.5 h-3.5 text-neutral-400" />
+                          <span>Due: <strong className="text-neutral-800 font-mono">{hw.due_date}</strong></span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteHomework(hw.homework_id || hw.id)}
+                          className="text-neutral-400 hover:text-rose-700 p-1 rounded cursor-pointer"
+                          title="Delete Homework"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+
+            {/* Create Homework Modal */}
+            {showCreateHomeworkModal && (
+              <div className="fixed inset-0 z-50 bg-neutral-950/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+                <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-neutral-200 space-y-4 max-h-[90vh] overflow-y-auto">
+                  <div className="flex items-center justify-between border-b border-neutral-100 pb-3">
+                    <h3 className="text-base font-bold text-neutral-900 font-display">Assign New Homework</h3>
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateHomeworkModal(false)}
+                      className="p-1 text-neutral-400 hover:text-neutral-700 rounded cursor-pointer"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleCreateHomework} className="space-y-3.5 text-xs">
+                    <div>
+                      <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                        Homework Title *
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Exercise 3.2 Quadratic Equations Q1-Q10"
+                        value={homeworkForm.title}
+                        onChange={e => setHomeworkForm({ ...homeworkForm, title: e.target.value })}
+                        className="w-full text-xs py-2 px-3 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                        required
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                          Class *
+                        </label>
+                        <select
+                          value={homeworkForm.class_name}
+                          onChange={e => setHomeworkForm({ ...homeworkForm, class_name: e.target.value })}
+                          className="w-full text-xs py-2 px-3 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                          required
+                        >
+                          {(teacher?.classes || ['Class 9', 'Class 10']).map(c => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                          Section *
+                        </label>
+                        <select
+                          value={homeworkForm.section}
+                          onChange={e => setHomeworkForm({ ...homeworkForm, section: e.target.value })}
+                          className="w-full text-xs py-2 px-3 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                          required
+                        >
+                          <option value="A">Section A</option>
+                          <option value="B">Section B</option>
+                          <option value="C">Section C</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                          Subject *
+                        </label>
+                        <input
+                          type="text"
+                          value={homeworkForm.subject}
+                          onChange={e => setHomeworkForm({ ...homeworkForm, subject: e.target.value })}
+                          className="w-full text-xs py-2 px-3 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                          Due Date *
+                        </label>
+                        <input
+                          type="date"
+                          value={homeworkForm.due_date}
+                          onChange={e => setHomeworkForm({ ...homeworkForm, due_date: e.target.value })}
+                          className="w-full text-xs py-2 px-3 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                        Task Description *
+                      </label>
+                      <textarea
+                        rows={2}
+                        placeholder="Detailed assignment problem statements or instructions..."
+                        value={homeworkForm.description}
+                        onChange={e => setHomeworkForm({ ...homeworkForm, description: e.target.value })}
+                        className="w-full text-xs py-2 px-3 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700 resize-none"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                        Submission Instructions (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Solve on neat registers and submit by morning assembly"
+                        value={homeworkForm.instructions}
+                        onChange={e => setHomeworkForm({ ...homeworkForm, instructions: e.target.value })}
+                        className="w-full text-xs py-2 px-3 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                      />
+                    </div>
+
+                    <div className="pt-3 border-t border-neutral-100 flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        disabled={homeworkSaveLoading}
+                        onClick={() => setShowCreateHomeworkModal(false)}
+                        className="px-4 py-2 text-xs font-semibold text-neutral-700 hover:bg-neutral-100 rounded-lg cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={homeworkSaveLoading}
+                        className="px-5 py-2 text-xs font-bold text-white bg-emerald-900 hover:bg-emerald-800 disabled:opacity-50 rounded-lg cursor-pointer shadow-2xs"
+                      >
+                        {homeworkSaveLoading ? 'Posting...' : 'Post Assignment'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>

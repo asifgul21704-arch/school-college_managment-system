@@ -17,6 +17,9 @@ import {
   SchoolSettings,
   MongoServerStatus,
   SupabaseServerStatus,
+  TeacherTask,
+  HomeworkItem,
+  TeacherSignupRequest,
 } from '../types';
 
 const LEGACY_LOCALSTORAGE_TOKEN_KEY = 'shawan_auth_token';
@@ -245,6 +248,26 @@ export const api = {
     child_dob?: string;
   }) =>
     request<{ token: string; user: User; linked_students: Student[] }>('/auth/register-parent', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  registerTeacher: (data: {
+    full_name: string;
+    father_name?: string;
+    email: string;
+    password: string;
+    confirm_password: string;
+    phone?: string;
+    cnic?: string;
+    qualification: string;
+    subject: string;
+    specialization?: string;
+    experience?: string;
+    bio?: string;
+    profile_photo?: string;
+  }) =>
+    request<{ success: boolean; message: string; teacher?: Teacher }>('/auth/register-teacher', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
@@ -727,6 +750,12 @@ export const api = {
         attendance: AttendanceRecord[];
         results: ResultRecord[];
       };
+      assignments?: any[];
+      isClassTeacher?: boolean;
+      classTeacherAssignments?: any[];
+      tasks?: TeacherTask[];
+      pendingTasksCount?: number;
+      unreadNotifsCount?: number;
     }>('/teacher/dashboard'),
 
   getTeacherProfile: () => request<Teacher>('/teacher/profile'),
@@ -861,5 +890,105 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ actionType, payload, confirmed }),
     }),
+
+  // Admin Teacher Approval Requests
+  getTeacherRequests: () =>
+    request<{ requests: TeacherSignupRequest[] }>('/admin/teacher-requests'),
+
+  approveTeacherRequest: (
+    id: string,
+    data?: {
+      classes?: string[];
+      subject?: string;
+      employment_status?: 'Active' | 'On Leave' | 'Suspended';
+      assignments?: Array<{ class_name: string; section: string; subject: string; is_class_teacher?: boolean }>;
+      is_class_teacher?: boolean;
+      class_teacher_for?: { class_name: string; section: string };
+    }
+  ) =>
+    request<{ success: boolean; message: string; teacher: Teacher }>(`/admin/teacher-requests/${id}/approve`, {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+
+  rejectTeacherRequest: (id: string, data?: { reason?: string }) =>
+    request<{ success: boolean; message: string }>(`/admin/teacher-requests/${id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+
+  // Admin & Teacher Tasks Management
+  getAdminTeacherTasks: (params?: { teacher_id?: string; status?: string }) => {
+    const query = new URLSearchParams(params as any).toString();
+    return request<{ tasks: TeacherTask[] }>(`/admin/teacher-tasks${query ? `?${query}` : ''}`);
+  },
+
+  createAdminTeacherTask: (data: {
+    title: string;
+    description?: string;
+    teacher_id: string;
+    class_name?: string;
+    section?: string;
+    priority?: 'Low' | 'Medium' | 'High' | 'Urgent';
+    due_date: string;
+  }) =>
+    request<{ success: boolean; message: string; task: TeacherTask }>('/admin/teacher-tasks', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateAdminTeacherTask: (id: string, data: Partial<TeacherTask>) =>
+    request<{ success: boolean; task: TeacherTask }>(`/admin/teacher-tasks/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+
+  deleteAdminTeacherTask: (id: string) =>
+    request<{ success: boolean; message: string }>(`/admin/teacher-tasks/${id}`, {
+      method: 'DELETE',
+    }),
+
+  getTeacherTasks: () =>
+    request<{ tasks: TeacherTask[] }>('/teacher/tasks'),
+
+  updateTeacherTask: (
+    id: string,
+    data: { status?: 'Pending' | 'In Progress' | 'Completed'; completion_notes?: string }
+  ) =>
+    request<{ success: boolean; task: TeacherTask }>(`/teacher/tasks/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+
+  // Teacher Homework Management
+  getTeacherHomework: (params?: { class_name?: string; section?: string }) => {
+    const query = new URLSearchParams(params as any).toString();
+    return request<{ homework: HomeworkItem[] }>(`/teacher/homework${query ? `?${query}` : ''}`);
+  },
+
+  createTeacherHomework: (data: {
+    title: string;
+    description: string;
+    class_name: string;
+    section: string;
+    subject: string;
+    due_date: string;
+    total_marks?: number;
+    instructions?: string;
+  }) =>
+    request<{ success: boolean; message: string; homework: HomeworkItem }>('/teacher/homework', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  deleteTeacherHomework: (id: string) =>
+    request<{ success: boolean; message: string }>(`/teacher/homework/${id}`, {
+      method: 'DELETE',
+    }),
+
+  getPublicHomework: (params?: { class_name?: string; section?: string }) => {
+    const query = new URLSearchParams(params as any).toString();
+    return request<{ homework: HomeworkItem[] }>(`/homework${query ? `?${query}` : ''}`);
+  },
 };
 

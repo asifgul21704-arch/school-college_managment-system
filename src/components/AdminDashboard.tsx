@@ -41,6 +41,8 @@ import {
   Sparkles,
   Database,
   Server,
+  ClipboardList,
+  Briefcase,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
@@ -62,6 +64,8 @@ import {
   GalleryItem,
   ContactMessage,
   SchoolSettings,
+  TeacherSignupRequest,
+  TeacherTask,
 } from '../types';
 
 interface AdminDashboardProps {
@@ -116,6 +120,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
   const [messages, setMessages] = useState<ContactMessage[]>([]);
   const [settings, setSettings] = useState<SchoolSettings | null>(null);
+
+  // Teacher Requests & Responsibilities States
+  const [teacherRequests, setTeacherRequests] = useState<TeacherSignupRequest[]>([]);
+  const [teacherTasks, setTeacherTasks] = useState<TeacherTask[]>([]);
+  const [activeTeacherSubTab, setActiveTeacherSubTab] = useState<'directory' | 'requests' | 'tasks'>('directory');
+  const [selectedReqForApproval, setSelectedReqForApproval] = useState<TeacherSignupRequest | null>(null);
+  const [approvalClasses, setApprovalClasses] = useState<string[]>([]);
+  const [approvalSubject, setApprovalSubject] = useState('');
+  const [approvalIsClassTeacher, setApprovalIsClassTeacher] = useState(false);
+  const [approvalClassTeacherClass, setApprovalClassTeacherClass] = useState('Class 9');
+  const [approvalClassTeacherSection, setApprovalClassTeacherSection] = useState('A');
+  const [approvalEmploymentStatus, setApprovalEmploymentStatus] = useState<'Active' | 'On Leave' | 'Suspended'>('Active');
+  const [teacherActionLoading, setTeacherActionLoading] = useState(false);
+  const [showRejectModal, setShowRejectModal] = useState<TeacherSignupRequest | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [showAssignTaskModal, setShowAssignTaskModal] = useState(false);
+  const [taskForm, setTaskForm] = useState({
+    title: '',
+    description: '',
+    teacher_id: '',
+    class_name: '',
+    section: '',
+    priority: 'Medium' as 'Low' | 'Medium' | 'High' | 'Urgent',
+    due_date: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+  });
 
   // Filters, Pagination & Responsive Drawer States
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -488,11 +517,124 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         const firstReason = coreRejections[0].reason?.message || 'Unable to synchronize some operational datasets.';
         showError(firstReason);
       }
+      await refreshTeacherData();
     } catch (err: any) {
       console.warn('Sync issue in admin dashboard:', err);
       showError(err?.message || 'Failed to load management console data.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const refreshTeacherData = async () => {
+    try {
+      const [tchs, reqs, tsks] = await Promise.allSettled([
+        api.getTeachers(),
+        api.getTeacherRequests(),
+        api.getAdminTeacherTasks(),
+      ]);
+      if (tchs.status === 'fulfilled') setTeachers(tchs.value);
+      if (reqs.status === 'fulfilled') setTeacherRequests(reqs.value.requests || []);
+      if (tsks.status === 'fulfilled') setTeacherTasks(tsks.value.tasks || []);
+    } catch {
+      // safe fallback
+    }
+  };
+
+  const handleOpenApproveModal = (req: TeacherSignupRequest) => {
+    setSelectedReqForApproval(req);
+    setApprovalSubject(req.subject || req.specialization || 'General');
+    setApprovalClasses(['Class 9', 'Class 10']);
+    setApprovalIsClassTeacher(false);
+    setApprovalClassTeacherClass('Class 9');
+    setApprovalClassTeacherSection('A');
+    setApprovalEmploymentStatus('Active');
+  };
+
+  const handleConfirmApproveTeacher = async () => {
+    if (!selectedReqForApproval) return;
+    setTeacherActionLoading(true);
+    try {
+      await api.approveTeacherRequest(selectedReqForApproval.id || selectedReqForApproval.user_id, {
+        classes: approvalClasses,
+        subject: approvalSubject,
+        employment_status: approvalEmploymentStatus,
+        is_class_teacher: approvalIsClassTeacher,
+        class_teacher_for: approvalIsClassTeacher
+          ? { class_name: approvalClassTeacherClass, section: approvalClassTeacherSection }
+          : undefined,
+      });
+      showNotification(`Teacher ${selectedReqForApproval.name} approved and activated successfully.`);
+      setSelectedReqForApproval(null);
+      await refreshTeacherData();
+    } catch (err: any) {
+      showError(err.message || 'Failed to approve teacher application.');
+    } finally {
+      setTeacherActionLoading(false);
+    }
+  };
+
+  const handleConfirmRejectTeacher = async () => {
+    if (!showRejectModal) return;
+    setTeacherActionLoading(true);
+    try {
+      await api.rejectTeacherRequest(showRejectModal.id || showRejectModal.user_id, {
+        reason: rejectReason.trim() || undefined,
+      });
+      showNotification(`Teacher application for ${showRejectModal.name} rejected.`);
+      setShowRejectModal(null);
+      setRejectReason('');
+      await refreshTeacherData();
+    } catch (err: any) {
+      showError(err.message || 'Failed to reject teacher application.');
+    } finally {
+      setTeacherActionLoading(false);
+    }
+  };
+
+  const handleCreateTeacherTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!taskForm.title.trim() || !taskForm.teacher_id || !taskForm.due_date) {
+      showError('Please provide task title, assign a teacher, and set a due date.');
+      return;
+    }
+    setTeacherActionLoading(true);
+    try {
+      await api.createAdminTeacherTask({
+        title: taskForm.title.trim(),
+        description: taskForm.description.trim(),
+        teacher_id: taskForm.teacher_id,
+        class_name: taskForm.class_name.trim() || undefined,
+        section: taskForm.section.trim() || undefined,
+        priority: taskForm.priority,
+        due_date: taskForm.due_date,
+      });
+      showNotification('Academic responsibility / task assigned successfully.');
+      setShowAssignTaskModal(false);
+      setTaskForm({
+        title: '',
+        description: '',
+        teacher_id: '',
+        class_name: '',
+        section: '',
+        priority: 'Medium',
+        due_date: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+      });
+      await refreshTeacherData();
+    } catch (err: any) {
+      showError(err.message || 'Failed to assign teacher task.');
+    } finally {
+      setTeacherActionLoading(false);
+    }
+  };
+
+  const handleDeleteTeacherTask = async (taskId: string) => {
+    try {
+      await api.deleteAdminTeacherTask(taskId);
+      showNotification('Task removed successfully.');
+      await refreshTeacherData();
+    } catch (err: any) {
+      showError(err.message || 'Failed to delete task.');
     }
   };
 
@@ -3109,46 +3251,670 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* ==================================================== */}
         {/* 7. TEACHERS MANAGEMENT */}
         {/* ==================================================== */}
+        {/* ==================================================== */}
+        {/* 7. TEACHERS MANAGEMENT */}
+        {/* ==================================================== */}
         {activeSection === 'teachers' && (
           <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h2 className="text-2xl font-bold text-neutral-900 font-display">
-                  Faculty & Staff Members
+                  Faculty &amp; Staff Management
                 </h2>
                 <p className="text-xs text-neutral-500">
-                  Subject specialists and academic teachers
+                  Subject specialists, class assignments, teacher approvals, and academic responsibilities
                 </p>
               </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowAssignTaskModal(true)}
+                  className="px-3.5 py-2 text-xs font-semibold text-neutral-700 bg-white hover:bg-neutral-50 border border-neutral-300 rounded-lg flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                >
+                  <ClipboardList className="w-4 h-4 text-emerald-800" />
+                  <span>Assign Responsibility</span>
+                </button>
+                <button
+                  onClick={() => setShowAddTeacherModal(true)}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-emerald-900 hover:bg-emerald-800 rounded-lg flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Add Teacher</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Sub-tab Navigation */}
+            <div className="flex items-center gap-1 border-b border-neutral-200">
               <button
-                onClick={() => setShowAddTeacherModal(true)}
-                className="px-4 py-2 text-xs font-semibold text-white bg-emerald-900 hover:bg-emerald-800 rounded-lg flex items-center gap-1.5 cursor-pointer"
+                type="button"
+                onClick={() => setActiveTeacherSubTab('directory')}
+                className={`px-4 py-2.5 text-xs font-bold border-b-2 cursor-pointer transition-colors flex items-center gap-1.5 ${
+                  activeTeacherSubTab === 'directory'
+                    ? 'border-emerald-900 text-emerald-900'
+                    : 'border-transparent text-neutral-500 hover:text-neutral-800'
+                }`}
               >
-                <Plus className="w-4 h-4" />
-                <span>Add Teacher</span>
+                <Users className="w-4 h-4" />
+                <span>Active Faculty ({teachers.length})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTeacherSubTab('requests')}
+                className={`px-4 py-2.5 text-xs font-bold border-b-2 cursor-pointer transition-colors flex items-center gap-2 ${
+                  activeTeacherSubTab === 'requests'
+                    ? 'border-emerald-900 text-emerald-900'
+                    : 'border-transparent text-neutral-500 hover:text-neutral-800'
+                }`}
+              >
+                <UserCheck className="w-4 h-4" />
+                <span>Signup Requests</span>
+                {teacherRequests.length > 0 && (
+                  <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                    {teacherRequests.length} Pending
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTeacherSubTab('tasks')}
+                className={`px-4 py-2.5 text-xs font-bold border-b-2 cursor-pointer transition-colors flex items-center gap-1.5 ${
+                  activeTeacherSubTab === 'tasks'
+                    ? 'border-emerald-900 text-emerald-900'
+                    : 'border-transparent text-neutral-500 hover:text-neutral-800'
+                }`}
+              >
+                <ClipboardList className="w-4 h-4" />
+                <span>Responsibilities &amp; Tasks ({teacherTasks.length})</span>
               </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {teachers.map(tch => (
-                <div key={tch.id} className="bg-white p-5 rounded-2xl border border-neutral-200 shadow-xs space-y-3">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h4 className="text-sm font-bold text-neutral-900 font-display">{tch.name}</h4>
-                      <span className="text-xs text-emerald-800 font-medium">{tch.subject}</span>
+            {/* Sub-tab 1: Active Faculty Directory */}
+            {activeTeacherSubTab === 'directory' && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {teachers.map(tch => (
+                    <div key={tch.id} className="bg-white p-5 rounded-2xl border border-neutral-200 shadow-xs space-y-3 hover:border-emerald-200 transition-colors">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <h4 className="text-sm font-bold text-neutral-900 font-display">{tch.name}</h4>
+                          <span className="text-xs text-emerald-800 font-medium">{tch.subject}</span>
+                          {tch.father_name && (
+                            <div className="text-[11px] text-neutral-400">S/D/W/o: {tch.father_name}</div>
+                          )}
+                        </div>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          tch.status === 'Active'
+                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                            : tch.status === 'Pending'
+                            ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                            : 'bg-neutral-100 text-neutral-600'
+                        }`}>
+                          {tch.status}
+                        </span>
+                      </div>
+
+                      <div className="text-xs text-neutral-600 space-y-1">
+                        <div><strong className="text-neutral-700">Qualification:</strong> {tch.qualification || 'N/A'}</div>
+                        <div><strong className="text-neutral-700">Experience:</strong> {tch.experience || 'Not specified'}</div>
+                        {tch.classes && tch.classes.length > 0 && (
+                          <div className="flex flex-wrap gap-1 pt-1">
+                            {tch.classes.map(c => (
+                              <span key={c} className="text-[10px] bg-neutral-100 text-neutral-700 px-1.5 py-0.5 rounded">
+                                {c}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="text-[11px] text-neutral-500 border-t border-neutral-100 pt-2.5 flex items-center justify-between">
+                        <span>{tch.contact_no ? `Tel: ${tch.contact_no}` : tch.email}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTaskForm(prev => ({ ...prev, teacher_id: tch.id }));
+                            setShowAssignTaskModal(true);
+                          }}
+                          className="text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 cursor-pointer"
+                        >
+                          + Assign Task
+                        </button>
+                      </div>
                     </div>
-                    <span className="text-[10px] font-mono bg-neutral-100 px-2 py-0.5 rounded text-neutral-600">
-                      {tch.experience}
-                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Sub-tab 2: Pending Teacher Signup Requests */}
+            {activeTeacherSubTab === 'requests' && (
+              <div className="space-y-4">
+                {teacherRequests.length === 0 ? (
+                  <div className="bg-white p-12 text-center rounded-2xl border border-neutral-200 shadow-xs space-y-3">
+                    <div className="w-12 h-12 bg-neutral-100 text-neutral-500 rounded-full mx-auto flex items-center justify-center">
+                      <CheckCircle2 className="w-6 h-6 text-emerald-700" />
+                    </div>
+                    <h3 className="text-base font-bold text-neutral-900">No Pending Teacher Applications</h3>
+                    <p className="text-xs text-neutral-500 max-w-md mx-auto">
+                      All submitted teacher registration requests have been processed. New faculty applications will appear here for administrative verification and class allocation.
+                    </p>
                   </div>
-                  <p className="text-xs text-neutral-600">{tch.qualification}</p>
-                  <div className="text-[11px] text-neutral-500 border-t border-neutral-100 pt-2 flex justify-between">
-                    <span>Contact: {tch.contact_no}</span>
-                    <span className="text-emerald-700 font-semibold">{tch.status}</span>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-amber-700 shrink-0" />
+                      <span>
+                        <strong>Action Required:</strong> {teacherRequests.length} teacher self-registration application(s) pending administrative review and approval.
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                      {teacherRequests.map(req => (
+                        <div key={req.id} className="bg-white p-5 rounded-2xl border border-amber-200/80 shadow-xs space-y-3">
+                          <div className="flex items-start justify-between border-b border-neutral-100 pb-3">
+                            <div>
+                              <h4 className="text-sm font-bold text-neutral-900 font-display">{req.name}</h4>
+                              <div className="text-xs text-emerald-800 font-semibold">{req.subject} {req.specialization ? `(${req.specialization})` : ''}</div>
+                              {req.father_name && (
+                                <div className="text-[11px] text-neutral-400">Father/Husband: {req.father_name}</div>
+                              )}
+                            </div>
+                            <span className="text-[10px] bg-amber-100 text-amber-900 font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">
+                              Pending Approval
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 text-xs text-neutral-700">
+                            <div>
+                              <span className="text-neutral-400 block text-[10px] uppercase">Email</span>
+                              <span className="font-medium font-mono">{req.email}</span>
+                            </div>
+                            <div>
+                              <span className="text-neutral-400 block text-[10px] uppercase">Mobile</span>
+                              <span className="font-medium">{req.phone || 'N/A'}</span>
+                            </div>
+                            <div>
+                              <span className="text-neutral-400 block text-[10px] uppercase">CNIC</span>
+                              <span className="font-mono">{req.cnic || 'N/A'}</span>
+                            </div>
+                            <div>
+                              <span className="text-neutral-400 block text-[10px] uppercase">Qualification</span>
+                              <span className="font-medium">{req.qualification}</span>
+                            </div>
+                            <div>
+                              <span className="text-neutral-400 block text-[10px] uppercase">Experience</span>
+                              <span>{req.experience || 'Fresh'}</span>
+                            </div>
+                            <div>
+                              <span className="text-neutral-400 block text-[10px] uppercase">Applied On</span>
+                              <span>{req.created_at ? req.created_at.split('T')[0] : 'Today'}</span>
+                            </div>
+                          </div>
+
+                          {req.bio && (
+                            <div className="p-2.5 bg-neutral-50 rounded-xl text-xs text-neutral-600 italic">
+                              &ldquo;{req.bio}&rdquo;
+                            </div>
+                          )}
+
+                          <div className="pt-2 border-t border-neutral-100 flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowRejectModal(req);
+                                setRejectReason('');
+                              }}
+                              className="px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                            >
+                              Reject
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenApproveModal(req)}
+                              className="px-4 py-1.5 text-xs font-bold text-white bg-emerald-900 hover:bg-emerald-800 rounded-lg transition-colors cursor-pointer shadow-2xs"
+                            >
+                              Review &amp; Approve
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Sub-tab 3: Academic Responsibilities & Tasks */}
+            {activeTeacherSubTab === 'tasks' && (
+              <div className="space-y-4">
+                {teacherTasks.length === 0 ? (
+                  <div className="bg-white p-12 text-center rounded-2xl border border-neutral-200 shadow-xs space-y-3">
+                    <div className="w-12 h-12 bg-neutral-100 text-neutral-500 rounded-full mx-auto flex items-center justify-center">
+                      <ClipboardList className="w-6 h-6 text-emerald-800" />
+                    </div>
+                    <h3 className="text-base font-bold text-neutral-900">No Tasks Assigned Yet</h3>
+                    <p className="text-xs text-neutral-500 max-w-md mx-auto">
+                      Administrative duties, examination responsibilities, and extra-curricular assignments delegated to teachers will appear here.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setShowAssignTaskModal(true)}
+                      className="px-4 py-2 text-xs font-bold text-white bg-emerald-900 hover:bg-emerald-800 rounded-lg cursor-pointer"
+                    >
+                      Assign First Responsibility
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                    {teacherTasks.map(task => (
+                      <div key={task.id} className="bg-white p-5 rounded-2xl border border-neutral-200 shadow-xs space-y-3 flex flex-col justify-between">
+                        <div className="space-y-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <h4 className="text-sm font-bold text-neutral-900">{task.title}</h4>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                              task.priority === 'Urgent'
+                                ? 'bg-rose-100 text-rose-800'
+                                : task.priority === 'High'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-neutral-100 text-neutral-700'
+                            }`}>
+                              {task.priority}
+                            </span>
+                          </div>
+                          {task.description && (
+                            <p className="text-xs text-neutral-600 leading-relaxed">{task.description}</p>
+                          )}
+                          <div className="text-xs space-y-1 text-neutral-600 pt-1">
+                            <div><strong className="text-neutral-700">Assigned To:</strong> {task.teacher_name}</div>
+                            {task.class_name && (
+                              <div><strong className="text-neutral-700">Class:</strong> {task.class_name} {task.section ? `(${task.section})` : ''}</div>
+                            )}
+                            <div><strong className="text-neutral-700">Due Date:</strong> <span className="font-mono text-emerald-900 font-bold">{task.due_date}</span></div>
+                          </div>
+                        </div>
+
+                        <div className="pt-3 border-t border-neutral-100 flex items-center justify-between text-xs">
+                          <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
+                            task.status === 'Completed'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : task.status === 'In Progress'
+                              ? 'bg-sky-100 text-sky-800'
+                              : 'bg-neutral-100 text-neutral-700'
+                          }`}>
+                            {task.status}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteTeacherTask(task.task_id || task.id)}
+                            className="text-neutral-400 hover:text-rose-700 p-1 rounded cursor-pointer"
+                            title="Delete Task"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Approval Modal */}
+            {selectedReqForApproval && (
+              <div className="fixed inset-0 z-50 bg-neutral-950/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+                <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-neutral-200 space-y-4 max-h-[90vh] overflow-y-auto">
+                  <div className="flex items-center justify-between border-b border-neutral-100 pb-3">
+                    <div>
+                      <h3 className="text-lg font-bold text-neutral-900 font-display">Approve Faculty Application</h3>
+                      <p className="text-xs text-neutral-500">Configure class assignments and permissions for {selectedReqForApproval.name}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedReqForApproval(null)}
+                      className="p-1 text-neutral-400 hover:text-neutral-700 rounded cursor-pointer"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-3 text-xs">
+                    <div className="p-3 bg-neutral-50 rounded-xl border border-neutral-200 space-y-1">
+                      <div className="font-bold text-neutral-900">{selectedReqForApproval.name}</div>
+                      <div className="text-neutral-600">{selectedReqForApproval.email} · {selectedReqForApproval.phone}</div>
+                      <div className="text-emerald-800 font-medium">Qualification: {selectedReqForApproval.qualification}</div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                        Primary Teaching Subject *
+                      </label>
+                      <input
+                        type="text"
+                        value={approvalSubject}
+                        onChange={e => setApprovalSubject(e.target.value)}
+                        className="w-full text-xs py-2 px-3 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-neutral-700 mb-1.5">
+                        Assign Academic Classes (Teacher will manage students and attendance in these classes)
+                      </label>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-36 overflow-y-auto p-2 bg-neutral-50 rounded-xl border border-neutral-200">
+                        {[
+                          'Nursery',
+                          'Prep',
+                          'Class 1',
+                          'Class 2',
+                          'Class 3',
+                          'Class 4',
+                          'Class 5',
+                          'Class 6',
+                          'Class 7',
+                          'Class 8',
+                          'Class 9',
+                          'Class 10',
+                          'Class 11 (1st Year)',
+                          'Class 12 (2nd Year)',
+                        ].map(c => {
+                          const isChecked = approvalClasses.includes(c);
+                          return (
+                            <label key={c} className="flex items-center gap-1.5 text-xs text-neutral-700 cursor-pointer p-1 rounded hover:bg-white">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={e => {
+                                  if (e.target.checked) {
+                                    setApprovalClasses(prev => [...prev, c]);
+                                  } else {
+                                    setApprovalClasses(prev => prev.filter(x => x !== c));
+                                  }
+                                }}
+                                className="rounded text-emerald-800 focus:ring-emerald-700"
+                              />
+                              <span className="truncate">{c}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-neutral-50 rounded-xl border border-neutral-200 space-y-2">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={approvalIsClassTeacher}
+                          onChange={e => setApprovalIsClassTeacher(e.target.checked)}
+                          className="rounded text-emerald-800 focus:ring-emerald-700"
+                        />
+                        <span className="text-xs font-semibold text-neutral-900">Designate as Class Teacher (Incharge)</span>
+                      </label>
+
+                      {approvalIsClassTeacher && (
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                          <div>
+                            <span className="text-[10px] text-neutral-500 uppercase font-semibold">Class Incharge</span>
+                            <select
+                              value={approvalClassTeacherClass}
+                              onChange={e => setApprovalClassTeacherClass(e.target.value)}
+                              className="w-full text-xs py-1.5 px-2 bg-white border border-neutral-300 rounded-lg"
+                            >
+                              {approvalClasses.map(c => (
+                                <option key={c} value={c}>{c}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-neutral-500 uppercase font-semibold">Section</span>
+                            <select
+                              value={approvalClassTeacherSection}
+                              onChange={e => setApprovalClassTeacherSection(e.target.value)}
+                              className="w-full text-xs py-1.5 px-2 bg-white border border-neutral-300 rounded-lg"
+                            >
+                              <option value="A">Section A</option>
+                              <option value="B">Section B</option>
+                              <option value="C">Section C</option>
+                            </select>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                        Employment Status
+                      </label>
+                      <select
+                        value={approvalEmploymentStatus}
+                        onChange={e => setApprovalEmploymentStatus(e.target.value as any)}
+                        className="w-full text-xs py-2 px-3 border border-neutral-300 rounded-lg"
+                      >
+                        <option value="Active">Active Faculty</option>
+                        <option value="On Leave">On Leave</option>
+                        <option value="Suspended">Suspended</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t border-neutral-100 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      disabled={teacherActionLoading}
+                      onClick={() => setSelectedReqForApproval(null)}
+                      className="px-4 py-2 text-xs font-semibold text-neutral-700 hover:bg-neutral-100 rounded-lg transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={teacherActionLoading}
+                      onClick={handleConfirmApproveTeacher}
+                      className="px-5 py-2 text-xs font-bold text-white bg-emerald-900 hover:bg-emerald-800 disabled:opacity-50 rounded-lg transition-colors cursor-pointer shadow-2xs"
+                    >
+                      {teacherActionLoading ? 'Approving Faculty...' : 'Approve & Activate Account'}
+                    </button>
                   </div>
                 </div>
-              ))}
-            </div>
+              </div>
+            )}
+
+            {/* Reject Modal */}
+            {showRejectModal && (
+              <div className="fixed inset-0 z-50 bg-neutral-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+                <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-neutral-200 space-y-4">
+                  <div className="flex items-center justify-between border-b border-neutral-100 pb-3">
+                    <h3 className="text-base font-bold text-rose-900">Reject Teacher Application</h3>
+                    <button
+                      type="button"
+                      onClick={() => setShowRejectModal(null)}
+                      className="p-1 text-neutral-400 hover:text-neutral-700 rounded cursor-pointer"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <p className="text-xs text-neutral-600">
+                    Are you sure you want to reject the application for <strong>{showRejectModal.name}</strong> ({showRejectModal.email})?
+                  </p>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                      Reason for Rejection (Optional)
+                    </label>
+                    <textarea
+                      rows={2}
+                      placeholder="e.g. Qualification requirements not met, position filled..."
+                      value={rejectReason}
+                      onChange={e => setRejectReason(e.target.value)}
+                      className="w-full text-xs py-2 px-3 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-700"
+                    />
+                  </div>
+
+                  <div className="pt-3 border-t border-neutral-100 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      disabled={teacherActionLoading}
+                      onClick={() => setShowRejectModal(null)}
+                      className="px-4 py-2 text-xs font-semibold text-neutral-700 hover:bg-neutral-100 rounded-lg cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={teacherActionLoading}
+                      onClick={handleConfirmRejectTeacher}
+                      className="px-4 py-2 text-xs font-bold text-white bg-rose-700 hover:bg-rose-800 disabled:opacity-50 rounded-lg cursor-pointer shadow-2xs"
+                    >
+                      {teacherActionLoading ? 'Rejecting...' : 'Confirm Rejection'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Assign Responsibility Modal */}
+            {showAssignTaskModal && (
+              <div className="fixed inset-0 z-50 bg-neutral-950/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+                <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-neutral-200 space-y-4 max-h-[90vh] overflow-y-auto">
+                  <div className="flex items-center justify-between border-b border-neutral-100 pb-3">
+                    <h3 className="text-base font-bold text-neutral-900 font-display">Assign Academic Responsibility</h3>
+                    <button
+                      type="button"
+                      onClick={() => setShowAssignTaskModal(false)}
+                      className="p-1 text-neutral-400 hover:text-neutral-700 rounded cursor-pointer"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleCreateTeacherTask} className="space-y-3.5 text-xs">
+                    <div>
+                      <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                        Assign To Teacher *
+                      </label>
+                      <select
+                        value={taskForm.teacher_id}
+                        onChange={e => setTaskForm({ ...taskForm, teacher_id: e.target.value })}
+                        className="w-full text-xs py-2 px-3 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                        required
+                      >
+                        <option value="">Select Faculty Member</option>
+                        {teachers.map(t => (
+                          <option key={t.id} value={t.id}>
+                            {t.name} ({t.subject})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                        Responsibility / Task Title *
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Conduct Class 9 Math Midterm Examination"
+                        value={taskForm.title}
+                        onChange={e => setTaskForm({ ...taskForm, title: e.target.value })}
+                        className="w-full text-xs py-2 px-3 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                        required
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                          Class (Optional)
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Class 9"
+                          value={taskForm.class_name}
+                          onChange={e => setTaskForm({ ...taskForm, class_name: e.target.value })}
+                          className="w-full text-xs py-2 px-3 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                          Section (Optional)
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. A"
+                          value={taskForm.section}
+                          onChange={e => setTaskForm({ ...taskForm, section: e.target.value })}
+                          className="w-full text-xs py-2 px-3 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                          Priority Level
+                        </label>
+                        <select
+                          value={taskForm.priority}
+                          onChange={e => setTaskForm({ ...taskForm, priority: e.target.value as any })}
+                          className="w-full text-xs py-2 px-3 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                        >
+                          <option value="Low">Low</option>
+                          <option value="Medium">Medium</option>
+                          <option value="High">High</option>
+                          <option value="Urgent">Urgent</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                          Completion Deadline *
+                        </label>
+                        <input
+                          type="date"
+                          value={taskForm.due_date}
+                          onChange={e => setTaskForm({ ...taskForm, due_date: e.target.value })}
+                          className="w-full text-xs py-2 px-3 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                        Detailed Description &amp; Instructions
+                      </label>
+                      <textarea
+                        rows={3}
+                        placeholder="Provide guidelines, reporting expectations, or requirements..."
+                        value={taskForm.description}
+                        onChange={e => setTaskForm({ ...taskForm, description: e.target.value })}
+                        className="w-full text-xs py-2 px-3 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700 resize-none"
+                      />
+                    </div>
+
+                    <div className="pt-3 border-t border-neutral-100 flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        disabled={teacherActionLoading}
+                        onClick={() => setShowAssignTaskModal(false)}
+                        className="px-4 py-2 text-xs font-semibold text-neutral-700 hover:bg-neutral-100 rounded-lg cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={teacherActionLoading}
+                        className="px-5 py-2 text-xs font-bold text-white bg-emerald-900 hover:bg-emerald-800 disabled:opacity-50 rounded-lg cursor-pointer shadow-2xs"
+                      >
+                        {teacherActionLoading ? 'Assigning...' : 'Assign Task'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

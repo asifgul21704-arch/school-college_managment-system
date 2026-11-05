@@ -16,6 +16,8 @@ import {
   BookOpen,
   Eye,
   EyeOff,
+  Briefcase,
+  Award,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api, establishAuthenticatedSession } from '../services/api';
@@ -24,7 +26,7 @@ interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (role: string) => void;
-  initialTab?: 'signin' | 'student-signup' | 'parent-signup';
+  initialTab?: 'signin' | 'student-signup' | 'parent-signup' | 'teacher-signup';
   initialResetToken?: string | null;
   onClearResetToken?: () => void;
 }
@@ -38,7 +40,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   onClearResetToken,
 }) => {
   const { login, refreshUser } = useAuth();
-  const [activeTab, setActiveTab] = useState<'signin' | 'student-signup' | 'parent-signup'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'signin' | 'student-signup' | 'parent-signup' | 'teacher-signup'>(initialTab);
   const [signinMode, setSigninMode] = useState<'login' | 'forgot' | 'confirm-reset'>(
     initialResetToken ? 'confirm-reset' : 'login'
   );
@@ -75,6 +77,21 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [childAdmNo, setChildAdmNo] = useState('');
   const [childDob, setChildDob] = useState('');
 
+  // Teacher Signup State
+  const [tchFullName, setTchFullName] = useState('');
+  const [tchFatherName, setTchFatherName] = useState('');
+  const [tchEmail, setTchEmail] = useState('');
+  const [tchPhone, setTchPhone] = useState('');
+  const [tchCnic, setTchCnic] = useState('');
+  const [tchQualification, setTchQualification] = useState('M.Sc Mathematics');
+  const [tchSubject, setTchSubject] = useState('Mathematics');
+  const [tchSpecialization, setTchSpecialization] = useState('Pure Mathematics');
+  const [tchExperience, setTchExperience] = useState('5 Years');
+  const [tchPassword, setTchPassword] = useState('');
+  const [tchConfirmPassword, setTchConfirmPassword] = useState('');
+  const [tchBio, setTchBio] = useState('');
+  const [tchSignupComplete, setTchSignupComplete] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
@@ -91,6 +108,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       }
       setError(null);
       setSuccessNotice(null);
+      setTchSignupComplete(false);
     }
   }, [isOpen, initialTab, initialResetToken]);
 
@@ -223,6 +241,62 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     }
   };
 
+  const handleTeacherSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!tchFullName.trim()) {
+      setError('Please enter your full name.');
+      return;
+    }
+    if (!tchEmail.trim()) {
+      setError('Please provide a valid email address.');
+      return;
+    }
+    if (tchPassword.length < 8) {
+      setError('Password must be at least 8 characters long.');
+      return;
+    }
+    if (tchPassword !== tchConfirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+    if (!tchQualification.trim()) {
+      setError('Please specify your qualification.');
+      return;
+    }
+    if (!tchSubject.trim()) {
+      setError('Please specify your teaching subject or specialization.');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setSuccessNotice(null);
+
+    try {
+      const res = await api.registerTeacher({
+        full_name: tchFullName.trim(),
+        father_name: tchFatherName.trim(),
+        email: tchEmail.trim().toLowerCase(),
+        phone: tchPhone.trim(),
+        cnic: tchCnic.trim(),
+        qualification: tchQualification.trim(),
+        subject: tchSubject.trim(),
+        specialization: tchSpecialization.trim() || tchSubject.trim(),
+        experience: tchExperience.trim(),
+        password: tchPassword,
+        confirm_password: tchConfirmPassword,
+        bio: tchBio.trim(),
+      });
+
+      setTchSignupComplete(true);
+      setSuccessNotice(res.message);
+    } catch (err: any) {
+      setError(err.message || 'Teacher registration failed. Please verify the entered details.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const targetEmail = forgotEmail.trim().toLowerCase();
@@ -326,12 +400,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         <div
           role="tablist"
           aria-label="Authentication mode"
-          className="grid grid-cols-3 gap-1 p-1 bg-neutral-100 rounded-xl border border-neutral-200 mb-5"
+          className="grid grid-cols-2 sm:grid-cols-4 gap-1 p-1 bg-neutral-100 rounded-xl border border-neutral-200 mb-5"
         >
           {[
             { id: 'signin' as const, label: 'Sign In' },
-            { id: 'student-signup' as const, label: 'Student Signup' },
-            { id: 'parent-signup' as const, label: 'Parent Signup' },
+            { id: 'teacher-signup' as const, label: 'Teacher Signup' },
+            { id: 'student-signup' as const, label: 'Student' },
+            { id: 'parent-signup' as const, label: 'Parent' },
           ].map(tab => {
             const selected = activeTab === tab.id;
             return (
@@ -1017,6 +1092,303 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               {loading ? 'Registering Guardian Account...' : 'Complete Parent Registration'}
             </button>
           </form>
+        )}
+
+        {/* 4. TEACHER SIGNUP TAB */}
+        {activeTab === 'teacher-signup' && (
+          <div>
+            {tchSignupComplete ? (
+              <div className="py-6 px-4 text-center space-y-4 bg-emerald-50/60 border border-emerald-200 rounded-2xl">
+                <div className="w-14 h-14 bg-emerald-100 text-emerald-800 rounded-2xl mx-auto flex items-center justify-center shadow-xs">
+                  <CheckCircle2 className="w-8 h-8" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-emerald-950 font-display">
+                    Application Submitted Successfully!
+                  </h3>
+                  <p className="text-xs text-emerald-800 font-semibold mt-1">
+                    Status: Pending School Administration Approval
+                  </p>
+                </div>
+                <p className="text-xs text-neutral-600 max-w-md mx-auto leading-relaxed">
+                  Thank you for applying to join the academic faculty of Shawan School &amp; College. For security and quality assurance, all new teacher profiles are audited by the Principal&apos;s office prior to portal activation.
+                </p>
+                <div className="p-3 bg-white rounded-xl border border-emerald-200 text-left text-xs space-y-1">
+                  <div className="text-neutral-500 font-medium">Registered Faculty Email:</div>
+                  <div className="font-mono font-bold text-neutral-900">{tchEmail}</div>
+                  <div className="text-[11px] text-neutral-500 pt-1">
+                    Once approved, your assigned classes, timetable, and attendance records will be immediately accessible in your Teacher Portal.
+                  </div>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEmail(tchEmail);
+                      setActiveTab('signin');
+                      setSigninMode('login');
+                      setTchSignupComplete(false);
+                      setSuccessNotice('You can sign in once your account has been approved by the Administration.');
+                    }}
+                    className="flex-1 py-2.5 px-4 bg-emerald-900 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
+                  >
+                    Go to Sign In
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTchFullName('');
+                      setTchFatherName('');
+                      setTchEmail('');
+                      setTchPhone('');
+                      setTchCnic('');
+                      setTchPassword('');
+                      setTchConfirmPassword('');
+                      setTchBio('');
+                      setTchSignupComplete(false);
+                    }}
+                    className="py-2.5 px-4 bg-white hover:bg-neutral-50 text-neutral-700 font-semibold text-xs rounded-xl border border-neutral-300 transition-colors cursor-pointer"
+                  >
+                    Submit Another
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleTeacherSignup} className="space-y-3.5">
+                <div className="p-3 bg-neutral-50 border border-neutral-200 rounded-xl text-xs text-neutral-700 flex items-start gap-2.5">
+                  <Briefcase className="w-4 h-4 text-emerald-800 shrink-0 mt-0.5" />
+                  <div className="leading-relaxed">
+                    <span className="font-bold text-neutral-900">Faculty Self-Registration:</span> Complete your academic credentials below. Applications require administrative approval before portal access is activated.
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="tch-fullname" className="block text-xs font-semibold text-neutral-700 mb-1">
+                      Full Name *
+                    </label>
+                    <div className="relative">
+                      <User className="w-4 h-4 text-neutral-400 absolute left-3 top-2.5 pointer-events-none" />
+                      <input
+                        id="tch-fullname"
+                        type="text"
+                        placeholder="e.g. Prof. Tariq Mehmood"
+                        value={tchFullName}
+                        onChange={e => setTchFullName(e.target.value)}
+                        className="w-full text-xs py-2 pl-9 pr-3 bg-neutral-50 border border-neutral-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label htmlFor="tch-fathername" className="block text-xs font-semibold text-neutral-700 mb-1">
+                      Father / Husband Name
+                    </label>
+                    <div className="relative">
+                      <User className="w-4 h-4 text-neutral-400 absolute left-3 top-2.5 pointer-events-none" />
+                      <input
+                        id="tch-fathername"
+                        type="text"
+                        placeholder="e.g. Mehmood Akhtar"
+                        value={tchFatherName}
+                        onChange={e => setTchFatherName(e.target.value)}
+                        className="w-full text-xs py-2 pl-9 pr-3 bg-neutral-50 border border-neutral-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="tch-email" className="block text-xs font-semibold text-neutral-700 mb-1">
+                      Official / Personal Email *
+                    </label>
+                    <div className="relative">
+                      <Mail className="w-4 h-4 text-neutral-400 absolute left-3 top-2.5 pointer-events-none" />
+                      <input
+                        id="tch-email"
+                        type="email"
+                        placeholder="tariq@shawanschool.edu.pk"
+                        value={tchEmail}
+                        onChange={e => setTchEmail(e.target.value)}
+                        className="w-full text-xs py-2 pl-9 pr-3 bg-neutral-50 border border-neutral-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label htmlFor="tch-phone" className="block text-xs font-semibold text-neutral-700 mb-1">
+                      Mobile Number *
+                    </label>
+                    <div className="relative">
+                      <Phone className="w-4 h-4 text-neutral-400 absolute left-3 top-2.5 pointer-events-none" />
+                      <input
+                        id="tch-phone"
+                        type="tel"
+                        placeholder="0300-1234567"
+                        value={tchPhone}
+                        onChange={e => setTchPhone(e.target.value)}
+                        className="w-full text-xs py-2 pl-9 pr-3 bg-neutral-50 border border-neutral-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                        required
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label htmlFor="tch-cnic" className="block text-xs font-semibold text-neutral-700 mb-1">
+                      CNIC (National ID)
+                    </label>
+                    <input
+                      id="tch-cnic"
+                      type="text"
+                      placeholder="12101-XXXXXXX-X"
+                      value={tchCnic}
+                      onChange={e => setTchCnic(e.target.value)}
+                      className="w-full text-xs py-2 px-3 bg-neutral-50 border border-neutral-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700 font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="tch-qual" className="block text-xs font-semibold text-neutral-700 mb-1">
+                      Qualification *
+                    </label>
+                    <div className="relative">
+                      <Award className="w-4 h-4 text-neutral-400 absolute left-3 top-2.5 pointer-events-none" />
+                      <input
+                        id="tch-qual"
+                        type="text"
+                        placeholder="e.g. M.Sc Mathematics, B.Ed"
+                        value={tchQualification}
+                        onChange={e => setTchQualification(e.target.value)}
+                        className="w-full text-xs py-2 pl-9 pr-3 bg-neutral-50 border border-neutral-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label htmlFor="tch-exp" className="block text-xs font-semibold text-neutral-700 mb-1">
+                      Experience
+                    </label>
+                    <input
+                      id="tch-exp"
+                      type="text"
+                      placeholder="e.g. 5 Years"
+                      value={tchExperience}
+                      onChange={e => setTchExperience(e.target.value)}
+                      className="w-full text-xs py-2 px-3 bg-neutral-50 border border-neutral-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="tch-subject" className="block text-xs font-semibold text-neutral-700 mb-1">
+                      Primary Subject *
+                    </label>
+                    <select
+                      id="tch-subject"
+                      value={tchSubject}
+                      onChange={e => setTchSubject(e.target.value)}
+                      className="w-full text-xs py-2 px-3 bg-neutral-50 border border-neutral-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                      required
+                    >
+                      <option value="Mathematics">Mathematics</option>
+                      <option value="Physics">Physics</option>
+                      <option value="Chemistry">Chemistry</option>
+                      <option value="Biology">Biology</option>
+                      <option value="English">English</option>
+                      <option value="Urdu">Urdu</option>
+                      <option value="Computer Science">Computer Science</option>
+                      <option value="Islamiyat">Islamiyat</option>
+                      <option value="Pakistan Studies">Pakistan Studies</option>
+                      <option value="General Science">General Science</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label htmlFor="tch-spec" className="block text-xs font-semibold text-neutral-700 mb-1">
+                      Specialization / Sub-field
+                    </label>
+                    <input
+                      id="tch-spec"
+                      type="text"
+                      placeholder="e.g. Pure Mathematics, Organic Chem"
+                      value={tchSpecialization}
+                      onChange={e => setTchSpecialization(e.target.value)}
+                      className="w-full text-xs py-2 px-3 bg-neutral-50 border border-neutral-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="tch-pass" className="block text-xs font-semibold text-neutral-700 mb-1">
+                      Account Password * (min 8 chars)
+                    </label>
+                    <div className="relative">
+                      <Lock className="w-4 h-4 text-neutral-400 absolute left-3 top-2.5 pointer-events-none" />
+                      <input
+                        id="tch-pass"
+                        type={showPassword ? 'text' : 'password'}
+                        placeholder="Create a strong password"
+                        value={tchPassword}
+                        onChange={e => setTchPassword(e.target.value)}
+                        className="w-full text-xs py-2 pl-9 pr-10 bg-neutral-50 border border-neutral-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                        required
+                        minLength={8}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label htmlFor="tch-confirmpass" className="block text-xs font-semibold text-neutral-700 mb-1">
+                      Confirm Password *
+                    </label>
+                    <div className="relative">
+                      <Lock className="w-4 h-4 text-neutral-400 absolute left-3 top-2.5 pointer-events-none" />
+                      <input
+                        id="tch-confirmpass"
+                        type={showPassword ? 'text' : 'password'}
+                        placeholder="Re-enter password"
+                        value={tchConfirmPassword}
+                        onChange={e => setTchConfirmPassword(e.target.value)}
+                        className="w-full text-xs py-2 pl-9 pr-10 bg-neutral-50 border border-neutral-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                        required
+                        minLength={8}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="tch-bio" className="block text-xs font-semibold text-neutral-700 mb-1">
+                    Academic Summary / Bio (Optional)
+                  </label>
+                  <textarea
+                    id="tch-bio"
+                    rows={2}
+                    placeholder="Brief summary of teaching philosophy, publications, or past institutions..."
+                    value={tchBio}
+                    onChange={e => setTchBio(e.target.value)}
+                    className="w-full text-xs py-2 px-3 bg-neutral-50 border border-neutral-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700 resize-none"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="min-h-[44px] w-full py-3 text-xs font-bold text-white bg-emerald-900 hover:bg-emerald-800 disabled:opacity-50 rounded-xl shadow-xs transition-colors cursor-pointer mt-2"
+                >
+                  {loading ? 'Submitting Teacher Application...' : 'Submit Faculty Application for Approval'}
+                </button>
+              </form>
+            )}
+          </div>
         )}
       </div>
     </div>

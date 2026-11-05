@@ -86,6 +86,12 @@ import {
   NotificationModel,
   StoredDocumentModel,
   PasswordResetTokenModel,
+  TeacherTaskModel,
+  toTeacherTaskDto,
+  type TeacherTaskDto,
+  HomeworkModel,
+  toHomeworkDto,
+  type HomeworkDto,
 } from './models/index.ts';
 import mongoose from 'mongoose';
 import { processAdminAiQuery, ControlledSchoolTools, type AdminAiQueryContext, getAiProviderStatus, testGeminiConnection } from './services/aiAssistantService.ts';
@@ -174,6 +180,12 @@ function buildAdmissionLookupFilter(rawId: string): Record<string, any> {
     clauses.push({ _id: new mongoose.Types.ObjectId(trimmed) });
   }
   return { $or: clauses };
+}
+
+function isValidObjectId(val: unknown): boolean {
+  if (typeof val !== 'string') return false;
+  const trimmed = val.trim();
+  return mongoose.Types.ObjectId.isValid(trimmed) && /^[a-fA-F0-9]{24}$/.test(trimmed);
 }
 
 function isValidCmsIdParam(rawId: unknown): boolean {
@@ -972,6 +984,16 @@ router.post('/auth/login', authRateLimiter, async (req: Request, res: Response) 
     }
 
     if (userDoc.status && userDoc.status !== 'active') {
+      if (userDoc.role === 'teacher' && userDoc.status === 'pending') {
+        return res.status(403).json({
+          error: 'Your teacher registration is currently pending administrator approval. Please contact the school administration once approved.',
+        });
+      }
+      if (userDoc.status === 'suspended') {
+        return res.status(403).json({
+          error: 'Your account has been suspended by the school administration. Please contact the administrative office.',
+        });
+      }
       return res.status(403).json({
         error: `Account is currently ${userDoc.status}. Please contact school administration.`,
       });
@@ -1728,6 +1750,147 @@ router.post('/auth/register-parent', authRateLimiter, async (req: Request, res: 
       return res.status(409).json({ error: 'An account with this email address already exists' });
     }
     return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to register parent account') });
+  }
+});
+
+// Teacher self-signup (MongoDB-authoritative with mandatory Admin approval)
+router.post('/auth/register-teacher', authRateLimiter, async (req: Request, res: Response) => {
+  const {
+    full_name,
+    father_name,
+    email,
+    password,
+    confirm_password,
+    phone,
+    cnic,
+    qualification,
+    subject,
+    specialization,
+    experience,
+    bio,
+    profile_photo,
+    role: injectedRole,
+  } = req.body || {};
+
+  // Strict server-enforced role boundary: Never trust role from frontend or allow escalation
+  if (injectedRole !== undefined && String(injectedRole).trim().toLowerCase() !== 'teacher') {
+    return res.status(403).json({
+      error: 'Privilege escalation blocked: Teacher registration can only create teacher accounts.',
+    });
+  }
+
+  if (!full_name || !email || !password || !qualification || (!subject && !specialization)) {
+    return res.status(400).json({
+      error: 'Full name, email, password, qualification, and subject/specialization are required.',
+    });
+  }
+
+  if (password !== confirm_password) {
+    return res.status(400).json({ error: 'Passwords do not match' });
+  }
+
+  const passCheck = validatePassword(String(password));
+  if (!passCheck.valid) {
+    return res.status(400).json({ error: passCheck.message });
+  }
+
+  const cleanEmail = String(email).trim().toLowerCase();
+  if (!validateEmail(cleanEmail)) {
+    return res.status(400).json({ error: 'Please provide a valid email address' });
+  }
+
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const existingUser = await UserModel.findOne({ email: cleanEmail }).lean();
+    if (existingUser) {
+      return res.status(409).json({ error: 'An account with this email address already exists' });
+    }
+
+    const cleanPhone = phone ? String(phone).trim() : '';
+    if (cleanPhone) {
+      const existingPhone = await UserModel.findOne({ phone: cleanPhone }).lean();
+      if (existingPhone) {
+        return res.status(409).json({ error: 'An account with this mobile number already exists' });
+      }
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const password_hash = await bcrypt.hash(String(password), salt);
+
+    const ts = Date.now();
+    const randSuffix = Math.random().toString(36).slice(2, 6);
+    const newTeacherId = `tch_${ts}_${randSuffix}`;
+    const newUserId = `usr_${ts}_${randSuffix}`;
+
+    const chosenSubject = String(subject || specialization || 'General').trim();
+    const chosenSpec = String(specialization || subject || '').trim();
+
+    // 1. Create Teacher profile in 'Pending' state
+    const teacherDoc = await TeacherModel.create({
+      record_id: newTeacherId,
+      user_id: newUserId,
+      name: String(full_name).trim(),
+      father_name: father_name ? String(father_name).trim() : '',
+      cnic: cnic ? String(cnic).trim() : '',
+      profile_photo: profile_photo ? String(profile_photo).trim() : '',
+      qualification: String(qualification).trim(),
+      subject: chosenSubject,
+      specialization: chosenSpec,
+      classes: [],
+      contact_no: cleanPhone,
+      email: cleanEmail,
+      joining_date: new Date().toISOString().split('T')[0],
+      experience: experience ? String(experience).trim() : '',
+      status: 'Pending',
+      bio: bio ? String(bio).trim() : '',
+    });
+
+    // 2. Create User account strictly with role: 'teacher' and status: 'pending'
+    await UserModel.create({
+      record_id: newUserId,
+      email: cleanEmail,
+      name: String(full_name).trim(),
+      password_hash,
+      role: 'teacher',
+      status: 'pending',
+      linked_id: newTeacherId,
+      phone: cleanPhone,
+    });
+
+    // 3. Log to AuditLog
+    await AuditLogModel.create({
+      log_id: `aud_${ts}_${randSuffix}`,
+      user_id: newUserId,
+      user_name: String(full_name).trim(),
+      role: 'teacher',
+      action: 'TEACHER_SIGNUP_REQUEST',
+      details: `Teacher self-registration submitted: ${full_name} (${cleanEmail}), subject: ${chosenSubject}. Pending admin approval.`,
+      ip_address: req.ip || '',
+    }).catch(() => {});
+
+    // 4. Create Notification for School Admin
+    await NotificationModel.create({
+      notification_id: `notif_${ts}_${randSuffix}`,
+      user_id: 'admin',
+      role: 'admin',
+      title: 'New Teacher Signup Application',
+      message: `${full_name} (${cleanEmail}) applied for teacher position (${chosenSubject}). Please review in Admin Console.`,
+      type: 'info',
+      read: false,
+    }).catch(() => {});
+
+    return res.status(201).json({
+      success: true,
+      message:
+        'Your teacher registration request has been submitted successfully! The School Administration must review and approve your account before access is granted. Please check back later or contact the administration office.',
+      teacher: toTeacherDto(teacherDoc),
+    });
+  } catch (err: any) {
+    if (err?.code === 11000) {
+      return res.status(409).json({ error: 'An account or teacher record with these identifiers already exists' });
+    }
+    return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to submit teacher application') });
   }
 });
 
@@ -3883,6 +4046,386 @@ router.delete('/teachers/:id', authenticateToken, requireRole(['super_admin', 'a
     }
   } catch (err: any) {
     return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to delete teacher') });
+  }
+});
+
+// ==========================================
+// 5.1 TEACHER APPROVAL & TASK MANAGEMENT (ADMIN)
+// ==========================================
+
+// Get all pending teacher signup requests
+router.get('/admin/teacher-requests', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
+  if (!ensureMongoReady(res)) return;
+  try {
+    const pendingUsers = await UserModel.find({ role: 'teacher', status: 'pending' })
+      .sort({ created_at: -1 })
+      .lean();
+
+    const results = await Promise.all(
+      pendingUsers.map(async u => {
+        const teacher = await TeacherModel.findOne({
+          $or: [
+            ...(u.linked_id ? [{ record_id: u.linked_id }, { _id: isValidObjectId(u.linked_id) ? u.linked_id : undefined }].filter(Boolean) : []),
+            { user_id: u.record_id },
+            { email: u.email.toLowerCase() },
+          ],
+        }).lean();
+
+        return {
+          id: u.record_id,
+          user_id: u.record_id,
+          teacher_id: teacher?.record_id || u.linked_id || '',
+          name: u.name,
+          email: u.email,
+          phone: u.phone || teacher?.contact_no || '',
+          father_name: teacher?.father_name || '',
+          cnic: teacher?.cnic || '',
+          qualification: teacher?.qualification || '',
+          subject: teacher?.subject || '',
+          specialization: teacher?.specialization || teacher?.subject || '',
+          experience: teacher?.experience || '',
+          bio: teacher?.bio || '',
+          status: 'Pending',
+          created_at: u.created_at ? new Date(u.created_at).toISOString() : new Date().toISOString(),
+        };
+      })
+    );
+
+    return res.json({ requests: results });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to fetch pending teacher applications');
+  }
+});
+
+// Approve teacher application and assign classes/subjects
+router.post('/admin/teacher-requests/:id/approve', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
+  const targetId = req.params.id;
+  if (!targetId) {
+    return res.status(400).json({ error: 'Target ID is required' });
+  }
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    // 1. Locate user record
+    const userDoc = await UserModel.findOne({
+      $or: [
+        { record_id: targetId },
+        { linked_id: targetId },
+        ...(isValidObjectId(targetId) ? [{ _id: targetId }] : []),
+      ],
+      role: 'teacher',
+    });
+
+    if (!userDoc) {
+      return res.status(404).json({ error: 'Pending teacher account not found' });
+    }
+
+    // 2. Locate teacher profile
+    const teacherDoc = await TeacherModel.findOne({
+      $or: [
+        ...(userDoc.linked_id ? [{ record_id: userDoc.linked_id }, { _id: isValidObjectId(userDoc.linked_id) ? userDoc.linked_id : undefined }].filter(Boolean) : []),
+        { user_id: userDoc.record_id },
+        { email: userDoc.email.toLowerCase() },
+      ],
+    });
+
+    if (!teacherDoc) {
+      return res.status(404).json({ error: 'Associated teacher profile not found' });
+    }
+
+    const {
+      classes,
+      subject,
+      employment_status,
+      assignments,
+      is_class_teacher,
+      class_teacher_for,
+    } = req.body || {};
+
+    const resolvedStatus = employment_status && ['Active', 'On Leave', 'Suspended'].includes(employment_status)
+      ? employment_status
+      : 'Active';
+
+    // 3. Update User status to active
+    userDoc.status = resolvedStatus === 'Suspended' ? 'suspended' : 'active';
+    await userDoc.save();
+
+    // 4. Update Teacher profile
+    teacherDoc.status = resolvedStatus;
+    if (Array.isArray(classes)) {
+      teacherDoc.classes = classes.map(c => String(c).trim()).filter(Boolean);
+    }
+    if (subject && String(subject).trim()) {
+      teacherDoc.subject = String(subject).trim();
+    }
+    await teacherDoc.save();
+
+    const teacherDto = toTeacherDto(teacherDoc);
+
+    // 5. Create Teacher Assignments if provided
+    if (Array.isArray(assignments) && assignments.length > 0) {
+      for (const asg of assignments) {
+        if (!asg.class_name || !asg.section || !asg.subject) continue;
+        const exists = await TeacherAssignmentModel.findOne({
+          teacher_id: teacherDto.id,
+          class_name: asg.class_name,
+          section: asg.section,
+          subject: asg.subject,
+        });
+        if (!exists) {
+          const randSuffix = Math.random().toString(36).slice(2, 6);
+          await TeacherAssignmentModel.create({
+            record_id: `asg_${Date.now()}_${randSuffix}`,
+            teacher_id: teacherDto.id,
+            teacher_name: teacherDto.name,
+            class_name: asg.class_name,
+            section: asg.section,
+            subject: asg.subject,
+            academic_session: '2026-2027',
+            assigned_date: new Date().toISOString().split('T')[0],
+            is_class_teacher: Boolean(asg.is_class_teacher),
+          });
+        }
+      }
+    } else if (is_class_teacher && class_teacher_for?.class_name && class_teacher_for?.section) {
+      // Direct class teacher assignment
+      const exists = await TeacherAssignmentModel.findOne({
+        teacher_id: teacherDto.id,
+        class_name: class_teacher_for.class_name,
+        section: class_teacher_for.section,
+      });
+      if (exists) {
+        exists.is_class_teacher = true;
+        await exists.save();
+      } else {
+        const randSuffix = Math.random().toString(36).slice(2, 6);
+        await TeacherAssignmentModel.create({
+          record_id: `asg_${Date.now()}_${randSuffix}`,
+          teacher_id: teacherDto.id,
+          teacher_name: teacherDto.name,
+          class_name: class_teacher_for.class_name,
+          section: class_teacher_for.section,
+          subject: teacherDto.subject || 'All',
+          academic_session: '2026-2027',
+          assigned_date: new Date().toISOString().split('T')[0],
+          is_class_teacher: true,
+        });
+      }
+    }
+
+    // 6. Audit Log
+    await recordMongoAudit(
+      req.user!,
+      'Approved Teacher Application',
+      'Teacher',
+      teacherDto.id,
+      `Approved ${teacherDto.name} (${teacherDto.email}). Status: ${resolvedStatus}, Classes: ${(teacherDoc.classes || []).join(', ')}`
+    );
+
+    // 7. Notification for Teacher
+    await NotificationModel.create({
+      notification_id: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      user_id: userDoc.record_id,
+      role: 'teacher',
+      title: 'Teacher Account Approved',
+      message: `Congratulations ${teacherDto.name}! Your teacher account has been approved by the School Administration. You can now access your teacher portal.`,
+      type: 'info',
+      read: false,
+    }).catch(() => {});
+
+    return res.json({
+      success: true,
+      message: `Teacher ${teacherDto.name} has been approved and activated successfully.`,
+      teacher: teacherDto,
+    });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to approve teacher application');
+  }
+});
+
+// Reject teacher application
+router.post('/admin/teacher-requests/:id/reject', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
+  const targetId = req.params.id;
+  if (!targetId) {
+    return res.status(400).json({ error: 'Target ID is required' });
+  }
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const { reason } = req.body || {};
+
+    const userDoc = await UserModel.findOne({
+      $or: [
+        { record_id: targetId },
+        { linked_id: targetId },
+        ...(isValidObjectId(targetId) ? [{ _id: targetId }] : []),
+      ],
+      role: 'teacher',
+    });
+
+    if (!userDoc) {
+      return res.status(404).json({ error: 'Pending teacher account not found' });
+    }
+
+    const teacherDoc = await TeacherModel.findOne({
+      $or: [
+        ...(userDoc.linked_id ? [{ record_id: userDoc.linked_id }, { _id: isValidObjectId(userDoc.linked_id) ? userDoc.linked_id : undefined }].filter(Boolean) : []),
+        { user_id: userDoc.record_id },
+        { email: userDoc.email.toLowerCase() },
+      ],
+    });
+
+    userDoc.status = 'inactive';
+    await userDoc.save();
+
+    if (teacherDoc) {
+      teacherDoc.status = 'Resigned';
+      await teacherDoc.save();
+    }
+
+    await recordMongoAudit(
+      req.user!,
+      'Rejected Teacher Application',
+      'Teacher',
+      userDoc.record_id,
+      `Rejected ${userDoc.name} (${userDoc.email}). Reason: ${reason || 'Not specified'}`
+    );
+
+    return res.json({
+      success: true,
+      message: `Teacher application for ${userDoc.name} has been rejected.`,
+    });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to reject teacher application');
+  }
+});
+
+// Admin Teacher Tasks / Responsibilities Management
+router.get('/admin/teacher-tasks', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
+  if (!ensureMongoReady(res)) return;
+  try {
+    const filter: Record<string, any> = {};
+    if (req.query.teacher_id && typeof req.query.teacher_id === 'string' && req.query.teacher_id.trim()) {
+      filter.teacher_id = req.query.teacher_id.trim();
+    }
+    if (req.query.status && typeof req.query.status === 'string' && req.query.status.trim()) {
+      filter.status = req.query.status.trim();
+    }
+
+    const tasks = await TeacherTaskModel.find(filter).sort({ due_date: 1, created_at: -1 }).lean();
+    return res.json({ tasks: tasks.map(toTeacherTaskDto) });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to fetch teacher tasks');
+  }
+});
+
+router.post('/admin/teacher-tasks', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
+  const { title, description, teacher_id, class_name, section, priority, due_date } = req.body || {};
+  if (!title || !teacher_id || !due_date) {
+    return res.status(400).json({ error: 'Title, teacher ID, and due date are required' });
+  }
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const teacher = await TeacherModel.findOne({
+      $or: [{ record_id: teacher_id }, ...(isValidObjectId(teacher_id) ? [{ _id: teacher_id }] : [])],
+    }).lean();
+
+    const teacherName = teacher ? teacher.name : 'Teacher';
+    const taskId = `tsk_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+
+    const taskDoc = await TeacherTaskModel.create({
+      task_id: taskId,
+      title: String(title).trim(),
+      description: description ? String(description).trim() : '',
+      teacher_id: String(teacher_id).trim(),
+      teacher_name: teacherName,
+      class_name: class_name ? String(class_name).trim() : '',
+      section: section ? String(section).trim() : '',
+      priority: ['Low', 'Medium', 'High', 'Urgent'].includes(priority) ? priority : 'Medium',
+      status: 'Pending',
+      due_date: String(due_date).trim(),
+      assigned_by: req.user?.name || 'Administration',
+    });
+
+    // Notify teacher
+    if (teacher?.user_id) {
+      await NotificationModel.create({
+        notification_id: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        user_id: teacher.user_id,
+        role: 'teacher',
+        title: 'New Responsibility Assigned',
+        message: `Admin assigned a new duty: "${title}" (Due: ${due_date}). Please review your tasks tab.`,
+        type: 'info',
+        read: false,
+      }).catch(() => {});
+    }
+
+    await recordMongoAudit(
+      req.user!,
+      'Assigned Teacher Responsibility',
+      'TeacherTask',
+      taskId,
+      `Assigned "${title}" to ${teacherName} (Due: ${due_date})`
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: 'Teacher task assigned successfully',
+      task: toTeacherTaskDto(taskDoc),
+    });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to assign teacher task');
+  }
+});
+
+router.patch('/admin/teacher-tasks/:id', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
+  const taskId = req.params.id;
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const task = await TeacherTaskModel.findOne({
+      $or: [{ task_id: taskId }, ...(isValidObjectId(taskId) ? [{ _id: taskId }] : [])],
+    });
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    const { title, description, priority, status, due_date, class_name, section } = req.body || {};
+    if (title !== undefined) task.title = String(title).trim();
+    if (description !== undefined) task.description = String(description).trim();
+    if (priority !== undefined && ['Low', 'Medium', 'High', 'Urgent'].includes(priority)) task.priority = priority;
+    if (status !== undefined && ['Pending', 'In Progress', 'Completed'].includes(status)) {
+      task.status = status;
+      if (status === 'Completed' && !task.completed_at) {
+        task.completed_at = new Date().toISOString();
+      }
+    }
+    if (due_date !== undefined) task.due_date = String(due_date).trim();
+    if (class_name !== undefined) task.class_name = String(class_name).trim();
+    if (section !== undefined) task.section = String(section).trim();
+
+    await task.save();
+    return res.json({ success: true, task: toTeacherTaskDto(task) });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to update task');
+  }
+});
+
+router.delete('/admin/teacher-tasks/:id', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
+  const taskId = req.params.id;
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const result = await TeacherTaskModel.findOneAndDelete({
+      $or: [{ task_id: taskId }, ...(isValidObjectId(taskId) ? [{ _id: taskId }] : [])],
+    });
+    if (!result) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    return res.json({ success: true, message: 'Task deleted successfully' });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to delete task');
   }
 });
 
@@ -9301,7 +9844,11 @@ router.get('/teacher/dashboard', authenticateToken, requireExactRole(['teacher']
     }
 
     const assignedClasses = teacher.classes || [];
-    const [allStudentDocs, allTtDocs, annDocs, allAttDocs, allResDocs] = await Promise.all([
+    const teacherIds = Array.from(
+      new Set([teacher.id, req.user?.linked_id, req.user?.id].filter(Boolean))
+    );
+
+    const [allStudentDocs, allTtDocs, annDocs, allAttDocs, allResDocs, assignmentDocs, taskDocs, notifCount] = await Promise.all([
       StudentModel.find().lean(),
       TimetableModel.find().sort({ created_at: 1, _id: 1 }).lean(),
       AnnouncementModel.find({
@@ -9313,11 +9860,29 @@ router.get('/teacher/dashboard', authenticateToken, requireExactRole(['teacher']
         .lean(),
       AttendanceModel.find().sort({ date: -1, created_at: -1, _id: -1 }).lean(),
       ResultModel.find().sort({ created_at: -1, _id: -1 }).lean(),
+      TeacherAssignmentModel.find({ teacher_id: { $in: teacherIds } }).lean(),
+      TeacherTaskModel.find({ teacher_id: { $in: teacherIds } }).sort({ due_date: 1 }).lean(),
+      NotificationModel.countDocuments({
+        $or: [{ user_id: req.user!.id }, { user_id: teacher.id }, { role: 'teacher' }],
+        read: false,
+      }).catch(() => 0),
     ]);
+
+    const assignments = assignmentDocs.map(toTeacherAssignmentDto);
+    const isClassTeacher = assignments.some(a => a.is_class_teacher);
+    const classTeacherAssignments = assignments.filter(a => a.is_class_teacher);
+
+    // Merge any classes from assignments
+    const mergedClasses = [...assignedClasses];
+    for (const asg of assignments) {
+      if (asg.class_name && !mergedClasses.some(c => c.toLowerCase() === asg.class_name.toLowerCase())) {
+        mergedClasses.push(asg.class_name);
+      }
+    }
 
     const assignedStudents = allStudentDocs
       .map(toStudentDto)
-      .filter(s => isClassAssignedToTeacher(assignedClasses, s.class_name));
+      .filter(s => isClassAssignedToTeacher(mergedClasses, s.class_name));
 
     const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const todayDay = daysOfWeek[new Date().getDay()];
@@ -9331,11 +9896,11 @@ router.get('/teacher/dashboard', authenticateToken, requireExactRole(['teacher']
 
     const assignedAttendance = allAttDocs
       .map(toAttendanceDto)
-      .filter(a => isClassAssignedToTeacher(assignedClasses, a.class_name));
+      .filter(a => isClassAssignedToTeacher(mergedClasses, a.class_name));
 
     const markedClasses: string[] = [];
     const pendingClasses: string[] = [];
-    for (const c of assignedClasses) {
+    for (const c of mergedClasses) {
       const isMarked = assignedAttendance.some(
         a => a.date === todayDate && a.class_name.toLowerCase() === c.toLowerCase()
       );
@@ -9351,17 +9916,23 @@ router.get('/teacher/dashboard', authenticateToken, requireExactRole(['teacher']
 
     const recentResults = allResDocs
       .map(toResultDto)
-      .filter(r => isClassAssignedToTeacher(assignedClasses, r.class_name))
+      .filter(r => isClassAssignedToTeacher(mergedClasses, r.class_name))
       .slice(0, 5);
+
+    const tasks = taskDocs.map(toTeacherTaskDto);
+    const pendingTasks = tasks.filter(t => t.status !== 'Completed');
 
     return res.json({
       teacher: {
         id: teacher.id,
         name: teacher.name,
+        father_name: teacher.father_name || '',
+        cnic: teacher.cnic || '',
         email: teacher.email,
         qualification: teacher.qualification,
         subject: teacher.subject,
-        classes: teacher.classes,
+        specialization: teacher.specialization || teacher.subject,
+        classes: mergedClasses,
         status: teacher.status,
         experience: teacher.experience,
         joining_date: teacher.joining_date,
@@ -9369,8 +9940,11 @@ router.get('/teacher/dashboard', authenticateToken, requireExactRole(['teacher']
         contact_no: teacher.contact_no,
         profile_photo: teacher.profile_photo,
       },
-      assignedClasses,
-      totalClasses: assignedClasses.length,
+      assignedClasses: mergedClasses,
+      assignments,
+      isClassTeacher,
+      classTeacherAssignments,
+      totalClasses: mergedClasses.length,
       totalStudents: assignedStudents.length,
       todayTimetable,
       timetableCount: teacherTimetable.length,
@@ -9380,6 +9954,9 @@ router.get('/teacher/dashboard', authenticateToken, requireExactRole(['teacher']
         markedClasses,
         pendingClasses,
       },
+      tasks,
+      pendingTasksCount: pendingTasks.length,
+      unreadNotifsCount: notifCount,
       recentAnnouncements,
       recentActivity: {
         attendance: recentAttendance,
@@ -10089,6 +10666,197 @@ router.get('/teacher/timetable', authenticateToken, requireExactRole(['teacher']
     });
   } catch (err: any) {
     return sendRouteError(res, err, 'Failed to retrieve teacher timetable');
+  }
+});
+
+// 20.71 Teacher Tasks & Responsibilities
+router.get('/teacher/tasks', authenticateToken, requireExactRole(['teacher']), async (req: AuthenticatedRequest, res: Response) => {
+  if (!ensureMongoReady(res)) return;
+  try {
+    const teacher = await getAuthenticatedTeacherMongo(req);
+    if (!teacher) {
+      return res.status(404).json({ error: 'Teacher profile not linked.' });
+    }
+
+    const teacherIds = Array.from(
+      new Set([teacher.id, req.user?.linked_id, req.user?.id].filter(Boolean))
+    );
+
+    const tasks = await TeacherTaskModel.find({
+      teacher_id: { $in: teacherIds },
+    })
+      .sort({ due_date: 1, created_at: -1 })
+      .lean();
+
+    return res.json({ tasks: tasks.map(toTeacherTaskDto) });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to fetch assigned tasks');
+  }
+});
+
+router.patch('/teacher/tasks/:id', authenticateToken, requireExactRole(['teacher']), async (req: AuthenticatedRequest, res: Response) => {
+  const taskId = req.params.id;
+  if (!ensureMongoReady(res)) return;
+  try {
+    const teacher = await getAuthenticatedTeacherMongo(req);
+    if (!teacher) {
+      return res.status(404).json({ error: 'Teacher profile not linked.' });
+    }
+
+    const teacherIds = Array.from(
+      new Set([teacher.id, req.user?.linked_id, req.user?.id].filter(Boolean))
+    );
+
+    const task = await TeacherTaskModel.findOne({
+      $or: [{ task_id: taskId }, ...(isValidObjectId(taskId) ? [{ _id: taskId }] : [])],
+      teacher_id: { $in: teacherIds },
+    });
+
+    if (!task) {
+      return res.status(404).json({ error: 'Assigned task not found or unauthorized.' });
+    }
+
+    const { status, completion_notes } = req.body || {};
+    if (status !== undefined && ['Pending', 'In Progress', 'Completed'].includes(status)) {
+      task.status = status;
+      if (status === 'Completed') {
+        task.completed_at = new Date().toISOString();
+      }
+    }
+    if (completion_notes !== undefined) {
+      task.completion_notes = String(completion_notes).trim();
+    }
+
+    await task.save();
+
+    await recordMongoAudit(
+      req.user!,
+      'Updated Task Progress',
+      'TeacherTask',
+      task.task_id,
+      `Updated status to ${task.status}`
+    );
+
+    return res.json({ success: true, task: toTeacherTaskDto(task) });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to update task status');
+  }
+});
+
+// 20.72 Teacher Homework Management
+router.get('/teacher/homework', authenticateToken, requireExactRole(['teacher']), async (req: AuthenticatedRequest, res: Response) => {
+  if (!ensureMongoReady(res)) return;
+  try {
+    const teacher = await getAuthenticatedTeacherMongo(req);
+    if (!teacher) {
+      return res.status(404).json({ error: 'Teacher profile not linked.' });
+    }
+
+    const filter: Record<string, any> = {
+      $or: [{ teacher_id: teacher.id }, { teacher_id: req.user?.linked_id || '' }],
+    };
+
+    if (req.query.class_name && typeof req.query.class_name === 'string') {
+      filter.class_name = req.query.class_name.trim();
+    }
+    if (req.query.section && typeof req.query.section === 'string') {
+      filter.section = req.query.section.trim();
+    }
+
+    const docs = await HomeworkModel.find(filter).sort({ due_date: -1, created_at: -1 }).lean();
+    return res.json({ homework: docs.map(toHomeworkDto) });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to fetch homework');
+  }
+});
+
+router.post('/teacher/homework', authenticateToken, requireExactRole(['teacher']), async (req: AuthenticatedRequest, res: Response) => {
+  const { title, description, class_name, section, subject, due_date, total_marks, instructions } = req.body || {};
+  if (!title || !description || !class_name || !section || !subject || !due_date) {
+    return res.status(400).json({ error: 'Title, description, class, section, subject, and due date are required' });
+  }
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const teacher = await getAuthenticatedTeacherMongo(req);
+    if (!teacher) {
+      return res.status(404).json({ error: 'Teacher profile not linked.' });
+    }
+
+    const homeworkId = `hwk_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const created = await HomeworkModel.create({
+      homework_id: homeworkId,
+      title: String(title).trim(),
+      description: String(description).trim(),
+      class_name: String(class_name).trim(),
+      section: String(section).trim(),
+      subject: String(subject).trim(),
+      teacher_id: teacher.id,
+      teacher_name: teacher.name,
+      assigned_date: new Date().toISOString().split('T')[0],
+      due_date: String(due_date).trim(),
+      total_marks: Number(total_marks) || 10,
+      instructions: instructions ? String(instructions).trim() : '',
+    });
+
+    await recordMongoAudit(
+      req.user!,
+      'Created Homework Assignment',
+      'Homework',
+      homeworkId,
+      `Class: ${class_name}-${section}, Subject: ${subject}, Title: ${title}`
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: 'Homework posted successfully',
+      homework: toHomeworkDto(created),
+    });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to create homework');
+  }
+});
+
+router.delete('/teacher/homework/:id', authenticateToken, requireExactRole(['teacher']), async (req: AuthenticatedRequest, res: Response) => {
+  const hwId = req.params.id;
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const teacher = await getAuthenticatedTeacherMongo(req);
+    if (!teacher) {
+      return res.status(404).json({ error: 'Teacher profile not linked.' });
+    }
+
+    const deleted = await HomeworkModel.findOneAndDelete({
+      $or: [{ homework_id: hwId }, ...(isValidObjectId(hwId) ? [{ _id: hwId }] : [])],
+      teacher_id: { $in: [teacher.id, req.user?.linked_id || ''] },
+    });
+
+    if (!deleted) {
+      return res.status(404).json({ error: 'Homework not found or unauthorized' });
+    }
+
+    return res.json({ success: true, message: 'Homework assignment deleted' });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to delete homework');
+  }
+});
+
+// Public / Portal Homework endpoint
+router.get('/homework', async (req: Request, res: Response) => {
+  if (!ensureMongoReady(res)) return;
+  try {
+    const filter: Record<string, any> = {};
+    if (req.query.class_name && typeof req.query.class_name === 'string') {
+      filter.class_name = req.query.class_name.trim();
+    }
+    if (req.query.section && typeof req.query.section === 'string') {
+      filter.section = req.query.section.trim();
+    }
+    const docs = await HomeworkModel.find(filter).sort({ due_date: -1, created_at: -1 }).limit(100).lean();
+    return res.json({ homework: docs.map(toHomeworkDto) });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to fetch homework');
   }
 });
 

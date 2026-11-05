@@ -26,5 +26,7 @@ export * from './StoredDocument.ts';
 export * from './RevokedToken.ts';
 export * from './RateLimitBucket.ts';
 export * from './PasswordResetToken.ts';
+export * from './TeacherTask.ts';
+export * from './Homework.ts';
 
 
