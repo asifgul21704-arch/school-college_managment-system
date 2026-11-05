@@ -1,7 +1,7 @@
 {
-  "name": "react-example",
+  "name": "shawan-school-college-management",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "engines": {
     "node": ">=22.18.0"
