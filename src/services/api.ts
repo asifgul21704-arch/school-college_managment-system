@@ -213,6 +213,11 @@ export const api = {
       body: JSON.stringify({ email }),
     }),
 
+  verifyResetToken: (token: string) =>
+    request<{ valid: boolean; email?: string; error?: string; message?: string }>(
+      `/auth/verify-reset-token?token=${encodeURIComponent(token)}`
+    ),
+
   confirmPasswordReset: (data: { token: string; new_password: string; confirm_password: string }) =>
     request<{ message: string }>('/auth/confirm-reset-password', {
       method: 'POST',

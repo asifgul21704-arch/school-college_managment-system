@@ -1203,6 +1203,115 @@ router.post('/auth/forgot-password', passwordResetRateLimiter, async (req: Reque
   }
 });
 
+// Self-service Verify Password Reset Token: allows frontend to pre-validate whether a reset token is valid/unexpired
+router.get('/auth/verify-reset-token', passwordResetRateLimiter, async (req: Request, res: Response) => {
+  const rawToken = req.query.token || req.body?.token;
+  if (!rawToken || typeof rawToken !== 'string' || !/^[a-fA-F0-9]{64}$/.test(rawToken.trim())) {
+    return res.status(400).json({
+      valid: false,
+      error: 'Invalid password reset link. The link is malformed or has an invalid token format.',
+    });
+  }
+
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const cleanToken = rawToken.trim();
+    const tokenHash = crypto.createHash('sha256').update(cleanToken.toLowerCase()).digest('hex');
+    const exactTokenHash = crypto.createHash('sha256').update(cleanToken).digest('hex');
+    const now = new Date();
+
+    const tokenDoc = await PasswordResetTokenModel.findOne({
+      token_hash: { $in: [exactTokenHash, tokenHash] },
+      used_at: null,
+      expires_at: { $gt: now },
+    }).lean();
+
+    if (!tokenDoc) {
+      return res.status(400).json({
+        valid: false,
+        error: 'This password reset link is invalid, expired, or has already been used. Please request a new link.',
+      });
+    }
+
+    let maskedEmail = '';
+    if (tokenDoc.email) {
+      const parts = tokenDoc.email.split('@');
+      const localPart = parts[0] || '';
+      const domain = parts[1] || '';
+      if (localPart && domain) {
+        const maskedLocal =
+          localPart.length > 2
+            ? `${localPart[0]}${'*'.repeat(Math.min(localPart.length - 2, 5))}${localPart[localPart.length - 1]}`
+            : `${localPart[0]}*`;
+        maskedEmail = `${maskedLocal}@${domain}`;
+      }
+    }
+
+    return res.json({
+      valid: true,
+      email: maskedEmail,
+      message: 'Password reset token is valid and unexpired.',
+    });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to verify reset token');
+  }
+});
+
+router.post('/auth/verify-reset-token', passwordResetRateLimiter, async (req: Request, res: Response) => {
+  const rawToken = req.body?.token || req.query.token;
+  if (!rawToken || typeof rawToken !== 'string' || !/^[a-fA-F0-9]{64}$/.test(rawToken.trim())) {
+    return res.status(400).json({
+      valid: false,
+      error: 'Invalid password reset link. The link is malformed or has an invalid token format.',
+    });
+  }
+
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const cleanToken = rawToken.trim();
+    const tokenHash = crypto.createHash('sha256').update(cleanToken.toLowerCase()).digest('hex');
+    const exactTokenHash = crypto.createHash('sha256').update(cleanToken).digest('hex');
+    const now = new Date();
+
+    const tokenDoc = await PasswordResetTokenModel.findOne({
+      token_hash: { $in: [exactTokenHash, tokenHash] },
+      used_at: null,
+      expires_at: { $gt: now },
+    }).lean();
+
+    if (!tokenDoc) {
+      return res.status(400).json({
+        valid: false,
+        error: 'This password reset link is invalid, expired, or has already been used. Please request a new link.',
+      });
+    }
+
+    let maskedEmail = '';
+    if (tokenDoc.email) {
+      const parts = tokenDoc.email.split('@');
+      const localPart = parts[0] || '';
+      const domain = parts[1] || '';
+      if (localPart && domain) {
+        const maskedLocal =
+          localPart.length > 2
+            ? `${localPart[0]}${'*'.repeat(Math.min(localPart.length - 2, 5))}${localPart[localPart.length - 1]}`
+            : `${localPart[0]}*`;
+        maskedEmail = `${maskedLocal}@${domain}`;
+      }
+    }
+
+    return res.json({
+      valid: true,
+      email: maskedEmail,
+      message: 'Password reset token is valid and unexpired.',
+    });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to verify reset token');
+  }
+});
+
 // Self-service Confirm Password Reset: consumes single-use hashed token and revokes all existing sessions
 router.post('/auth/confirm-reset-password', passwordResetRateLimiter, async (req: Request, res: Response) => {
   const { token, new_password, confirm_password } = req.body || {};

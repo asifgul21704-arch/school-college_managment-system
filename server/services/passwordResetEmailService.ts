@@ -25,6 +25,26 @@ export interface SmtpConfig {
   publicAppUrl: string;
 }
 
+export function getFrontendBaseUrl(): string {
+  const explicitFrontend = String(process.env.FRONTEND_URL || '').trim().replace(/\/+$/, '');
+  if (explicitFrontend) {
+    return explicitFrontend;
+  }
+  const appPublicUrl = String(process.env.APP_PUBLIC_URL || '').trim().replace(/\/+$/, '');
+  if (appPublicUrl) {
+    return appPublicUrl;
+  }
+  const firstCorsOrigin = String(process.env.CORS_ORIGIN || '')
+    .split(',')
+    .map(s => s.trim().replace(/\/+$/, ''))
+    .find(s => Boolean(s) && s !== '*');
+  if (firstCorsOrigin) {
+    return firstCorsOrigin;
+  }
+  const port = process.env.PORT ? Number(process.env.PORT) : 3000;
+  return `http://localhost:${port}`;
+}
+
 export function getSmtpConfig(): SmtpConfig | null {
   const host = String(process.env.SMTP_HOST || '').trim();
   const rawPort = String(process.env.SMTP_PORT || '').trim();
@@ -44,15 +64,7 @@ export function getSmtpConfig(): SmtpConfig | null {
   const secureEnv = String(process.env.SMTP_SECURE || '').trim().toLowerCase();
   const secure = secureEnv ? secureEnv === 'true' : port === 465;
 
-  const firstCorsOrigin = String(process.env.CORS_ORIGIN || '')
-    .split(',')
-    .map(s => s.trim().replace(/\/+$/, ''))
-    .find(Boolean);
-  const publicAppUrl = (
-    String(process.env.APP_PUBLIC_URL || '').trim().replace(/\/+$/, '') ||
-    firstCorsOrigin ||
-    'http://localhost:3000'
-  );
+  const publicAppUrl = getFrontendBaseUrl();
 
   return { host, port, secure, user, pass, from, publicAppUrl };
 }
@@ -273,7 +285,7 @@ export async function openAuthenticatedSmtpTransport(): Promise<OpenSmtpTranspor
       const cleanFromEnvelope = extractAddressAngle(cfg.from);
       const cleanTo = sanitizeHeaderValue(toEmail);
       const safeName = sanitizeHeaderValue(recipientName || 'Portal User');
-      const resetUrl = `${cfg.publicAppUrl}/?reset_token=${encodeURIComponent(rawResetToken)}`;
+      const resetUrl = `${cfg.publicAppUrl}/reset-password?token=${encodeURIComponent(rawResetToken)}`;
 
       await session.sendCommand(`MAIL FROM:<${cleanFromEnvelope}>`, [250]);
       await session.sendCommand(`RCPT TO:<${cleanTo}>`, [250, 251]);

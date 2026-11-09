@@ -73,7 +73,14 @@ async function startServer() {
 
   const app = express();
   app.disable('x-powered-by');
-  app.set('trust proxy', 1);
+  const rawTrustProxy = String(process.env.TRUST_PROXY || '').trim().toLowerCase();
+  const trustProxySetting =
+    rawTrustProxy === 'true'
+      ? true
+      : rawTrustProxy && !isNaN(Number(rawTrustProxy))
+      ? Number(rawTrustProxy)
+      : 1;
+  app.set('trust proxy', trustProxySetting);
 
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));

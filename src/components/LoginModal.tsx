@@ -53,6 +53,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [resetTokenInput, setResetTokenInput] = useState(initialResetToken || '');
   const [resetNewPassword, setResetNewPassword] = useState('');
   const [resetConfirmPassword, setResetConfirmPassword] = useState('');
+  const [tokenValidationState, setTokenValidationState] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle');
+  const [tokenValidationMessage, setTokenValidationMessage] = useState<string | null>(null);
+  const [tokenUserEmail, setTokenUserEmail] = useState<string | null>(null);
 
   // Student Signup State
   const [stdFullName, setStdFullName] = useState('');
@@ -102,9 +105,45 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         setActiveTab('signin');
         setSigninMode('confirm-reset');
         setResetTokenInput(initialResetToken);
+        setError(null);
+        setSuccessNotice(null);
+
+        // Immediate format check and API pre-validation
+        const cleanToken = initialResetToken.trim();
+        if (cleanToken === 'INVALID_NO_TOKEN' || !/^[a-fA-F0-9]{64}$/.test(cleanToken)) {
+          setTokenValidationState('invalid');
+          setTokenValidationMessage(
+            'No valid reset token was detected in this password reset link. Please request a new password recovery link.'
+          );
+        } else {
+          setTokenValidationState('checking');
+          setTokenValidationMessage(null);
+          setTokenUserEmail(null);
+          api.verifyResetToken(cleanToken)
+            .then(res => {
+              if (res.valid) {
+                setTokenValidationState('valid');
+                setTokenUserEmail(res.email || null);
+              } else {
+                setTokenValidationState('invalid');
+                setTokenValidationMessage(
+                  res.error || 'This password reset link is invalid, expired, or has already been used.'
+                );
+              }
+            })
+            .catch(err => {
+              setTokenValidationState('invalid');
+              setTokenValidationMessage(
+                err?.message || 'Unable to verify password reset link. It may be expired or already used.'
+              );
+            });
+        }
       } else {
         setActiveTab(initialTab);
         setSigninMode('login');
+        setTokenValidationState('idle');
+        setTokenValidationMessage(null);
+        setTokenUserEmail(null);
       }
       setError(null);
       setSuccessNotice(null);
@@ -343,11 +382,21 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       setResetTokenInput('');
       setResetNewPassword('');
       setResetConfirmPassword('');
+      setTokenValidationState('idle');
       onClearResetToken?.();
       setSigninMode('login');
-      setSuccessNotice(res.message);
+      if (tokenUserEmail) {
+        setEmail(tokenUserEmail);
+      }
+      if (typeof window !== 'undefined') {
+        const cleanUrl = window.location.pathname.startsWith('/reset-password') ? '/' : window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+      }
+      setSuccessNotice(
+        res.message || 'Your password has been reset successfully. Please sign in with your new password.'
+      );
     } catch (err: any) {
-      setError(err.message || 'Unable to reset password. The link may have expired.');
+      setError(err.message || 'Unable to reset password. The link may have expired or is invalid.');
     } finally {
       setLoading(false);
     }
@@ -635,77 +684,165 @@ export const LoginModal: React.FC<LoginModalProps> = ({
             )}
 
             {signinMode === 'confirm-reset' && (
-              <form onSubmit={handleConfirmResetSubmit} className="space-y-4">
-                <p className="text-xs text-neutral-600 leading-relaxed">
-                  Enter your new portal password below. Completing this reset immediately signs out any previous sessions.
-                </p>
-                <div>
-                  <label htmlFor="reset-new-password" className="block text-xs font-semibold text-neutral-700 mb-1.5">
-                    New Password
-                  </label>
-                  <div className="relative">
-                    <Lock className="w-4 h-4 text-neutral-400 absolute left-3 top-3 pointer-events-none" />
-                    <input
-                      id="reset-new-password"
-                      type={showPassword ? 'text' : 'password'}
-                      autoComplete="new-password"
-                      placeholder="Minimum 6 characters"
-                      value={resetNewPassword}
-                      onChange={e => setResetNewPassword(e.target.value)}
-                      className="w-full text-xs py-2.5 pl-9.5 pr-10 bg-neutral-50 border border-neutral-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700"
-                      required
-                    />
+              <div>
+                {tokenValidationState === 'checking' && (
+                  <div className="py-8 text-center space-y-3">
+                    <div className="w-8 h-8 border-2 border-emerald-700 border-t-transparent rounded-full animate-spin mx-auto" />
+                    <div className="text-xs font-bold text-neutral-800">Verifying Password Reset Security Link...</div>
+                    <p className="text-[11px] text-neutral-500 max-w-xs mx-auto leading-relaxed">
+                      Checking the cryptographic token with the institutional server.
+                    </p>
+                  </div>
+                )}
+
+                {tokenValidationState === 'invalid' && (
+                  <div className="space-y-4">
+                    <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl space-y-2">
+                      <div className="flex items-center gap-2 text-rose-900 font-bold text-xs">
+                        <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                        <span>Password Reset Link Expired or Invalid</span>
+                      </div>
+                      <p className="text-xs text-rose-700 leading-relaxed">
+                        {tokenValidationMessage ||
+                          'This password reset link is invalid, expired (links expire after 15 minutes), or has already been used.'}
+                      </p>
+                    </div>
+
+                    <p className="text-xs text-neutral-600 leading-relaxed">
+                      For institutional portal security, password reset links are single-use and time-bound. You may request a fresh password reset link below.
+                    </p>
+
                     <button
                       type="button"
-                      onClick={() => setShowPassword(p => !p)}
-                      aria-label={showPassword ? 'Hide password' : 'Show password'}
-                      className="absolute right-2.5 top-2 p-1 text-neutral-400 hover:text-neutral-700 rounded cursor-pointer"
+                      onClick={() => {
+                        setError(null);
+                        setSuccessNotice(null);
+                        setResetTokenInput('');
+                        setTokenValidationState('idle');
+                        onClearResetToken?.();
+                        setSigninMode('forgot');
+                        if (typeof window !== 'undefined' && window.location.pathname.startsWith('/reset-password')) {
+                          window.history.replaceState({}, document.title, '/');
+                        }
+                      }}
+                      className="min-h-[44px] w-full py-3 text-xs font-bold text-white bg-emerald-900 hover:bg-emerald-800 rounded-xl shadow-xs transition-colors cursor-pointer"
                     >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      Request a New Reset Link
                     </button>
+
+                    <div className="text-center">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setError(null);
+                          setSuccessNotice(null);
+                          setResetTokenInput('');
+                          setTokenValidationState('idle');
+                          onClearResetToken?.();
+                          setSigninMode('login');
+                          if (typeof window !== 'undefined' && window.location.pathname.startsWith('/reset-password')) {
+                            window.history.replaceState({}, document.title, '/');
+                          }
+                        }}
+                        className="text-xs font-semibold text-neutral-600 hover:text-emerald-900 cursor-pointer"
+                      >
+                        Back to Sign In
+                      </button>
+                    </div>
                   </div>
-                </div>
-                <div>
-                  <label htmlFor="reset-confirm-password" className="block text-xs font-semibold text-neutral-700 mb-1.5">
-                    Confirm New Password
-                  </label>
-                  <div className="relative">
-                    <Lock className="w-4 h-4 text-neutral-400 absolute left-3 top-3 pointer-events-none" />
-                    <input
-                      id="reset-confirm-password"
-                      type={showPassword ? 'text' : 'password'}
-                      autoComplete="new-password"
-                      placeholder="Re-enter new password"
-                      value={resetConfirmPassword}
-                      onChange={e => setResetConfirmPassword(e.target.value)}
-                      className="w-full text-xs py-2.5 pl-9.5 pr-3 bg-neutral-50 border border-neutral-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700"
-                      required
-                    />
-                  </div>
-                </div>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="min-h-[44px] w-full py-3 text-xs font-bold text-white bg-emerald-900 hover:bg-emerald-800 disabled:opacity-50 rounded-xl shadow-xs transition-colors cursor-pointer"
-                >
-                  {loading ? 'Updating Password...' : 'Confirm New Password'}
-                </button>
-                <div className="text-center">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setError(null);
-                      setSuccessNotice(null);
-                      setResetTokenInput('');
-                      onClearResetToken?.();
-                      setSigninMode('login');
-                    }}
-                    className="text-xs font-semibold text-neutral-600 hover:text-emerald-900 cursor-pointer"
-                  >
-                    Back to Sign In
-                  </button>
-                </div>
-              </form>
+                )}
+
+                {(tokenValidationState === 'valid' || tokenValidationState === 'idle') && (
+                  <form onSubmit={handleConfirmResetSubmit} className="space-y-4">
+                    {tokenUserEmail && (
+                      <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-950 flex items-center gap-2.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                        <span>
+                          Resetting password for registered account: <strong>{tokenUserEmail}</strong>
+                        </span>
+                      </div>
+                    )}
+
+                    <p className="text-xs text-neutral-600 leading-relaxed">
+                      Enter your new portal password below. Completing this reset immediately invalidates all previous sessions across all devices.
+                    </p>
+
+                    <div>
+                      <label htmlFor="reset-new-password" className="block text-xs font-semibold text-neutral-700 mb-1.5">
+                        New Password (Minimum 6 characters)
+                      </label>
+                      <div className="relative">
+                        <Lock className="w-4 h-4 text-neutral-400 absolute left-3 top-3 pointer-events-none" />
+                        <input
+                          id="reset-new-password"
+                          type={showPassword ? 'text' : 'password'}
+                          autoComplete="new-password"
+                          placeholder="Enter at least 6 characters"
+                          value={resetNewPassword}
+                          onChange={e => setResetNewPassword(e.target.value)}
+                          className="w-full text-xs py-2.5 pl-9.5 pr-10 bg-neutral-50 border border-neutral-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                          required
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(p => !p)}
+                          aria-label={showPassword ? 'Hide password' : 'Show password'}
+                          className="absolute right-2.5 top-2 p-1 text-neutral-400 hover:text-neutral-700 rounded cursor-pointer"
+                        >
+                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label htmlFor="reset-confirm-password" className="block text-xs font-semibold text-neutral-700 mb-1.5">
+                        Confirm New Password
+                      </label>
+                      <div className="relative">
+                        <Lock className="w-4 h-4 text-neutral-400 absolute left-3 top-3 pointer-events-none" />
+                        <input
+                          id="reset-confirm-password"
+                          type={showPassword ? 'text' : 'password'}
+                          autoComplete="new-password"
+                          placeholder="Re-enter new password"
+                          value={resetConfirmPassword}
+                          onChange={e => setResetConfirmPassword(e.target.value)}
+                          className="w-full text-xs py-2.5 pl-9.5 pr-3 bg-neutral-50 border border-neutral-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="min-h-[44px] w-full py-3 text-xs font-bold text-white bg-emerald-900 hover:bg-emerald-800 disabled:opacity-50 rounded-xl shadow-xs transition-colors cursor-pointer"
+                    >
+                      {loading ? 'Updating Password...' : 'Confirm New Password'}
+                    </button>
+
+                    <div className="text-center">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setError(null);
+                          setSuccessNotice(null);
+                          setResetTokenInput('');
+                          setTokenValidationState('idle');
+                          onClearResetToken?.();
+                          setSigninMode('login');
+                          if (typeof window !== 'undefined' && window.location.pathname.startsWith('/reset-password')) {
+                            window.history.replaceState({}, document.title, '/');
+                          }
+                        }}
+                        className="text-xs font-semibold text-neutral-600 hover:text-emerald-900 cursor-pointer"
+                      >
+                        Back to Sign In
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
             )}
           </div>
         )}

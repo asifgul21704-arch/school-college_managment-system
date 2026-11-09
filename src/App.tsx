@@ -160,22 +160,26 @@ function SchoolApp() {
   useEffect(() => {
     fetchPublicData();
     if (typeof window !== 'undefined') {
+      const pathname = window.location.pathname.replace(/\/+$/, '');
       const searchParams = new URLSearchParams(window.location.search);
-      const queryToken = searchParams.get('reset_token');
-      const hashMatch = window.location.hash.match(/reset_token=([a-fA-F0-9]{64})/);
+      const queryToken = searchParams.get('token') || searchParams.get('reset_token');
+      const hashMatch = window.location.hash.match(/(?:token|reset_token)=([a-fA-F0-9]{64})/);
       const detectedToken =
         queryToken && /^[a-fA-F0-9]{64}$/.test(queryToken.trim())
           ? queryToken.trim()
           : hashMatch
           ? hashMatch[1]
           : null;
+
+      const isResetPath = pathname === '/reset-password';
+
       if (detectedToken) {
         setPendingResetToken(detectedToken);
         setLoginModalOpen(true);
-        searchParams.delete('reset_token');
-        const remainingQuery = searchParams.toString();
-        const cleanUrl = `${window.location.pathname}${remainingQuery ? `?${remainingQuery}` : ''}`;
-        window.history.replaceState({}, document.title, cleanUrl);
+      } else if (isResetPath) {
+        // Navigated directly to /reset-password without a valid token
+        setPendingResetToken(queryToken ? queryToken.trim() : 'INVALID_NO_TOKEN');
+        setLoginModalOpen(true);
       }
     }
   }, []);
@@ -384,6 +388,9 @@ function SchoolApp() {
         onClose={() => {
           setLoginModalOpen(false);
           setPendingResetToken(null);
+          if (typeof window !== 'undefined' && window.location.pathname.startsWith('/reset-password')) {
+            window.history.replaceState({}, document.title, '/');
+          }
         }}
         onSuccess={role => {
           if (['super_admin', 'admin'].includes(role)) {
