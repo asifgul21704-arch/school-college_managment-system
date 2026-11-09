@@ -503,6 +503,30 @@ export async function authenticateToken(req: AuthenticatedRequest, res: Response
   }
 }
 
+export async function authenticateOptionalToken(req: AuthenticatedRequest, _res: Response, next: NextFunction) {
+  const token = extractTokenFromRequest(req);
+  if (!token) return next();
+  if (await isTokenRevokedAsync(token)) return next();
+  try {
+    const decoded: any = jsonwebtoken.verify(token, getJwtSecret());
+    if (mongoose.connection.readyState === 1) {
+      const liveUser = await resolveLiveUserFromDecoded(decoded);
+      if (liveUser) {
+        req.user = {
+          id: String(liveUser.record_id || liveUser._id),
+          email: String(liveUser.email),
+          role: String(liveUser.role) as any,
+          name: String(liveUser.name),
+          phone: liveUser.phone,
+          linked_id: liveUser.linked_id,
+          linked_student_ids: liveUser.linked_student_ids,
+        };
+      }
+    }
+  } catch {}
+  next();
+}
+
 export function requireRole(allowedRoles: UserRole[]) {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     if (!req.user) {

@@ -9,6 +9,7 @@ import {
   getJwtSecret,
   resolveLiveUserFromDecoded,
   authenticateToken,
+  authenticateOptionalToken,
   requireRole,
   requireExactRole,
   type AuthenticatedRequest,
@@ -27,6 +28,12 @@ import {
   setSessionCookie,
   clearSessionCookie,
 } from './auth.ts';
+import {
+  detectInquiryIntent,
+  verifyInquiryParent,
+  generateAiInquiryReply,
+  dispatchApprovedReply,
+} from './services/inquiryReplyService.ts';
 import { getMongoStatus, getLastAtlasFallbackError, extractConfiguredDbName, sanitizeErrorMessage } from './config/db.ts';
 import { seedMongoFromLocal, isLocalSeedBlocked } from './config/seed.ts';
 import {
@@ -8513,7 +8520,7 @@ router.delete(
 // 14. CONTACT MESSAGES & INQUIRIES (MONGODB-AUTHORITATIVE)
 // ==========================================
 
-router.post('/contact', contactRateLimiter, async (req: Request, res: Response) => {
+router.post('/contact', contactRateLimiter, authenticateOptionalToken, async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
 
   if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
@@ -8565,9 +8572,19 @@ router.post('/contact', contactRateLimiter, async (req: Request, res: Response) 
   }
 
   try {
-    const recordId = `msg_${Date.now()}_${Math.floor(100 + Math.random() * 900)}`;
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+    const referenceNo = `INQ-${new Date().getFullYear()}-${randomSuffix}`;
+    const recordId = `msg_${Date.now()}_${randomSuffix}`;
+    
+    // Automatically bind authenticated parent if session is present
+    const parentUserId = req.user && req.user.role === 'parent' ? req.user.id : undefined;
+
+    // Detect inquiry intent
+    const { intent } = detectInquiryIntent(cleanSubject, cleanMessage);
+
     const created = await ContactMessageModel.create({
       record_id: recordId,
+      reference_no: referenceNo,
       name: cleanName,
       email: cleanEmail,
       phone: cleanPhone,
@@ -8575,11 +8592,16 @@ router.post('/contact', contactRateLimiter, async (req: Request, res: Response) 
       message: cleanMessage,
       read: false,
       replied: false,
+      status: 'Pending',
+      intent,
+      parent_user_id: parentUserId,
+      replies: [],
     });
 
     const inquiry = toContactMessageDto(created);
     return res.status(201).json({
-      message: 'Message sent successfully to school administration.',
+      message: 'Your inquiry has been registered successfully with school administration.',
+      reference_no: referenceNo,
       inquiry,
     });
   } catch (err: any) {
@@ -8587,6 +8609,104 @@ router.post('/contact', contactRateLimiter, async (req: Request, res: Response) 
   }
 });
 
+// Public Inquiry Tracker: track inquiry status by reference number (zero private student/financial data leaked)
+router.get('/contact/track/:ref', contactRateLimiter, async (req: Request, res: Response) => {
+  if (!ensureMongoReady(res)) return;
+
+  const rawRef = req.params.ref ? String(req.params.ref).trim() : '';
+  if (!rawRef || rawRef.length < 4) {
+    return res.status(400).json({ error: 'Valid inquiry reference number is required' });
+  }
+
+  try {
+    const lookupRegex = new RegExp(`^${rawRef.replace(/[^a-zA-Z0-9-]/g, '')}$`, 'i');
+    const doc = await ContactMessageModel.findOne({
+      $or: [
+        { reference_no: lookupRegex },
+        { record_id: rawRef },
+      ],
+    }).lean();
+
+    if (!doc) {
+      return res.status(404).json({ error: 'Inquiry not found. Please check your reference number.' });
+    }
+
+    const emailQuery = req.query.email ? String(req.query.email).trim().toLowerCase() : '';
+    if (emailQuery && doc.email && doc.email.toLowerCase() !== emailQuery) {
+      return res.status(404).json({ error: 'Inquiry not found matching this reference number and email.' });
+    }
+
+    const replies = Array.isArray(doc.replies)
+      ? doc.replies
+          .filter((r: any) => r.sender_type === 'admin')
+          .map((r: any) => ({
+            id: String(r.id || r._id || ''),
+            sender_name: 'School Administration',
+            message: String(r.message || ''),
+            created_at:
+              r.created_at instanceof Date
+                ? r.created_at.toISOString()
+                : String(r.created_at || new Date().toISOString()),
+          }))
+      : [];
+
+    let statusDescription = 'Your inquiry has been received and is pending administrative review.';
+    if (doc.status === 'Processing') {
+      statusDescription = 'School administration is currently investigating your inquiry.';
+    } else if (doc.status === 'Awaiting Admin Approval') {
+      statusDescription = 'A response has been drafted and is awaiting final administrative sign-off.';
+    } else if (doc.status === 'Replied') {
+      statusDescription = 'Administration has replied to your inquiry. See details below.';
+    } else if (doc.status === 'Resolved') {
+      statusDescription = 'This inquiry has been marked as resolved by administration.';
+    }
+
+    return res.json({
+      reference_no: doc.reference_no || (doc.record_id ? `INQ-${String(doc.record_id).slice(-6).toUpperCase()}` : 'INQ'),
+      subject: doc.subject || 'Inquiry',
+      created_at: doc.created_at ? new Date(doc.created_at).toISOString() : new Date().toISOString(),
+      status: doc.status || (doc.replied ? 'Replied' : 'Pending'),
+      status_description: statusDescription,
+      has_replies: replies.length > 0,
+      replies,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to track inquiry') });
+  }
+});
+
+// Authenticated Parent Inquiries List
+router.get(
+  '/parent/inquiries',
+  authenticateToken,
+  requireRole(['parent']),
+  async (req: AuthenticatedRequest, res: Response) => {
+    if (!ensureMongoReady(res)) return;
+
+    try {
+      const userEmail = req.user?.email ? req.user.email.toLowerCase() : '';
+      const userId = req.user?.id;
+
+      const orConditions: any[] = [];
+      if (userId) orConditions.push({ parent_user_id: userId });
+      if (userEmail) orConditions.push({ email: userEmail });
+
+      if (orConditions.length === 0) {
+        return res.json([]);
+      }
+
+      const docs = await ContactMessageModel.find({ $or: orConditions })
+        .sort({ created_at: -1, _id: -1 })
+        .lean();
+
+      return res.json(docs.map(toContactMessageDto));
+    } catch (err: any) {
+      return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to fetch parent inquiries') });
+    }
+  }
+);
+
+// Admin Inquiries List with status and search filters
 router.get(
   '/contact',
   authenticateToken,
@@ -8594,15 +8714,28 @@ router.get(
   async (req: AuthenticatedRequest, res: Response) => {
     if (!ensureMongoReady(res)) return;
 
-    const { read } = req.query;
-    if (read !== undefined && typeof read !== 'string') {
-      return res.status(400).json({ error: 'Invalid read filter' });
-    }
+    const { read, status, q } = req.query;
 
     try {
       const filter: Record<string, any> = {};
       if (read === 'true') filter.read = true;
       else if (read === 'false') filter.read = false;
+
+      if (status && typeof status === 'string' && status !== 'all') {
+        filter.status = status;
+      }
+
+      if (q && typeof q === 'string') {
+        const cleanQ = q.trim();
+        const searchRegex = new RegExp(cleanQ.replace(/[^a-zA-Z0-9-@._\s]/g, ''), 'i');
+        filter.$or = [
+          { name: searchRegex },
+          { email: searchRegex },
+          { phone: searchRegex },
+          { subject: searchRegex },
+          { reference_no: searchRegex },
+        ];
+      }
 
       const docs = await ContactMessageModel.find(filter).sort({ created_at: -1, _id: -1 }).lean();
       return res.json(docs.map(toContactMessageDto));
@@ -8634,6 +8767,166 @@ router.get(
   }
 );
 
+// Admin Parent Verification on an Inquiry
+router.post(
+  '/contact/:id/verify-parent',
+  authenticateToken,
+  requireRole(['super_admin', 'admin']),
+  async (req: AuthenticatedRequest, res: Response) => {
+    if (!ensureMongoReady(res)) return;
+    if (!isValidCmsIdParam(req.params.id)) {
+      return res.status(400).json({ error: 'Invalid inquiry ID format' });
+    }
+
+    try {
+      const doc = await ContactMessageModel.findOne(buildCmsRecordLookupFilter(req.params.id));
+      if (!doc) {
+        return res.status(404).json({ error: 'Inquiry not found' });
+      }
+
+      const result = await verifyInquiryParent(doc);
+
+      if (result.verified) {
+        doc.verified_parent_id = result.parentId;
+        doc.verified_parent_name = result.parentName;
+        doc.verified_student_ids = result.students.map(s => String(s.record_id || s.admission_no || s._id));
+        await doc.save();
+      }
+
+      await recordMongoAudit(
+        req.user!,
+        'Verified Inquiry Parent',
+        'ContactMessage',
+        doc.record_id || String(doc._id),
+        `Parent verified: ${result.verified}. ${result.notes}`
+      );
+
+      return res.json({
+        verified: result.verified,
+        parent: result.parentDoc ? toParentDto(result.parentDoc) : null,
+        students: result.students.map(toStudentDto),
+        notes: result.notes,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to verify parent') });
+    }
+  }
+);
+
+// Admin AI Generate Reply (with fee records aggregation & Gemini model)
+router.post(
+  '/contact/:id/ai-generate-reply',
+  aiRateLimiter,
+  authenticateToken,
+  requireRole(['super_admin', 'admin']),
+  async (req: AuthenticatedRequest, res: Response) => {
+    if (!ensureMongoReady(res)) return;
+    if (!isValidCmsIdParam(req.params.id)) {
+      return res.status(400).json({ error: 'Invalid inquiry ID format' });
+    }
+
+    try {
+      const doc = await ContactMessageModel.findOne(buildCmsRecordLookupFilter(req.params.id));
+      if (!doc) {
+        return res.status(404).json({ error: 'Inquiry not found' });
+      }
+
+      const result = await generateAiInquiryReply(doc, req.user);
+
+      return res.json({
+        message: 'AI response drafted successfully.',
+        draftReply: result.draftReply,
+        intent: result.intent,
+        isFeeInquiry: result.isFeeInquiry,
+        parentVerified: result.parentVerified,
+        verificationNotes: result.verificationNotes,
+        feeData: result.feeData,
+        inquiry: toContactMessageDto(doc),
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to generate AI reply') });
+    }
+  }
+);
+
+// Admin Approve & Send Reply
+router.post(
+  '/contact/:id/approve-and-send',
+  sensitiveActionRateLimiter,
+  authenticateToken,
+  requireRole(['super_admin', 'admin']),
+  async (req: AuthenticatedRequest, res: Response) => {
+    if (!ensureMongoReady(res)) return;
+    if (!isValidCmsIdParam(req.params.id)) {
+      return res.status(400).json({ error: 'Invalid inquiry ID format' });
+    }
+
+    const { reply_message, send_email = true } = req.body || {};
+    if (!reply_message || typeof reply_message !== 'string' || !reply_message.trim()) {
+      return res.status(400).json({ error: 'Approved reply message is required.' });
+    }
+
+    try {
+      const result = await dispatchApprovedReply(req.params.id, reply_message.trim(), req.user, Boolean(send_email));
+
+      return res.json({
+        message: 'Reply approved and dispatched successfully.',
+        inquiry: toContactMessageDto(result.inquiry),
+        emailSent: result.emailSent,
+        notificationSent: result.notificationSent,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to dispatch reply') });
+    }
+  }
+);
+
+// Admin Update Inquiry Status (Pending, Processing, Awaiting Admin Approval, Replied, Resolved)
+router.put(
+  '/contact/:id/status',
+  authenticateToken,
+  requireRole(['super_admin', 'admin']),
+  async (req: AuthenticatedRequest, res: Response) => {
+    if (!ensureMongoReady(res)) return;
+    if (!isValidCmsIdParam(req.params.id)) {
+      return res.status(400).json({ error: 'Invalid inquiry ID format' });
+    }
+
+    const allowedStatuses = ['Pending', 'Processing', 'Awaiting Admin Approval', 'Replied', 'Resolved'];
+    const newStatus = req.body?.status;
+    if (!allowedStatuses.includes(newStatus)) {
+      return res.status(400).json({ error: `Invalid status. Must be one of: ${allowedStatuses.join(', ')}` });
+    }
+
+    try {
+      const doc = await ContactMessageModel.findOne(buildCmsRecordLookupFilter(req.params.id));
+      if (!doc) {
+        return res.status(404).json({ error: 'Inquiry not found' });
+      }
+
+      doc.status = newStatus;
+      if (newStatus === 'Resolved') {
+        doc.resolved_at = new Date();
+        doc.resolved_by = req.user?.name || 'Administrator';
+        doc.read = true;
+      }
+      await doc.save();
+
+      await recordMongoAudit(
+        req.user!,
+        'Updated Inquiry Status',
+        'ContactMessage',
+        doc.record_id || String(doc._id),
+        `Status changed to "${newStatus}"`
+      );
+
+      return res.json(toContactMessageDto(doc));
+    } catch (err: any) {
+      return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to update status') });
+    }
+  }
+);
+
 router.put(
   '/contact/:id/read',
   authenticateToken,
@@ -8657,7 +8950,7 @@ router.put(
 
       await doc.save();
       const dto = toContactMessageDto(doc);
-      await recordMongoAudit(req.user!, 'Updated Contact Inquiry Status', 'ContactMessage', dto.id, `Marked read=${dto.read}`);
+      await recordMongoAudit(req.user!, 'Updated Contact Inquiry Read Status', 'ContactMessage', dto.id, `Marked read=${dto.read}`);
       return res.json(dto);
     } catch (err: any) {
       return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to update inquiry status') });

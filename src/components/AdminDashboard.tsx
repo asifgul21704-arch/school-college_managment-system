@@ -43,6 +43,10 @@ import {
   Server,
   ClipboardList,
   Briefcase,
+  Bot,
+  Send,
+  RefreshCw,
+  MessageSquare,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
@@ -63,6 +67,7 @@ import {
   SchoolEvent,
   GalleryItem,
   ContactMessage,
+  InquiryStatus,
   SchoolSettings,
   TeacherSignupRequest,
   TeacherTask,
@@ -229,6 +234,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [manualLinkParentId, setManualLinkParentId] = useState('');
   const [manualLinkStudentId, setManualLinkStudentId] = useState('');
   const [manualLinkLoading, setManualLinkLoading] = useState(false);
+
+  // Inquiry Management States (AI Reply & Parent Verification)
+  const [inquiryFilter, setInquiryFilter] = useState<'all' | InquiryStatus>('all');
+  const [inquirySearch, setInquirySearch] = useState('');
+  const [inquiryActionLoading, setInquiryActionLoading] = useState<Record<string, boolean>>({});
+  const [draftReplies, setDraftReplies] = useState<Record<string, string>>({});
+  const [inquiryVerificationData, setInquiryVerificationData] = useState<Record<string, any>>({});
+  const [replyChannels, setReplyChannels] = useState<Record<string, 'all' | 'in_app' | 'email'>>({});
+  const [showHistoryFor, setShowHistoryFor] = useState<Record<string, boolean>>({});
 
   // Timetable State
   const [timetableClassFilter, setTimetableClassFilter] = useState<string>('All');
@@ -694,6 +708,127 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         }
       },
     });
+  };
+
+  // Inquiry Management Handlers (AI Reply & Parent Verification)
+  const handleVerifyInquiryParent = async (id: string) => {
+    setInquiryActionLoading(prev => ({ ...prev, [`verify-${id}`]: true }));
+    try {
+      const data = await api.verifyInquiryParent(id);
+      setInquiryVerificationData(prev => ({ ...prev, [id]: data }));
+      const isVerifiedParent = Boolean(data.verified || data.is_verified);
+      const parentName = data.parent_name || data.parentName || data.parent?.name || 'Registered Parent';
+      const studentCount = data.students?.length || data.linked_students?.length || 0;
+      if (isVerifiedParent) {
+        showNotification(`Parent verified: ${parentName} (${studentCount} student(s) linked).`);
+      } else {
+        showNotification('Inquirer not linked to an active parent account. Standard public response will be used.');
+      }
+      const updated = await api.getContactMessages();
+      setMessages(updated);
+    } catch (err: any) {
+      showError(err.message || 'Failed to verify parent.');
+    } finally {
+      setInquiryActionLoading(prev => ({ ...prev, [`verify-${id}`]: false }));
+    }
+  };
+
+  const handleGenerateAiReply = async (id: string) => {
+    setInquiryActionLoading(prev => ({ ...prev, [`ai-${id}`]: true }));
+    try {
+      const res = await api.generateInquiryAiReply(id, { tone: 'formal' });
+      const draft = res.draftReply || res.ai_draft_reply || '';
+      setDraftReplies(prev => ({ ...prev, [id]: draft }));
+      const fees = res.feeData || res.fee_data || [];
+      if (fees.length > 0) {
+        setInquiryVerificationData(prev => ({
+          ...prev,
+          [id]: {
+            ...prev[id],
+            is_verified: true,
+            parent_name: res.inquiry?.verified_parent_name,
+            fee_summary: fees,
+          },
+        }));
+      }
+      showNotification('AI draft reply generated. Please review, edit if desired, and approve to dispatch.');
+      const updated = await api.getContactMessages();
+      setMessages(updated);
+    } catch (err: any) {
+      showError(err.message || 'Failed to generate AI reply.');
+    } finally {
+      setInquiryActionLoading(prev => ({ ...prev, [`ai-${id}`]: false }));
+    }
+  };
+
+  const handleApproveAndSendReply = async (id: string) => {
+    const draft = draftReplies[id] !== undefined ? draftReplies[id] : (messages.find(m => m.id === id)?.ai_draft_reply || '');
+    if (!draft || !draft.trim()) {
+      showError('Please write or generate a reply before sending.');
+      return;
+    }
+    const channel = replyChannels[id] || 'all';
+    setInquiryActionLoading(prev => ({ ...prev, [`send-${id}`]: true }));
+    try {
+      const res = await api.approveAndSendInquiryReply(id, {
+        message: draft.trim(),
+        channel,
+      });
+      showNotification(res.message || 'Official reply dispatched successfully.');
+      setDraftReplies(prev => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      const updated = await api.getContactMessages();
+      setMessages(updated);
+    } catch (err: any) {
+      showError(err.message || 'Failed to dispatch reply.');
+    } finally {
+      setInquiryActionLoading(prev => ({ ...prev, [`send-${id}`]: false }));
+    }
+  };
+
+  const handleUpdateInquiryStatus = async (id: string, status: InquiryStatus) => {
+    setInquiryActionLoading(prev => ({ ...prev, [`status-${id}`]: true }));
+    try {
+      await api.updateInquiryStatus(id, status);
+      showNotification(`Inquiry status updated to ${status}.`);
+      const updated = await api.getContactMessages();
+      setMessages(updated);
+    } catch (err: any) {
+      showError(err.message || 'Failed to update inquiry status.');
+    } finally {
+      setInquiryActionLoading(prev => ({ ...prev, [`status-${id}`]: false }));
+    }
+  };
+
+  const handleDeleteInquiry = (id: string) => {
+    setConfirmDialog({
+      title: 'Delete Inquiry Record',
+      description: 'Are you sure you want to permanently delete this inquiry message?',
+      confirmLabel: 'Delete Inquiry',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          await api.deleteContactMessage(id);
+          setMessages(prev => prev.filter(m => m.id !== id));
+          showNotification('Inquiry deleted successfully.');
+        } catch (err: any) {
+          showError(err.message || 'Failed to delete inquiry.');
+        }
+      },
+    });
+  };
+
+  const refreshInquiries = async () => {
+    try {
+      const updated = await api.getContactMessages();
+      setMessages(updated);
+      showNotification('Inquiries refreshed.');
+    } catch (err: any) {
+      showError(err.message || 'Failed to refresh inquiries.');
+    }
   };
 
   // Exam & Result Handlers
@@ -4008,28 +4143,554 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* ==================================================== */}
         {activeSection === 'messages' && (
           <div className="space-y-6">
-            <div>
-              <h2 className="text-2xl font-bold text-neutral-900 font-display">
-                Incoming Contact Messages
-              </h2>
-              <p className="text-xs text-neutral-500">
-                Inquiries from website contact form
-              </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-bold text-neutral-900 font-display flex items-center gap-2">
+                  <span>Contact Inquiries &amp; Parent Communications</span>
+                  <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 font-sans">
+                    AI-Assisted
+                  </span>
+                </h2>
+                <p className="text-xs text-neutral-500">
+                  Verify parent accounts, retrieve student fee ledgers, generate grounded AI replies, and approve official responses.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={refreshInquiries}
+                  className="px-3.5 py-2 text-xs font-semibold text-neutral-700 bg-white hover:bg-neutral-50 border border-neutral-300 rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                  title="Refresh inquiries"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-neutral-500" />
+                  <span>Refresh</span>
+                </button>
+              </div>
             </div>
 
-            <div className="space-y-3">
-              {messages.map(m => (
-                <div key={m.id} className="bg-white p-5 rounded-2xl border border-neutral-200 shadow-xs space-y-2">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-bold text-neutral-900">{m.name} ({m.phone})</span>
-                    <span className="text-neutral-400 font-mono">{new Date(m.created_at).toLocaleDateString()}</span>
-                  </div>
-                  <div className="text-xs font-semibold text-emerald-900">{m.subject} · {m.email}</div>
-                  <p className="text-xs text-neutral-700 bg-neutral-50 p-3 rounded-lg border border-neutral-200">
-                    {m.message}
+            {/* Quick Metrics Bar */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-2xs">
+                <span className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider block">Total Inquiries</span>
+                <span className="text-xl font-bold text-neutral-900 mt-1 block">{messages.length}</span>
+              </div>
+              <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-2xs">
+                <span className="text-[11px] font-semibold text-amber-700 uppercase tracking-wider block">Pending Review</span>
+                <span className="text-xl font-bold text-amber-900 mt-1 block">
+                  {messages.filter(m => (m.status || 'Pending') === 'Pending').length}
+                </span>
+              </div>
+              <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-2xs">
+                <span className="text-[11px] font-semibold text-purple-700 uppercase tracking-wider block">Awaiting Approval</span>
+                <span className="text-xl font-bold text-purple-900 mt-1 block">
+                  {messages.filter(m => m.status === 'Awaiting Admin Approval').length}
+                </span>
+              </div>
+              <div className="bg-white p-4 rounded-xl border border-neutral-200 shadow-2xs">
+                <span className="text-[11px] font-semibold text-emerald-700 uppercase tracking-wider block">Replied &amp; Resolved</span>
+                <span className="text-xl font-bold text-emerald-900 mt-1 block">
+                  {messages.filter(m => m.status === 'Replied' || m.status === 'Resolved').length}
+                </span>
+              </div>
+            </div>
+
+            {/* Filters & Search */}
+            <div className="bg-white p-4 rounded-2xl border border-neutral-200 shadow-2xs space-y-3">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Search by name, email, phone, reference #, or subject..."
+                    value={inquirySearch}
+                    onChange={e => setInquirySearch(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 text-xs bg-neutral-50 border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700 focus:bg-white"
+                  />
+                  {inquirySearch && (
+                    <button
+                      type="button"
+                      onClick={() => setInquirySearch('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 text-xs"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {(['all', 'Pending', 'Processing', 'Awaiting Admin Approval', 'Replied', 'Resolved'] as const).map(st => {
+                    const count = st === 'all'
+                      ? messages.length
+                      : messages.filter(m => (m.status || 'Pending') === st).length;
+                    const isActive = inquiryFilter === st;
+                    return (
+                      <button
+                        key={st}
+                        type="button"
+                        onClick={() => setInquiryFilter(st)}
+                        className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 ${
+                          isActive
+                            ? 'bg-emerald-900 text-white shadow-2xs'
+                            : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200/70 hover:text-neutral-900'
+                        }`}
+                      >
+                        <span>{st === 'all' ? 'All' : st}</span>
+                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                          isActive ? 'bg-emerald-800 text-emerald-100' : 'bg-neutral-200 text-neutral-700'
+                        }`}>
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Inquiries Cards List */}
+            <div className="space-y-4">
+              {messages
+                .filter(m => {
+                  const currentStatus = m.status || 'Pending';
+                  if (inquiryFilter !== 'all' && currentStatus !== inquiryFilter) return false;
+                  if (!inquirySearch.trim()) return true;
+                  const q = inquirySearch.toLowerCase();
+                  return (
+                    (m.name || '').toLowerCase().includes(q) ||
+                    (m.email || '').toLowerCase().includes(q) ||
+                    (m.phone || '').toLowerCase().includes(q) ||
+                    (m.subject || '').toLowerCase().includes(q) ||
+                    (m.message || '').toLowerCase().includes(q) ||
+                    (m.reference_no || '').toLowerCase().includes(q)
+                  );
+                })
+                .map(m => {
+                  const isVerified = Boolean(m.verified_parent_id || m.verified_parent_name);
+                  const verificationInfo = inquiryVerificationData[m.id];
+                  const feeRecords = verificationInfo?.fee_summary || [];
+                  const draftText = draftReplies[m.id] !== undefined
+                    ? draftReplies[m.id]
+                    : (m.ai_draft_reply || '');
+                  const currentChannel = replyChannels[m.id] || 'all';
+                  const isAiLoading = Boolean(inquiryActionLoading[`ai-${m.id}`]);
+                  const isVerifyLoading = Boolean(inquiryActionLoading[`verify-${m.id}`]);
+                  const isSendLoading = Boolean(inquiryActionLoading[`send-${m.id}`]);
+                  const isStatusLoading = Boolean(inquiryActionLoading[`status-${m.id}`]);
+                  const historyExpanded = Boolean(showHistoryFor[m.id]);
+
+                  return (
+                    <div
+                      key={m.id}
+                      className="bg-white rounded-2xl border border-neutral-200 shadow-xs p-5 sm:p-6 space-y-4 transition-all"
+                    >
+                      {/* Top Header of Card */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-100 pb-3">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono font-bold text-xs px-2.5 py-1 rounded-md bg-neutral-100 border border-neutral-300 text-neutral-800 tracking-wide">
+                            {m.reference_no || 'INQ-REF'}
+                          </span>
+
+                          {/* Status Badge */}
+                          {m.status === 'Pending' && (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                              Pending Review
+                            </span>
+                          )}
+                          {m.status === 'Processing' && (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-800 border border-blue-200">
+                              Processing
+                            </span>
+                          )}
+                          {m.status === 'Awaiting Admin Approval' && (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-50 text-purple-800 border border-purple-200">
+                              Awaiting Approval
+                            </span>
+                          )}
+                          {m.status === 'Replied' && (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                              Official Reply Sent
+                            </span>
+                          )}
+                          {m.status === 'Resolved' && (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-neutral-100 text-neutral-800 border border-neutral-300">
+                              Resolved
+                            </span>
+                          )}
+
+                          {/* Intent Badge */}
+                          {m.intent === 'fee' && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-900 border border-emerald-200">
+                              <DollarSign className="w-3 h-3 text-emerald-700" />
+                              <span>Fee Inquiry</span>
+                            </span>
+                          )}
+                          {m.intent === 'admission' && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-900 border border-blue-200">
+                              <GraduationCap className="w-3 h-3 text-blue-700" />
+                              <span>Admission</span>
+                            </span>
+                          )}
+                          {m.intent === 'record_verification' && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-50 text-purple-900 border border-purple-200">
+                              <Shield className="w-3 h-3 text-purple-700" />
+                              <span>Record Verification</span>
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Status Change Selector & Actions */}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-[11px] text-neutral-500 font-medium">Status:</span>
+                          <select
+                            value={m.status || 'Pending'}
+                            disabled={isStatusLoading}
+                            onChange={e => handleUpdateInquiryStatus(m.id, e.target.value as InquiryStatus)}
+                            className="text-xs py-1 px-2.5 bg-neutral-50 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700 font-semibold text-neutral-800 cursor-pointer"
+                          >
+                            <option value="Pending">Pending</option>
+                            <option value="Processing">Processing</option>
+                            <option value="Awaiting Admin Approval">Awaiting Admin Approval</option>
+                            <option value="Replied">Replied</option>
+                            <option value="Resolved">Resolved</option>
+                          </select>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteInquiry(m.id)}
+                            className="p-1.5 text-neutral-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                            title="Delete Inquiry"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Sender Details & Verification Status */}
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-3 text-xs bg-neutral-50/80 p-3.5 rounded-xl border border-neutral-200/80">
+                        <div className="md:col-span-4 space-y-1">
+                          <span className="text-[10px] uppercase font-semibold text-neutral-400 tracking-wider block">
+                            Inquirer Name
+                          </span>
+                          <p className="font-bold text-neutral-900 text-sm flex items-center gap-1.5">
+                            <UserIcon className="w-3.5 h-3.5 text-neutral-500" />
+                            <span>{m.name}</span>
+                          </p>
+                          <span className="text-[11px] text-neutral-500 font-mono block">
+                            Logged: {new Date(m.created_at).toLocaleString()}
+                          </span>
+                        </div>
+
+                        <div className="md:col-span-4 space-y-1">
+                          <span className="text-[10px] uppercase font-semibold text-neutral-400 tracking-wider block">
+                            Contact Info
+                          </span>
+                          <div className="space-y-0.5">
+                            <p className="text-neutral-700 flex items-center gap-1">
+                              <Phone className="w-3 h-3 text-neutral-400" />
+                              <span className="font-mono">{m.phone || 'No phone provided'}</span>
+                            </p>
+                            <p className="text-neutral-700 flex items-center gap-1">
+                              <Mail className="w-3 h-3 text-neutral-400" />
+                              <span>{m.email || 'No email provided'}</span>
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="md:col-span-4 flex flex-col justify-between items-start md:items-end">
+                          <span className="text-[10px] uppercase font-semibold text-neutral-400 tracking-wider block">
+                            Parent Verification
+                          </span>
+                          <div className="mt-1">
+                            {isVerified ? (
+                              <div className="inline-flex items-center gap-1.5 text-xs text-emerald-800 bg-emerald-100/70 border border-emerald-300 px-2.5 py-1 rounded-lg font-semibold">
+                                <UserCheck className="w-3.5 h-3.5 text-emerald-700" />
+                                <span>Verified: {m.verified_parent_name || 'Parent Account'}</span>
+                              </div>
+                            ) : (
+                              <div className="inline-flex items-center gap-1 text-xs text-neutral-600 bg-neutral-200/70 border border-neutral-300 px-2.5 py-1 rounded-lg">
+                                <UserIcon className="w-3.5 h-3.5 text-neutral-400" />
+                                <span>Unverified Inquirer</span>
+                              </div>
+                            )}
+                          </div>
+
+                          <button
+                            type="button"
+                            disabled={isVerifyLoading}
+                            onClick={() => handleVerifyInquiryParent(m.id)}
+                            className="mt-2 text-[11px] font-bold text-emerald-900 hover:text-emerald-700 underline flex items-center gap-1 cursor-pointer"
+                          >
+                            <UserCheck className="w-3 h-3" />
+                            <span>{isVerifyLoading ? 'Verifying...' : 'Verify Parent & Fetch Children'}</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Inquirer's Message Text */}
+                      <div className="space-y-1.5">
+                        <div className="text-xs font-bold text-neutral-900 flex items-center gap-1.5">
+                          <MessageSquare className="w-3.5 h-3.5 text-emerald-800" />
+                          <span>Subject: {m.subject}</span>
+                        </div>
+                        <div className="p-3.5 bg-neutral-50 rounded-xl border border-neutral-200 text-xs text-neutral-800 whitespace-pre-wrap leading-relaxed">
+                          {m.message}
+                        </div>
+                      </div>
+
+                      {/* Verified Parent & Student Fee Records (Phase 2) */}
+                      {(verificationInfo || (isVerified && m.intent === 'fee')) && (
+                        <div className="p-4 bg-emerald-50/60 rounded-xl border border-emerald-200 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Shield className="w-4 h-4 text-emerald-800" />
+                              <h4 className="text-xs font-bold text-emerald-950">
+                                Verified Parent Guardian &amp; Student Financial Record
+                              </h4>
+                            </div>
+                            <span className="text-[11px] text-emerald-800 font-medium">
+                              Linked Children: {verificationInfo?.linked_students?.length || feeRecords.length || 0}
+                            </span>
+                          </div>
+
+                          {/* Fee breakdown table if records found */}
+                          {feeRecords.length > 0 ? (
+                            <div className="overflow-x-auto rounded-lg border border-emerald-200 bg-white">
+                              <table className="w-full text-left text-xs">
+                                <thead className="bg-emerald-100/60 text-emerald-950 text-[11px] font-semibold">
+                                  <tr>
+                                    <th className="p-2.5">Student</th>
+                                    <th className="p-2.5">Class</th>
+                                    <th className="p-2.5">Tuition Fee</th>
+                                    <th className="p-2.5">Other Charges</th>
+                                    <th className="p-2.5">Total Due</th>
+                                    <th className="p-2.5">Paid</th>
+                                    <th className="p-2.5 font-bold text-rose-900">Remaining Balance</th>
+                                    <th className="p-2.5">Due Date</th>
+                                    <th className="p-2.5">Status</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-emerald-100 text-neutral-800">
+                                  {feeRecords.map((f: any, idx: number) => (
+                                    <tr key={idx} className="hover:bg-emerald-50/40">
+                                      <td className="p-2.5 font-semibold text-neutral-900">{f.student_name}</td>
+                                      <td className="p-2.5">{f.class_name || 'N/A'}</td>
+                                      <td className="p-2.5 font-mono">Rs. {f.tuition_fee?.toLocaleString() || 0}</td>
+                                      <td className="p-2.5 font-mono">Rs. {f.other_charges?.toLocaleString() || 0}</td>
+                                      <td className="p-2.5 font-mono font-semibold">Rs. {f.total_amount?.toLocaleString() || 0}</td>
+                                      <td className="p-2.5 font-mono text-emerald-700">Rs. {f.paid_amount?.toLocaleString() || 0}</td>
+                                      <td className="p-2.5 font-mono font-bold text-rose-700">Rs. {f.pending_amount?.toLocaleString() || 0}</td>
+                                      <td className="p-2.5 text-neutral-600">{f.due_date || 'N/A'}</td>
+                                      <td className="p-2.5">
+                                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                          f.fee_status === 'Paid'
+                                            ? 'bg-emerald-100 text-emerald-800'
+                                            : f.fee_status === 'Overdue'
+                                            ? 'bg-rose-100 text-rose-800'
+                                            : 'bg-amber-100 text-amber-800'
+                                        }`}>
+                                          {f.fee_status || 'Pending'}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-emerald-800 italic">
+                              {verificationInfo?.is_verified
+                                ? 'Parent account verified, but no pending fee vouchers found for this billing period.'
+                                : 'Parent identity not found in database. Confidential student data will NOT be disclosed.'}
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* AI Response Studio (Phase 1 & Phase 2) */}
+                      <div className="p-4 bg-gradient-to-r from-neutral-50 to-emerald-50/40 rounded-xl border border-neutral-200/90 space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-lg bg-emerald-900 text-white flex items-center justify-center shrink-0">
+                              <Sparkles className="w-3.5 h-3.5 text-emerald-300" />
+                            </div>
+                            <div>
+                              <h4 className="text-xs font-bold text-neutral-900 flex items-center gap-1.5">
+                                <span>AI Response Studio</span>
+                                <span className="text-[10px] font-normal text-neutral-500 font-mono">
+                                  Gemini 3.8 Flash
+                                </span>
+                              </h4>
+                              <p className="text-[11px] text-neutral-500">
+                                Generates grounded responses based on verified fee records and school policy.
+                              </p>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            disabled={isAiLoading}
+                            onClick={() => handleGenerateAiReply(m.id)}
+                            className="min-h-[36px] px-3.5 py-1.5 text-xs font-bold text-white bg-emerald-900 hover:bg-emerald-800 disabled:opacity-50 rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer shrink-0"
+                          >
+                            <Bot className="w-3.5 h-3.5 text-emerald-300" />
+                            <span>{isAiLoading ? 'Analyzing & Drafting...' : 'AI Generate Reply'}</span>
+                          </button>
+                        </div>
+
+                        {/* Editable Draft Preview */}
+                        <div className="space-y-2 pt-1">
+                          <div className="flex items-center justify-between text-[11px] text-neutral-600">
+                            <span className="font-semibold text-neutral-800">
+                              Response Preview &amp; Editor (Admin Approval Required):
+                            </span>
+                            <span className="text-[10px] text-neutral-400">
+                              {draftText.length} characters
+                            </span>
+                          </div>
+
+                          <textarea
+                            rows={5}
+                            value={draftText}
+                            onChange={e => setDraftReplies(prev => ({ ...prev, [m.id]: e.target.value }))}
+                            placeholder="Click 'AI Generate Reply' to automatically synthesize a response, or type an official reply here directly..."
+                            className="w-full text-xs p-3 bg-white border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700 font-sans leading-relaxed text-neutral-800"
+                          />
+
+                          {/* Channel selection & dispatch controls */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-semibold text-neutral-600">Delivery Channel:</span>
+                              <div className="flex items-center gap-1 text-[11px]">
+                                <button
+                                  type="button"
+                                  onClick={() => setReplyChannels(prev => ({ ...prev, [m.id]: 'all' }))}
+                                  className={`px-2.5 py-1 rounded-md transition cursor-pointer font-medium ${
+                                    currentChannel === 'all'
+                                      ? 'bg-emerald-900 text-white'
+                                      : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+                                  }`}
+                                >
+                                  In-App + Email
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setReplyChannels(prev => ({ ...prev, [m.id]: 'in_app' }))}
+                                  className={`px-2.5 py-1 rounded-md transition cursor-pointer font-medium ${
+                                    currentChannel === 'in_app'
+                                      ? 'bg-emerald-900 text-white'
+                                      : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+                                  }`}
+                                >
+                                  In-App Only
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setReplyChannels(prev => ({ ...prev, [m.id]: 'email' }))}
+                                  className={`px-2.5 py-1 rounded-md transition cursor-pointer font-medium ${
+                                    currentChannel === 'email'
+                                      ? 'bg-emerald-900 text-white'
+                                      : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+                                  }`}
+                                >
+                                  Email Only
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              {m.status !== 'Resolved' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateInquiryStatus(m.id, 'Resolved')}
+                                  className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-neutral-700 bg-white hover:bg-neutral-100 border border-neutral-300 rounded-xl transition cursor-pointer"
+                                >
+                                  Mark as Resolved
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                disabled={isSendLoading || !draftText.trim()}
+                                onClick={() => handleApproveAndSendReply(m.id)}
+                                className="min-h-[36px] px-4 py-1.5 text-xs font-bold text-white bg-emerald-900 hover:bg-emerald-800 disabled:opacity-40 rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <Send className="w-3.5 h-3.5" />
+                                <span>{isSendLoading ? 'Dispatching...' : 'Approve & Send Reply'}</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Conversation History & Dispatch Log (Phase 1 & 4) */}
+                      {m.replies && m.replies.length > 0 && (
+                        <div className="border-t border-neutral-100 pt-3 space-y-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowHistoryFor(prev => ({ ...prev, [m.id]: !prev[m.id] }))}
+                            className="text-xs font-bold text-neutral-800 hover:text-emerald-900 flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5 text-emerald-700" />
+                            <span>Official Dispatched Replies ({m.replies.length})</span>
+                            <span className="text-[11px] font-normal text-neutral-500">
+                              {historyExpanded ? '▲ Hide Log' : '▼ View Log'}
+                            </span>
+                          </button>
+
+                          {historyExpanded && (
+                            <div className="space-y-2.5 pt-2">
+                              {m.replies.map((r, rIdx) => (
+                                <div
+                                  key={rIdx}
+                                  className="p-3.5 bg-neutral-50 rounded-xl border border-neutral-200 text-xs space-y-1.5"
+                                >
+                                  <div className="flex items-center justify-between text-[11px]">
+                                    <span className="font-bold text-emerald-950">
+                                      {r.sent_by || 'School Administration'}
+                                    </span>
+                                    <span className="text-neutral-400 font-mono">
+                                      {new Date(r.sent_at || r.created_at || Date.now()).toLocaleString()}
+                                    </span>
+                                  </div>
+                                  <div className="text-[11px] text-neutral-500">
+                                    Dispatched via: <span className="font-semibold uppercase text-neutral-700">{r.channel || 'all'}</span>
+                                  </div>
+                                  <p className="text-neutral-800 whitespace-pre-wrap leading-relaxed pt-1">
+                                    {r.message}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+              {messages.filter(m => {
+                const currentStatus = m.status || 'Pending';
+                if (inquiryFilter !== 'all' && currentStatus !== inquiryFilter) return false;
+                if (!inquirySearch.trim()) return true;
+                const q = inquirySearch.toLowerCase();
+                return (
+                  (m.name || '').toLowerCase().includes(q) ||
+                  (m.email || '').toLowerCase().includes(q) ||
+                  (m.phone || '').toLowerCase().includes(q) ||
+                  (m.subject || '').toLowerCase().includes(q) ||
+                  (m.message || '').toLowerCase().includes(q) ||
+                  (m.reference_no || '').toLowerCase().includes(q)
+                );
+              }).length === 0 && (
+                <div className="bg-white rounded-2xl border border-dashed border-neutral-300 p-8 text-center text-xs text-neutral-500 space-y-2">
+                  <Mail className="w-8 h-8 text-neutral-300 mx-auto" />
+                  <p className="font-semibold text-neutral-700">No contact inquiries found</p>
+                  <p className="text-neutral-400">
+                    No messages match your selected status filter or search query.
                   </p>
                 </div>
-              ))}
+              )}
             </div>
           </div>
         )}

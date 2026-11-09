@@ -25,6 +25,7 @@ export interface Student {
   id: string;
   admission_no: string;
   full_name: string;
+  name?: string;
   father_name: string;
   dob: string;
   gender: 'Male' | 'Female' | 'Other';
@@ -260,8 +261,27 @@ export interface GalleryItem {
   date: string;
 }
 
+export type InquiryStatus = 'Pending' | 'Processing' | 'Awaiting Admin Approval' | 'Replied' | 'Resolved';
+
+export interface InquiryReply {
+  id?: string;
+  sender_type?: 'admin' | 'ai_system' | 'parent';
+  sender_id?: string;
+  sender_name?: string;
+  sent_by?: string;
+  sent_at?: string;
+  message: string;
+  created_at?: string;
+  channel?: string;
+  sent_via_email?: boolean;
+  sent_via_notification?: boolean;
+  approved_by_id?: string;
+  approved_by_name?: string;
+}
+
 export interface ContactMessage {
   id: string;
+  reference_no?: string;
   name: string;
   email: string;
   phone: string;
@@ -269,6 +289,24 @@ export interface ContactMessage {
   message: string;
   created_at: string;
   read: boolean;
+  replied?: boolean;
+  status?: InquiryStatus;
+  intent?: string;
+  parent_user_id?: string;
+  verified_parent_id?: string;
+  verified_parent_name?: string;
+  verified_student_ids?: string[];
+  ai_draft_reply?: string;
+  ai_generated_at?: string;
+  ai_intent_analysis?: {
+    is_fee_inquiry: boolean;
+    parent_verified: boolean;
+    verification_notes: string;
+    student_count: number;
+  };
+  replies?: InquiryReply[];
+  resolved_at?: string;
+  resolved_by?: string;
 }
 
 export interface SchoolSettings {

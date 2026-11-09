@@ -586,11 +586,78 @@ export const api = {
   deleteGalleryItem: (id: string) =>
     request<{ message: string; item: GalleryItem }>(`/gallery/${id}`, { method: 'DELETE' }),
 
-  // Contact
+  // Contact & Inquiries
   sendContactMessage: (msg: { name: string; email: string; phone: string; subject: string; message: string }) =>
-    request<{ message: string; inquiry: ContactMessage }>('/contact', { method: 'POST', body: JSON.stringify(msg) }),
-  getContactMessages: () => request<ContactMessage[]>('/contact'),
+    request<{ message: string; reference_no: string; inquiry: ContactMessage }>('/contact', { method: 'POST', body: JSON.stringify(msg) }),
+  getContactMessages: (filter?: { status?: string; q?: string }) => {
+    const params = new URLSearchParams();
+    if (filter?.status && filter.status !== 'all') params.append('status', filter.status);
+    if (filter?.q) params.append('q', filter.q);
+    const qs = params.toString();
+    return request<ContactMessage[]>(`/contact${qs ? `?${qs}` : ''}`);
+  },
+  getContactMessage: (id: string) => request<ContactMessage>(`/contact/${id}`),
   markContactRead: (id: string) => request<ContactMessage>(`/contact/${id}/read`, { method: 'PUT' }),
+  deleteContactMessage: (id: string) => request<{ message: string; item: ContactMessage }>(`/contact/${id}`, { method: 'DELETE' }),
+  updateInquiryStatus: (id: string, status: string) =>
+    request<ContactMessage>(`/contact/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
+  verifyInquiryParent: (id: string) =>
+    request<{
+      verified: boolean;
+      is_verified?: boolean;
+      parentId?: string;
+      parentName?: string;
+      parent_name?: string;
+      parent?: any;
+      students: any[];
+      linked_students?: any[];
+      notes: string;
+    }>(`/contact/${id}/verify-parent`, { method: 'POST' }),
+  generateInquiryAiReply: (id: string, options?: { tone?: string }) =>
+    request<{
+      message: string;
+      draftReply: string;
+      ai_draft_reply?: string;
+      intent: string;
+      isFeeInquiry: boolean;
+      parentVerified: boolean;
+      verificationNotes: string;
+      feeData?: any;
+      fee_data?: any;
+      inquiry: ContactMessage;
+    }>(`/contact/${id}/ai-generate-reply`, { method: 'POST', body: JSON.stringify(options || {}) }),
+  approveAndSendInquiryReply: (
+    id: string,
+    payload: { message: string; channel?: 'all' | 'in_app' | 'email' } | string,
+    send_email: boolean = true
+  ) => {
+    const body =
+      typeof payload === 'string'
+        ? { reply_message: payload, send_email }
+        : { reply_message: payload.message, channel: payload.channel, send_email: payload.channel !== 'in_app' };
+    return request<{
+      message: string;
+      inquiry: ContactMessage;
+      emailSent: boolean;
+      notificationSent: boolean;
+    }>(`/contact/${id}/approve-and-send`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+  trackInquiry: (referenceNo: string, email?: string) => {
+    const query = email ? `?email=${encodeURIComponent(email)}` : '';
+    return request<{
+      reference_no: string;
+      subject: string;
+      created_at: string;
+      status: string;
+      status_description: string;
+      has_replies: boolean;
+      replies: Array<{ id: string; sender_name: string; message: string; created_at: string }>;
+    }>(`/contact/track/${encodeURIComponent(referenceNo)}${query}`);
+  },
+  getParentInquiries: () => request<ContactMessage[]>('/parent/inquiries'),
 
   // Users & Audits
   getUsers: () => request<User[]>('/users'),

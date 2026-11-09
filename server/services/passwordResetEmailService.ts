@@ -208,6 +208,13 @@ export interface OpenSmtpTransport {
     rawResetToken: string;
     expiresInMinutes: number;
   }) => Promise<void>;
+  sendInquiryReplyMail: (params: {
+    toEmail: string;
+    recipientName: string;
+    referenceNo: string;
+    subject: string;
+    replyMessage: string;
+  }) => Promise<void>;
   close: () => Promise<void>;
 }
 
@@ -320,6 +327,79 @@ export async function openAuthenticatedSmtpTransport(): Promise<OpenSmtpTranspor
         `From: ${sanitizeHeaderValue(cfg.from)}`,
         `To: <${cleanTo}>`,
         'Subject: Password Reset Request - Shawan School & College',
+        `Date: ${new Date().toUTCString()}`,
+        'MIME-Version: 1.0',
+        `Content-Type: multipart/alternative; boundary="${boundary}"`,
+        '',
+        `--${boundary}`,
+        'Content-Type: text/plain; charset="UTF-8"',
+        'Content-Transfer-Encoding: 7bit',
+        '',
+        plainBody,
+        '',
+        `--${boundary}`,
+        'Content-Type: text/html; charset="UTF-8"',
+        'Content-Transfer-Encoding: 7bit',
+        '',
+        htmlBody,
+        '',
+        `--${boundary}--`,
+        '.',
+      ]
+        .map(line => (line.startsWith('.') && line !== '.' ? `.${line}` : line))
+        .join('\r\n');
+
+      await session.sendCommand(rawMessage, [250]);
+    },
+    async sendInquiryReplyMail({ toEmail, recipientName, referenceNo, subject, replyMessage }) {
+      const cleanFromEnvelope = extractAddressAngle(cfg.from);
+      const cleanTo = sanitizeHeaderValue(toEmail);
+      const safeName = sanitizeHeaderValue(recipientName || 'Respected Parent / Guardian');
+      const safeSubject = sanitizeHeaderValue(subject || 'Inquiry');
+      const safeRef = sanitizeHeaderValue(referenceNo || 'INQ');
+
+      await session.sendCommand(`MAIL FROM:<${cleanFromEnvelope}>`, [250]);
+      await session.sendCommand(`RCPT TO:<${cleanTo}>`, [250, 251]);
+      await session.sendCommand('DATA', [354]);
+
+      const boundary = `shawan_inquiry_${Date.now()}`;
+      const plainBody = [
+        `Assalam-o-Alaikum ${safeName},`,
+        '',
+        `Thank you for contacting Shawan School & College. Regarding your inquiry [${safeRef}: "${safeSubject}"]:`,
+        '',
+        replyMessage,
+        '',
+        'If you have further questions, you can reply directly or quote your reference number when contacting our administrative office.',
+        '',
+        'Office of Administration & Student Affairs',
+        'Shawan School & College — Paharpur, Dera Ismail Khan',
+        'Website: ' + cfg.publicAppUrl,
+      ].join('\r\n');
+
+      const htmlBody = [
+        '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#171717;line-height:1.6">',
+        '<div style="border-bottom:2px solid #064e3b;padding-bottom:12px;margin-bottom:16px">',
+        '<h2 style="color:#064e3b;margin:0">Shawan School &amp; College</h2>',
+        '<p style="font-size:12px;color:#525252;margin:4px 0 0 0">Paharpur, Dera Ismail Khan, Khyber Pakhtunkhwa</p>',
+        '</div>',
+        `<p>Assalam-o-Alaikum <strong>${safeName.replace(/[<>&"]/g, '')}</strong>,</p>`,
+        `<p style="font-size:13px;color:#525252">In reference to your inquiry <strong>[${safeRef.replace(/[<>&"]/g, '')}]</strong> regarding <em>"${safeSubject.replace(/[<>&"]/g, '')}"</em>:</p>`,
+        '<div style="background:#f9fafb;border-left:4px solid #064e3b;padding:14px 18px;margin:18px 0;border-radius:6px;font-size:14px;white-space:pre-wrap">',
+        replyMessage.replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c] || c)),
+        '</div>',
+        '<p style="font-size:12px;color:#525252">You may track your inquiry or view past responses anytime on our <a href="' + cfg.publicAppUrl + '" style="color:#064e3b;font-weight:bold">Institutional Portal</a> using your reference number.</p>',
+        '<div style="margin-top:24px;border-top:1px solid #e5e7eb;padding-top:12px;font-size:12px;color:#737373">',
+        '<strong>Office of Administration &amp; Student Affairs</strong><br>',
+        'Shawan School &amp; College · Main Rangpur Road, Paharpur',
+        '</div>',
+        '</div>',
+      ].join('\r\n');
+
+      const rawMessage = [
+        `From: ${sanitizeHeaderValue(cfg.from)}`,
+        `To: <${cleanTo}>`,
+        `Subject: Re: [${safeRef}] ${safeSubject} - Shawan School & College`,
         `Date: ${new Date().toUTCString()}`,
         'MIME-Version: 1.0',
         `Content-Type: multipart/alternative; boundary="${boundary}"`,

@@ -31,6 +31,8 @@ import {
   HelpCircle,
   BookOpen,
   X,
+  MessageSquareText,
+  Copy,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
@@ -44,7 +46,7 @@ interface StudentPortalProps {
 export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite }) => {
   const { user, studentProfile, refreshUser, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'profile' | 'attendance' | 'timetable' | 'results' | 'fees' | 'notices' | 'notifications' | 'ai'
+    'overview' | 'profile' | 'attendance' | 'timetable' | 'results' | 'fees' | 'notices' | 'notifications' | 'inquiries' | 'ai'
   >('overview');
 
   const [student, setStudent] = useState<Student | null>(studentProfile);
@@ -63,6 +65,18 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState<number>(0);
   const [notifLoading, setNotifLoading] = useState<boolean>(false);
+
+  // Parent Inquiries state
+  const [parentInquiries, setParentInquiries] = useState<any[]>([]);
+  const [inquiriesLoading, setInquiriesLoading] = useState<boolean>(false);
+  const [inquiriesError, setInquiriesError] = useState<string | null>(null);
+  const [showNewInquiryModal, setShowNewInquiryModal] = useState<boolean>(false);
+  const [newInquirySubject, setNewInquirySubject] = useState<string>('Fee Structure & Concession');
+  const [newInquiryChildId, setNewInquiryChildId] = useState<string>('');
+  const [newInquiryMessage, setNewInquiryMessage] = useState<string>('');
+  const [submittingInquiry, setSubmittingInquiry] = useState<boolean>(false);
+  const [inquirySubmitSuccess, setInquirySubmitSuccess] = useState<string | null>(null);
+  const [copiedInquiryRef, setCopiedInquiryRef] = useState<string | null>(null);
 
   // Portal AI Assistant state
   const [portalAiMessages, setPortalAiMessages] = useState<
@@ -269,6 +283,64 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
       loadPortalData(targetId);
     }
   }, [user]);
+
+  const loadParentInquiries = async () => {
+    if (!user) return;
+    setInquiriesLoading(true);
+    setInquiriesError(null);
+    try {
+      const data = await api.getParentInquiries();
+      setParentInquiries(data);
+    } catch (err: any) {
+      setInquiriesError(err.message || 'Failed to fetch inquiries.');
+    } finally {
+      setInquiriesLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'inquiries' && user?.role === 'parent') {
+      loadParentInquiries();
+    }
+  }, [activeTab, user]);
+
+  const handleSubmitInquiry = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newInquiryMessage.trim()) return;
+    setSubmittingInquiry(true);
+    setInquiriesError(null);
+    try {
+      let inquiryMsg = newInquiryMessage.trim();
+      const selectedChild = linkedStudents.find(s => s.id === newInquiryChildId || s.admission_no === newInquiryChildId);
+      if (selectedChild) {
+        inquiryMsg = `[Student: ${selectedChild.full_name} · Roll: ${selectedChild.roll_no} · Class: ${selectedChild.class_name || ''}]\n\n${inquiryMsg}`;
+      }
+
+      const res = await api.sendContactMessage({
+        name: user?.name || 'Parent Guardian',
+        email: user?.email || '',
+        phone: user?.phone || '',
+        subject: newInquirySubject,
+        message: inquiryMsg,
+      });
+
+      setInquirySubmitSuccess(res.reference_no || 'Logged');
+      setNewInquiryMessage('');
+      setShowNewInquiryModal(false);
+      await loadParentInquiries();
+    } catch (err: any) {
+      setInquiriesError(err.message || 'Failed to submit inquiry.');
+    } finally {
+      setSubmittingInquiry(false);
+    }
+  };
+
+  const handleCopyInquiryRef = (refNo: string) => {
+    navigator.clipboard.writeText(refNo).then(() => {
+      setCopiedInquiryRef(refNo);
+      setTimeout(() => setCopiedInquiryRef(null), 2500);
+    }).catch(() => {});
+  };
 
   const handleSelectChild = (childId: string) => {
     setSelectedStudentId(childId);
@@ -747,6 +819,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
     { id: 'timetable', label: 'Timetable', icon: Clock },
     { id: 'notices', label: 'Announcements', icon: FileText },
     { id: 'notifications', label: 'Notifications', icon: Bell, badge: unreadCount },
+    ...(user?.role === 'parent' ? [{ id: 'inquiries', label: 'My Inquiries', icon: MessageSquareText }] : []),
     { id: 'ai', label: 'AI Assistant', icon: Sparkles },
   ];
 
@@ -2249,6 +2322,279 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
               <div className="py-12 text-center text-neutral-500 space-y-2">
                 <Bell className="w-8 h-8 text-neutral-300 mx-auto" />
                 <p className="text-xs font-medium">No notifications found in the database.</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ==================================================== */}
+        {/* TAB: MY INQUIRIES & OFFICIAL RESPONSES (PARENT)      */}
+        {/* ==================================================== */}
+        {activeTab === 'inquiries' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-2xl border border-neutral-200 p-5 sm:p-6 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-bold text-neutral-900 font-display flex items-center gap-2">
+                  <MessageSquareText className="w-5 h-5 text-emerald-800" />
+                  <span>Official Inquiries &amp; School Replies</span>
+                </h3>
+                <p className="text-xs text-neutral-500 mt-0.5">
+                  Direct official communications between verified parents and Shawan School &amp; College administration.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={loadParentInquiries}
+                  disabled={inquiriesLoading}
+                  className="px-3.5 py-2 text-xs font-semibold text-neutral-700 bg-white hover:bg-neutral-50 border border-neutral-300 rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 text-neutral-500 ${inquiriesLoading ? 'animate-spin' : ''}`} />
+                  <span>Refresh</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowNewInquiryModal(true);
+                    setInquirySubmitSuccess(null);
+                  }}
+                  className="px-4 py-2 text-xs font-bold text-white bg-emerald-900 hover:bg-emerald-800 rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Submit New Inquiry</span>
+                </button>
+              </div>
+            </div>
+
+            {inquirySubmitSuccess && (
+              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl text-xs text-emerald-950 flex items-start gap-3">
+                <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-bold">Inquiry Submitted Successfully!</p>
+                  <p className="text-emerald-800 text-[11px]">
+                    Your inquiry has been assigned reference ID: <strong className="font-mono">{inquirySubmitSuccess}</strong>. The administrative office will review your request.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {inquiriesError && (
+              <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-800 flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <span>{inquiriesError}</span>
+              </div>
+            )}
+
+            {/* Inquiries List */}
+            <div className="space-y-4">
+              {parentInquiries.map((inq: any) => {
+                const replies = inq.replies || [];
+                return (
+                  <div
+                    key={inq.id || inq._id}
+                    className="bg-white rounded-2xl border border-neutral-200 shadow-xs p-5 sm:p-6 space-y-4"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-100 pb-3">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono font-bold text-xs px-2.5 py-1 rounded-md bg-neutral-100 border border-neutral-200 text-neutral-800">
+                          {inq.reference_no || 'INQ-REF'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyInquiryRef(inq.reference_no)}
+                          className="inline-flex items-center gap-1 text-[11px] text-neutral-500 hover:text-neutral-800 cursor-pointer"
+                          title="Copy reference number"
+                        >
+                          <Copy className="w-3 h-3" />
+                          <span>{copiedInquiryRef === inq.reference_no ? 'Copied' : 'Copy'}</span>
+                        </button>
+
+                        {inq.status === 'Pending' && (
+                          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                            Pending Review
+                          </span>
+                        )}
+                        {inq.status === 'Processing' && (
+                          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-800 border border-blue-200">
+                            Processing
+                          </span>
+                        )}
+                        {inq.status === 'Awaiting Admin Approval' && (
+                          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-50 text-purple-800 border border-purple-200">
+                            Under Executive Review
+                          </span>
+                        )}
+                        {inq.status === 'Replied' && (
+                          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                            Official Reply Received
+                          </span>
+                        )}
+                        {inq.status === 'Resolved' && (
+                          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-neutral-100 text-neutral-800 border border-neutral-300">
+                            Resolved
+                          </span>
+                        )}
+                      </div>
+
+                      <span className="text-[11px] text-neutral-400 font-mono">
+                        Submitted: {new Date(inq.created_at).toLocaleDateString()}
+                      </span>
+                    </div>
+
+                    <div className="space-y-1">
+                      <h4 className="text-xs font-bold text-neutral-900">
+                        Subject: {inq.subject}
+                      </h4>
+                      <p className="text-xs text-neutral-700 bg-neutral-50 p-3.5 rounded-xl border border-neutral-200 whitespace-pre-wrap leading-relaxed">
+                        {inq.message}
+                      </p>
+                    </div>
+
+                    {/* Official Replies Section */}
+                    <div className="border-t border-neutral-100 pt-3 space-y-2.5">
+                      <h5 className="text-xs font-bold text-neutral-900 flex items-center gap-1.5">
+                        <MessageSquareText className="w-3.5 h-3.5 text-emerald-700" />
+                        <span>Official Administrative Responses</span>
+                      </h5>
+
+                      {replies.length > 0 ? (
+                        <div className="space-y-2">
+                          {replies.map((reply: any, rIdx: number) => (
+                            <div
+                              key={rIdx}
+                              className="p-4 bg-emerald-50/70 border border-emerald-200/80 rounded-xl text-xs space-y-1.5"
+                            >
+                              <div className="flex items-center justify-between text-[11px]">
+                                <span className="font-bold text-emerald-950">
+                                  {reply.sent_by || 'Shawan School & College Administration'}
+                                </span>
+                                <span className="text-neutral-500 font-mono">
+                                  {new Date(reply.sent_at).toLocaleString()}
+                                </span>
+                              </div>
+                              <p className="text-neutral-900 whitespace-pre-wrap leading-relaxed">
+                                {reply.message}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="p-3 bg-neutral-50 rounded-xl text-[11px] text-neutral-500 italic">
+                          Your inquiry is queued with the administration office. Once reviewed and approved by school officials, the response will appear here.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {!inquiriesLoading && parentInquiries.length === 0 && (
+                <div className="bg-white rounded-2xl border border-dashed border-neutral-300 p-10 text-center text-xs text-neutral-500 space-y-2">
+                  <MessageSquareText className="w-9 h-9 text-neutral-300 mx-auto" />
+                  <p className="font-semibold text-neutral-700">No Inquiries Submitted Yet</p>
+                  <p className="text-neutral-400">
+                    Use the button above to ask questions regarding your child&apos;s fees, academic progress, or admissions.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Submit New Inquiry Modal */}
+            {showNewInquiryModal && (
+              <div
+                className="fixed inset-0 z-50 bg-neutral-950/60 backdrop-blur-xs flex items-center justify-center p-4"
+                onClick={() => setShowNewInquiryModal(false)}
+              >
+                <div
+                  className="bg-white rounded-2xl border border-neutral-200 max-w-lg w-full p-6 shadow-xl space-y-4"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between border-b border-neutral-200 pb-3">
+                    <h3 className="text-sm font-bold text-neutral-900 flex items-center gap-2">
+                      <Send className="w-4 h-4 text-emerald-800" />
+                      <span>Submit Official Inquiry</span>
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setShowNewInquiryModal(false)}
+                      className="p-1 text-neutral-400 hover:text-neutral-600 rounded-lg cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleSubmitInquiry} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                        Inquiry Subject *
+                      </label>
+                      <select
+                        value={newInquirySubject}
+                        onChange={e => setNewInquirySubject(e.target.value)}
+                        className="w-full text-xs py-2 px-3 bg-neutral-50 border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                      >
+                        <option value="Fee Structure & Concession">Fee Structure &amp; Concession</option>
+                        <option value="Admission Inquiry">Admission Inquiry</option>
+                        <option value="Verification of Records">Verification of Records</option>
+                        <option value="General Question">General Academic Question</option>
+                      </select>
+                    </div>
+
+                    {linkedStudents.length > 0 && (
+                      <div>
+                        <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                          Regarding Linked Child (Optional)
+                        </label>
+                        <select
+                          value={newInquiryChildId}
+                          onChange={e => setNewInquiryChildId(e.target.value)}
+                          className="w-full text-xs py-2 px-3 bg-neutral-50 border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                        >
+                          <option value="">All / General Parent Inquiry</option>
+                          {linkedStudents.map(child => (
+                            <option key={child.id} value={child.id}>
+                              {child.full_name} ({child.class_name || 'Class'} · Roll: {child.roll_no})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block text-xs font-semibold text-neutral-700 mb-1">
+                        Inquiry Details *
+                      </label>
+                      <textarea
+                        rows={4}
+                        required
+                        placeholder="Please state your inquiry clearly. If inquiring about monthly fees, include the billing month."
+                        value={newInquiryMessage}
+                        onChange={e => setNewInquiryMessage(e.target.value)}
+                        className="w-full text-xs p-3 bg-white border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700 leading-relaxed"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-neutral-100">
+                      <button
+                        type="button"
+                        onClick={() => setShowNewInquiryModal(false)}
+                        className="px-4 py-2 text-xs font-semibold text-neutral-600 hover:bg-neutral-100 rounded-xl cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={submittingInquiry || !newInquiryMessage.trim()}
+                        className="px-5 py-2 text-xs font-bold text-white bg-emerald-900 hover:bg-emerald-800 disabled:opacity-50 rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        <span>{submittingInquiry ? 'Submitting...' : 'Send Inquiry'}</span>
+                      </button>
+                    </div>
+                  </form>
+                </div>
               </div>
             )}
           </div>
