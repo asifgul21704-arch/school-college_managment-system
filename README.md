@@ -1,5 +1,7 @@
 # Shawan School & College Management System
 
+**Live Demo:** [https://school-college-managment-system-tpc.vercel.app/](https://school-college-managment-system-tpc.vercel.app/)
+
 A full-stack school and college management application built with React, TypeScript, Vite, Node.js, Express, and MongoDB/Mongoose.
 
 ## Project overview
