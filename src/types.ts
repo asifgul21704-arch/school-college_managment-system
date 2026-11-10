@@ -365,3 +365,104 @@ export interface SupabaseServerStatus {
   message: string;
   lastChecked: string;
 }
+
+export type PaymentLifecycleStatus =
+  | 'Initiated'
+  | 'Pending Verification'
+  | 'Processing'
+  | 'Paid'
+  | 'Failed'
+  | 'Rejected'
+  | 'Refunded';
+
+export type PaymentVerificationStatus = 'Pending' | 'Verified' | 'Rejected';
+
+export interface PaymentTransaction {
+  id: string;
+  fee_id: string;
+  student_id: string;
+  payment_reference: string;
+  receipt_no: string;
+  transaction_id?: string;
+  date: string;
+  amount: number;
+  method: string;
+  status: PaymentLifecycleStatus;
+  verification_status: PaymentVerificationStatus;
+  parent_user_id?: string;
+  parent_name?: string;
+  parent_phone?: string;
+  student_name?: string;
+  admission_no?: string;
+  class_name?: string;
+  fee_month?: string;
+  year?: number;
+  notes: string;
+  received_by: string;
+  gateway_provider?: string;
+  bank_name?: string;
+  account_number?: string;
+  deposit_date?: string;
+  deposit_slip_ref?: string;
+  receipt_attachment_url?: string;
+  verified_by_id?: string;
+  verified_by_name?: string;
+  verified_at?: string;
+  rejection_reason?: string;
+  sms_status?: string;
+  sms_message?: string;
+  sms_sent_at?: string;
+  created_at?: string;
+}
+
+export interface BankAccountSetting {
+  bank_name: string;
+  account_title: string;
+  account_number: string;
+  iban: string;
+  branch: string;
+  active: boolean;
+}
+
+export interface MobileWalletSetting {
+  provider: 'JazzCash' | 'Easypaisa' | 'Raast';
+  account_title: string;
+  mobile_number: string;
+  active: boolean;
+}
+
+export interface PaymentSettings {
+  gateways: {
+    jazzcash_enabled: boolean;
+    easypaisa_enabled: boolean;
+    raast_enabled: boolean;
+    mode: 'Sandbox' | 'Live';
+  };
+  bank_accounts: BankAccountSetting[];
+  wallets: MobileWalletSetting[];
+  policies: {
+    allow_partial: boolean;
+    min_partial_amount: number;
+    late_fee_amount: number;
+    late_fee_days_grace: number;
+    payment_instructions: string;
+  };
+  sms: {
+    enabled: boolean;
+    provider: 'simulated' | 'jazz' | 'telenor' | 'custom';
+    template_submission: string;
+    template_approved: string;
+    template_rejected: string;
+  };
+}
+
+export interface OutstandingFeeSummary {
+  total_outstanding: number;
+  current_month_fee: number;
+  previous_balance: number;
+  late_fee_fine: number;
+  next_due_date: string;
+  status: 'All Cleared' | 'Partial' | 'Pending Dues' | 'Overdue';
+  pending_vouchers_count: number;
+}
+

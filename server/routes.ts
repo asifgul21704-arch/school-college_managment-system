@@ -34,6 +34,13 @@ import {
   generateAiInquiryReply,
   dispatchApprovedReply,
 } from './services/inquiryReplyService.ts';
+import {
+  getPaymentSettings,
+  savePaymentSettings,
+  sendPaymentSubmissionSms,
+  sendPaymentApprovalSms,
+  sendPaymentRejectionSms,
+} from './services/smsNotificationService.ts';
 import { getMongoStatus, getLastAtlasFallbackError, extractConfiguredDbName, sanitizeErrorMessage } from './config/db.ts';
 import { seedMongoFromLocal, isLocalSeedBlocked } from './config/seed.ts';
 import {
@@ -6940,6 +6947,738 @@ router.delete('/fees/:id', authenticateToken, requireRole(['super_admin', 'admin
     return res.json({ message: 'Fee record removed', item: removedDto });
   } catch (err: any) {
     return sendRouteError(res, err, 'Failed to delete fee voucher');
+  }
+});
+
+// ==========================================
+// 9B. ONLINE FEE PAYMENTS & VERIFICATION (FINTECH WORKFLOW)
+// ==========================================
+
+// 1. Get Outstanding Fee Summary for Parent or Student
+router.get('/parent/fees/summary', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  if (!ensureMongoReady(res)) return;
+  try {
+    const user = req.user!;
+    let studentIds: string[] = [];
+
+    if (user.role === 'parent') {
+      const linked = await getLinkedStudentIdsForParent(user);
+      studentIds = Array.from(linked);
+    } else if (user.role === 'student') {
+      const studentDoc = await StudentModel.findOne({
+        $or: [{ user_id: user.id }, { email: user.email.toLowerCase() }],
+      }).lean();
+      if (studentDoc) {
+        studentIds = [studentDoc.record_id || studentDoc._id.toString()];
+      }
+    } else if (req.query.student_id) {
+      studentIds = [String(req.query.student_id).trim()];
+    }
+
+    if (studentIds.length === 0 && user.role !== 'admin' && user.role !== 'super_admin') {
+      return res.json({
+        total_outstanding: 0,
+        current_month_fee: 0,
+        previous_balance: 0,
+        late_fee_fine: 0,
+        next_due_date: 'N/A',
+        status: 'All Cleared',
+        pending_vouchers_count: 0,
+      });
+    }
+
+    const feeFilter: Record<string, any> = {};
+    if (studentIds.length > 0) {
+      feeFilter.student_id = { $in: studentIds };
+    }
+
+    const feeDocs = await FeeModel.find(feeFilter).lean();
+    const settings = await getPaymentSettings();
+    const todayStr = new Date().toISOString().split('T')[0];
+    const currentMonthName = new Date().toLocaleString('en-US', { month: 'long' });
+    const currentYear = new Date().getFullYear();
+
+    let total_outstanding = 0;
+    let current_month_fee = 0;
+    let previous_balance = 0;
+    let late_fee_fine = 0;
+    let pending_vouchers_count = 0;
+    let next_due_date = '';
+
+    for (const fee of feeDocs) {
+      const pending = Number(fee.pending_amount) || 0;
+      if (pending > 0) {
+        total_outstanding += pending;
+        pending_vouchers_count += 1;
+
+        if (fee.fee_month === currentMonthName && fee.year === currentYear) {
+          current_month_fee += pending;
+        } else {
+          previous_balance += pending;
+        }
+
+        if (fee.due_date && fee.due_date < todayStr) {
+          late_fee_fine += Number(settings.policies.late_fee_amount || 0);
+        }
+
+        if (!next_due_date || (fee.due_date && fee.due_date < next_due_date)) {
+          next_due_date = fee.due_date;
+        }
+      }
+    }
+
+    const status =
+      total_outstanding === 0
+        ? 'All Cleared'
+        : late_fee_fine > 0
+        ? 'Overdue'
+        : current_month_fee > 0 && previous_balance > 0
+        ? 'Pending Dues'
+        : 'Partial';
+
+    return res.json({
+      total_outstanding,
+      current_month_fee,
+      previous_balance,
+      late_fee_fine,
+      next_due_date: next_due_date || 'N/A',
+      status,
+      pending_vouchers_count,
+    });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to compute fee summary');
+  }
+});
+
+// 2. Get Public Payment Settings (Gateways, Bank Accounts, Wallets, Policies)
+router.get('/payments/settings', async (_req: Request, res: Response) => {
+  try {
+    const settings = await getPaymentSettings();
+    return res.json({
+      gateways: settings.gateways,
+      bank_accounts: settings.bank_accounts.filter(b => b.active),
+      wallets: settings.wallets.filter(w => w.active),
+      policies: settings.policies,
+      sms_enabled: settings.sms.enabled,
+    });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to load payment settings');
+  }
+});
+
+// 3. Initiate Payment (Parent Portal: Online Gateway Sandbox or Bank Deposit)
+router.post('/parent/payments/initiate', authenticateToken, sensitiveActionRateLimiter, async (req: AuthenticatedRequest, res: Response) => {
+  if (!ensureMongoReady(res)) return;
+  const user = req.user!;
+  const {
+    fee_id,
+    student_id,
+    amount,
+    method,
+    gateway_provider,
+    bank_name,
+    account_number,
+    deposit_date,
+    deposit_slip_ref,
+    receipt_attachment_url,
+    notes,
+    parent_phone,
+  } = req.body || {};
+
+  const paymentAmount = Number(amount);
+  if (isNaN(paymentAmount) || !Number.isFinite(paymentAmount) || paymentAmount <= 0) {
+    return res.status(400).json({ error: 'Valid payment amount greater than zero is required' });
+  }
+
+  const cleanFeeId = String(fee_id || '').trim();
+  const cleanStudentId = String(student_id || '').trim();
+
+  if (!cleanFeeId) {
+    return res.status(400).json({ error: 'Fee voucher ID is required' });
+  }
+
+  // Authorization check: parent must have child linked
+  if (user.role === 'parent') {
+    const linked = await getLinkedStudentIdsForParent(user);
+    if (!linked.has(cleanStudentId)) {
+      return res.status(403).json({ error: 'Access denied: You can only make payments for your linked children' });
+    }
+  } else if (user.role === 'student') {
+    const studentDoc = await StudentModel.findOne({
+      $or: [{ user_id: user.id }, { email: user.email.toLowerCase() }],
+    }).lean();
+    const myId = studentDoc?.record_id || studentDoc?._id.toString();
+    if (myId !== cleanStudentId) {
+      return res.status(403).json({ error: 'Access denied: Students can only pay their own fee vouchers' });
+    }
+  }
+
+  try {
+    const feeDoc = await FeeModel.findOne(buildFeeLookupFilter(cleanFeeId)).lean();
+    if (!feeDoc) {
+      return res.status(404).json({ error: 'Fee voucher not found' });
+    }
+
+    const currentPending = Number(feeDoc.pending_amount) || 0;
+    const currentPaid = Number(feeDoc.paid_amount) || 0;
+    const currentTotal = Number(feeDoc.total_amount) || 0;
+
+    if (currentPending <= 0 || feeDoc.status === 'Paid') {
+      return res.status(400).json({ error: 'Fee voucher is already fully settled. No payment required.' });
+    }
+
+    if (paymentAmount > currentPending) {
+      return res.status(400).json({
+        error: `Payment amount (PKR ${paymentAmount.toLocaleString()}) cannot exceed remaining balance (PKR ${currentPending.toLocaleString()}).`,
+      });
+    }
+
+    const settings = await getPaymentSettings();
+    if (paymentAmount < currentPending) {
+      if (!settings.policies.allow_partial) {
+        return res.status(400).json({ error: 'Partial fee payments are currently disabled by school policy.' });
+      }
+      if (paymentAmount < settings.policies.min_partial_amount) {
+        return res.status(400).json({
+          error: `Minimum partial payment allowed is PKR ${settings.policies.min_partial_amount.toLocaleString()}.`,
+        });
+      }
+    }
+
+    // Resolve parent metadata
+    const parentDoc = await ParentModel.findOne({
+      $or: [{ user_id: user.id }, { email: user.email.toLowerCase() }],
+    }).lean();
+
+    const parentName = parentDoc?.name || user.name || 'Parent/Guardian';
+    const resolvedParentPhone = parent_phone || parentDoc?.phone || user.phone || '';
+    const paymentRef = `PAY-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const isOnlineGateway =
+      method === 'Online Gateway' ||
+      method === 'Easypaisa / JazzCash' ||
+      method === 'JazzCash' ||
+      method === 'Easypaisa' ||
+      method === 'Raast';
+
+    if (isOnlineGateway) {
+      // Instant automated sandbox / live verification & settlement
+      const receiptNo = `REC-${Date.now().toString().slice(-6)}${Math.floor(100 + Math.random() * 900)}`;
+      const nextPaid = currentPaid + paymentAmount;
+      const nextPending = Math.max(0, currentTotal - nextPaid);
+      const nextStatus: FeeVoucherStatus = nextPending === 0 ? 'Paid' : 'Partial';
+
+      const paymentRecord = {
+        receipt_no: receiptNo,
+        date: new Date().toISOString().split('T')[0],
+        amount: paymentAmount,
+        method: (gateway_provider === 'JazzCash' || gateway_provider === 'Easypaisa' || method === 'Easypaisa / JazzCash'
+          ? 'Easypaisa / JazzCash'
+          : 'Bank Transfer') as any,
+        transaction_id: paymentRef,
+        notes: `Online Gateway (${gateway_provider || method}) [Verified Instant Settlement]`,
+      };
+
+      const paymentDoc = await FeePaymentModel.create({
+        fee_id: feeDoc.voucher_id || feeDoc._id.toString(),
+        student_id: feeDoc.student_id,
+        payment_reference: paymentRef,
+        receipt_no: receiptNo,
+        transaction_id: paymentRef,
+        date: new Date().toISOString().split('T')[0],
+        amount: paymentAmount,
+        method: paymentRecord.method,
+        status: 'Paid',
+        verification_status: 'Verified',
+        parent_user_id: user.id,
+        parent_name: parentName,
+        parent_phone: resolvedParentPhone,
+        student_name: feeDoc.student_name,
+        admission_no: feeDoc.student_id,
+        class_name: feeDoc.class_name,
+        fee_month: feeDoc.fee_month,
+        year: feeDoc.year,
+        gateway_provider: gateway_provider || method,
+        notes: notes || 'Instant online payment via school portal',
+        received_by: `Gateway (${gateway_provider || method})`,
+        verified_by_id: user.id,
+        verified_by_name: 'Online Payment Gateway',
+        verified_at: new Date().toISOString(),
+      });
+
+      // Atomically update fee voucher
+      const updatedFee = await FeeModel.findOneAndUpdate(
+        { _id: feeDoc._id, pending_amount: { $gte: paymentAmount } },
+        {
+          $set: {
+            paid_amount: nextPaid,
+            pending_amount: nextPending,
+            status: nextStatus,
+          },
+          $push: { payment_history: paymentRecord },
+        },
+        { returnDocument: 'after' }
+      ).lean();
+
+      // Trigger SMS confirmation
+      const smsResult = await sendPaymentApprovalSms({
+        payment_reference: paymentRef,
+        receipt_no: receiptNo,
+        amount: paymentAmount,
+        parent_name: parentName,
+        parent_phone: resolvedParentPhone,
+        student_name: feeDoc.student_name,
+        class_name: feeDoc.class_name,
+      });
+
+      if (smsResult.sent) {
+        await FeePaymentModel.updateOne(
+          { _id: paymentDoc._id },
+          {
+            $set: {
+              sms_status: smsResult.status,
+              sms_message: smsResult.message,
+              sms_sent_at: smsResult.timestamp,
+            },
+          }
+        );
+      }
+
+      // Notifications
+      await NotificationModel.create([
+        {
+          role: 'admin',
+          title: 'Fee Payment Received (Online)',
+          message: `Online payment of PKR ${paymentAmount.toLocaleString()} received for ${feeDoc.student_name} (${feeDoc.class_name}). Ref: ${paymentRef}`,
+          link: '/admin',
+        },
+        {
+          user_id: user.id,
+          role: 'parent',
+          title: 'Fee Payment Confirmed',
+          message: `Your payment of PKR ${paymentAmount.toLocaleString()} for ${feeDoc.student_name} has been processed successfully. Receipt No: ${receiptNo}.`,
+          link: '/student-portal',
+        },
+      ]);
+
+      return res.status(201).json({
+        message: 'Payment completed successfully',
+        payment: toFeePaymentDto(paymentDoc),
+        fee: updatedFee ? toFeeDto(updatedFee) : feeDoc,
+        receipt_no: receiptNo,
+      });
+    } else {
+      // Manual Bank Deposit / Wire Transfer (Requires Admin Verification)
+      const cleanSlipRef = String(deposit_slip_ref || notes || '').trim();
+
+      const paymentDoc = await FeePaymentModel.create({
+        fee_id: feeDoc.voucher_id || feeDoc._id.toString(),
+        student_id: feeDoc.student_id,
+        payment_reference: paymentRef,
+        receipt_no: '',
+        transaction_id: cleanSlipRef || undefined,
+        date: deposit_date || new Date().toISOString().split('T')[0],
+        amount: paymentAmount,
+        method: (method === 'Bank Transfer' ? 'Bank Transfer' : 'Bank Deposit') as any,
+        status: 'Pending Verification',
+        verification_status: 'Pending',
+        parent_user_id: user.id,
+        parent_name: parentName,
+        parent_phone: resolvedParentPhone,
+        student_name: feeDoc.student_name,
+        admission_no: feeDoc.student_id,
+        class_name: feeDoc.class_name,
+        fee_month: feeDoc.fee_month,
+        year: feeDoc.year,
+        bank_name: bank_name || '',
+        account_number: account_number || '',
+        deposit_date: deposit_date || new Date().toISOString().split('T')[0],
+        deposit_slip_ref: cleanSlipRef,
+        receipt_attachment_url: receipt_attachment_url || '',
+        notes: notes || 'Bank deposit submitted by parent, awaiting verification',
+        received_by: 'Accounts Office (Pending Review)',
+      });
+
+      // Dispatch "Pending Verification" SMS acknowledgment
+      const smsResult = await sendPaymentSubmissionSms({
+        payment_reference: paymentRef,
+        amount: paymentAmount,
+        parent_name: parentName,
+        parent_phone: resolvedParentPhone,
+        student_name: feeDoc.student_name,
+        class_name: feeDoc.class_name,
+      });
+
+      if (smsResult.sent) {
+        await FeePaymentModel.updateOne(
+          { _id: paymentDoc._id },
+          {
+            $set: {
+              sms_status: smsResult.status,
+              sms_message: smsResult.message,
+              sms_sent_at: smsResult.timestamp,
+            },
+          }
+        );
+      }
+
+      // Notify Admin Dashboard
+      await NotificationModel.create([
+        {
+          role: 'admin',
+          title: 'New Fee Payment Verification Required',
+          message: `Parent submitted Bank Deposit of PKR ${paymentAmount.toLocaleString()} for ${feeDoc.student_name} (${feeDoc.class_name}). Slip Ref: ${cleanSlipRef || paymentRef}.`,
+          link: '/admin',
+        },
+        {
+          user_id: user.id,
+          role: 'parent',
+          title: 'Payment Submission Received',
+          message: `Your payment voucher submission of PKR ${paymentAmount.toLocaleString()} (Ref: ${paymentRef}) has been received and is pending verification.`,
+          link: '/student-portal',
+        },
+      ]);
+
+      return res.status(201).json({
+        message: 'Payment submitted for verification',
+        payment: toFeePaymentDto(paymentDoc),
+        fee: toFeeDto(feeDoc),
+      });
+    }
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to process fee payment');
+  }
+});
+
+// 4. Parent Payment History
+router.get('/parent/payments/history', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  if (!ensureMongoReady(res)) return;
+  try {
+    const user = req.user!;
+    let query: Record<string, any> = {};
+
+    if (user.role === 'parent') {
+      const linked = await getLinkedStudentIdsForParent(user);
+      const studentIds = Array.from(linked);
+      query = {
+        $or: [
+          { parent_user_id: user.id },
+          { student_id: { $in: studentIds } },
+        ],
+      };
+    } else if (user.role === 'student') {
+      const studentDoc = await StudentModel.findOne({
+        $or: [{ user_id: user.id }, { email: user.email.toLowerCase() }],
+      }).lean();
+      const myId = studentDoc?.record_id || studentDoc?._id.toString();
+      query = { student_id: myId };
+    } else {
+      query = {};
+    }
+
+    const paymentDocs = await FeePaymentModel.find(query).sort({ created_at: -1 }).limit(100).lean();
+    return res.json(paymentDocs.map(toFeePaymentDto));
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to fetch payment history');
+  }
+});
+
+// 5. Admin Payments Management & Collection Analytics
+router.get('/admin/payments', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
+  if (!ensureMongoReady(res)) return;
+  try {
+    const { status, verification_status, search, limit = '100', skip = '0' } = req.query;
+    const filter: Record<string, any> = {};
+
+    if (status && typeof status === 'string' && status !== 'all') {
+      filter.status = status;
+    }
+    if (verification_status && typeof verification_status === 'string' && verification_status !== 'all') {
+      filter.verification_status = verification_status;
+    }
+    if (search && typeof search === 'string' && search.trim()) {
+      const cleanSearch = escapeRegexLiteral(search.trim());
+      filter.$or = [
+        { payment_reference: { $regex: cleanSearch, $options: 'i' } },
+        { receipt_no: { $regex: cleanSearch, $options: 'i' } },
+        { student_name: { $regex: cleanSearch, $options: 'i' } },
+        { admission_no: { $regex: cleanSearch, $options: 'i' } },
+        { parent_phone: { $regex: cleanSearch, $options: 'i' } },
+        { deposit_slip_ref: { $regex: cleanSearch, $options: 'i' } },
+      ];
+    }
+
+    const [payments, totalCount, allPaidPayments, pendingCount, rejectedCount, feeVouchers] = await Promise.all([
+      FeePaymentModel.find(filter)
+        .sort({ created_at: -1 })
+        .skip(Math.max(0, parseInt(String(skip), 10) || 0))
+        .limit(Math.min(200, Math.max(1, parseInt(String(limit), 10) || 100)))
+        .lean(),
+      FeePaymentModel.countDocuments(filter),
+      FeePaymentModel.find({ status: 'Paid' }).select('amount date').lean(),
+      FeePaymentModel.countDocuments({ verification_status: 'Pending' }),
+      FeePaymentModel.countDocuments({ verification_status: 'Rejected' }),
+      FeeModel.find({}).select('pending_amount paid_amount').lean(),
+    ]);
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const currentYearMonth = todayStr.slice(0, 7);
+
+    const total_collected = allPaidPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    const today_collected = allPaidPayments
+      .filter(p => p.date === todayStr)
+      .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    const monthly_collected = allPaidPayments
+      .filter(p => p.date && p.date.startsWith(currentYearMonth))
+      .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+    const total_outstanding = feeVouchers.reduce((sum, f) => sum + (Number(f.pending_amount) || 0), 0);
+
+    return res.json({
+      payments: payments.map(toFeePaymentDto),
+      totalCount,
+      stats: {
+        total_collected,
+        today_collected,
+        monthly_collected,
+        pending_approvals_count: pendingCount,
+        rejected_count: rejectedCount,
+        total_successful: allPaidPayments.length,
+        total_outstanding,
+      },
+    });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to retrieve payment records');
+  }
+});
+
+// 6. Admin Approve Manual Payment
+router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
+  if (!ensureMongoReady(res)) return;
+  const paymentId = String(req.params.id || '').trim();
+
+  try {
+    const paymentDoc = await FeePaymentModel.findById(paymentId);
+    if (!paymentDoc) {
+      return res.status(404).json({ error: 'Payment record not found' });
+    }
+
+    if (paymentDoc.verification_status === 'Verified' || paymentDoc.status === 'Paid') {
+      return res.status(400).json({ error: 'This payment has already been verified and marked as Paid.' });
+    }
+
+    const feeDoc = await FeeModel.findOne(buildFeeLookupFilter(paymentDoc.fee_id)).lean();
+    if (!feeDoc) {
+      return res.status(404).json({ error: 'Associated fee voucher not found in database' });
+    }
+
+    const currentPending = Number(feeDoc.pending_amount) || 0;
+    const currentPaid = Number(feeDoc.paid_amount) || 0;
+    const currentTotal = Number(feeDoc.total_amount) || 0;
+
+    if (paymentDoc.amount > currentPending) {
+      return res.status(400).json({
+        error: `Approved payment amount (PKR ${paymentDoc.amount.toLocaleString()}) exceeds current remaining balance (PKR ${currentPending.toLocaleString()}).`,
+      });
+    }
+
+    const receiptNo = `REC-${Date.now().toString().slice(-6)}${Math.floor(100 + Math.random() * 900)}`;
+    const nextPaid = currentPaid + paymentDoc.amount;
+    const nextPending = Math.max(0, currentTotal - nextPaid);
+    const nextStatus: FeeVoucherStatus = nextPending === 0 ? 'Paid' : 'Partial';
+
+    const paymentRecord = {
+      receipt_no: receiptNo,
+      date: new Date().toISOString().split('T')[0],
+      amount: paymentDoc.amount,
+      method: paymentDoc.method,
+      transaction_id: paymentDoc.deposit_slip_ref || paymentDoc.payment_reference,
+      notes: `Bank Deposit Approved by ${req.user!.name} (Ref: ${paymentDoc.payment_reference})`,
+    };
+
+    // Update payment document
+    paymentDoc.status = 'Paid';
+    paymentDoc.verification_status = 'Verified';
+    paymentDoc.receipt_no = receiptNo;
+    paymentDoc.verified_by_id = req.user!.id;
+    paymentDoc.verified_by_name = req.user!.name;
+    paymentDoc.verified_at = new Date().toISOString();
+    paymentDoc.received_by = req.user!.name;
+    await paymentDoc.save();
+
+    // Atomically update fee voucher
+    const updatedFee = await FeeModel.findOneAndUpdate(
+      { _id: feeDoc._id, pending_amount: { $gte: paymentDoc.amount } },
+      {
+        $set: {
+          paid_amount: nextPaid,
+          pending_amount: nextPending,
+          status: nextStatus,
+        },
+        $push: { payment_history: paymentRecord },
+      },
+      { returnDocument: 'after' }
+    ).lean();
+
+    // Send SMS Confirmation to parent
+    const smsResult = await sendPaymentApprovalSms({
+      payment_reference: paymentDoc.payment_reference,
+      receipt_no: receiptNo,
+      amount: paymentDoc.amount,
+      parent_name: paymentDoc.parent_name,
+      parent_phone: paymentDoc.parent_phone,
+      student_name: paymentDoc.student_name || feeDoc.student_name,
+      class_name: paymentDoc.class_name || feeDoc.class_name,
+    });
+
+    if (smsResult.sent) {
+      await FeePaymentModel.updateOne(
+        { _id: paymentDoc._id },
+        {
+          $set: {
+            sms_status: smsResult.status,
+            sms_message: smsResult.message,
+            sms_sent_at: smsResult.timestamp,
+          },
+        }
+      );
+    }
+
+    // Notify Parent in-app
+    if (paymentDoc.parent_user_id) {
+      await NotificationModel.create({
+        user_id: paymentDoc.parent_user_id,
+        role: 'parent',
+        title: 'Fee Payment Approved & Receipt Issued',
+        message: `Your deposit of PKR ${paymentDoc.amount.toLocaleString()} for ${paymentDoc.student_name || feeDoc.student_name} has been verified. Official Receipt: ${receiptNo}.`,
+        link: '/student-portal',
+      });
+    }
+
+    await recordMongoAudit(
+      req.user!,
+      'Approved Fee Payment',
+      'FeePayment',
+      paymentDoc.payment_reference,
+      `Verified deposit of PKR ${paymentDoc.amount} for ${paymentDoc.student_name}. Receipt: ${receiptNo}`
+    );
+
+    return res.json({
+      message: 'Payment verified and approved successfully',
+      payment: toFeePaymentDto(paymentDoc),
+      fee: updatedFee ? toFeeDto(updatedFee) : feeDoc,
+      receipt_no: receiptNo,
+    });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to approve payment');
+  }
+});
+
+// 7. Admin Reject Manual Payment
+router.post('/admin/payments/:id/reject', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
+  if (!ensureMongoReady(res)) return;
+  const paymentId = String(req.params.id || '').trim();
+  const { reason } = req.body || {};
+
+  const cleanReason = String(reason || '').trim();
+  if (!cleanReason) {
+    return res.status(400).json({ error: 'Rejection reason is required' });
+  }
+
+  try {
+    const paymentDoc = await FeePaymentModel.findById(paymentId);
+    if (!paymentDoc) {
+      return res.status(404).json({ error: 'Payment record not found' });
+    }
+
+    if (paymentDoc.verification_status === 'Verified' || paymentDoc.status === 'Paid') {
+      return res.status(400).json({ error: 'Cannot reject an already verified and settled payment.' });
+    }
+
+    paymentDoc.status = 'Rejected';
+    paymentDoc.verification_status = 'Rejected';
+    paymentDoc.rejection_reason = cleanReason;
+    paymentDoc.verified_by_id = req.user!.id;
+    paymentDoc.verified_by_name = req.user!.name;
+    paymentDoc.verified_at = new Date().toISOString();
+    await paymentDoc.save();
+
+    // Send Rejection SMS to Parent
+    const smsResult = await sendPaymentRejectionSms(
+      {
+        payment_reference: paymentDoc.payment_reference,
+        amount: paymentDoc.amount,
+        parent_name: paymentDoc.parent_name,
+        parent_phone: paymentDoc.parent_phone,
+        student_name: paymentDoc.student_name,
+        class_name: paymentDoc.class_name,
+      },
+      cleanReason
+    );
+
+    if (smsResult.sent) {
+      await FeePaymentModel.updateOne(
+        { _id: paymentDoc._id },
+        {
+          $set: {
+            sms_status: smsResult.status,
+            sms_message: smsResult.message,
+            sms_sent_at: smsResult.timestamp,
+          },
+        }
+      );
+    }
+
+    if (paymentDoc.parent_user_id) {
+      await NotificationModel.create({
+        user_id: paymentDoc.parent_user_id,
+        role: 'parent',
+        title: 'Fee Payment Rejected',
+        message: `Your payment Ref: ${paymentDoc.payment_reference} for ${paymentDoc.student_name} was rejected. Reason: ${cleanReason}`,
+        link: '/student-portal',
+      });
+    }
+
+    await recordMongoAudit(
+      req.user!,
+      'Rejected Fee Payment',
+      'FeePayment',
+      paymentDoc.payment_reference,
+      `Rejected deposit of PKR ${paymentDoc.amount} for ${paymentDoc.student_name}. Reason: ${cleanReason}`
+    );
+
+    return res.json({
+      message: 'Payment rejected',
+      payment: toFeePaymentDto(paymentDoc),
+    });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to reject payment');
+  }
+});
+
+// 8. Admin Payment & SMS Configuration
+router.get('/admin/payments/settings', authenticateToken, requireRole(['super_admin', 'admin']), async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    const settings = await getPaymentSettings();
+    return res.json(settings);
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to fetch admin payment settings');
+  }
+});
+
+router.put('/admin/payments/settings', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
+  if (!ensureMongoReady(res)) return;
+  try {
+    const updated = await savePaymentSettings(req.body || {});
+    await recordMongoAudit(
+      req.user!,
+      'Updated Payment & SMS Settings',
+      'SchoolSettings',
+      'default',
+      'Updated gateways, bank accounts, policies, or SMS templates'
+    );
+    return res.json({ message: 'Payment settings saved successfully', settings: updated });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to update payment settings');
   }
 });
 

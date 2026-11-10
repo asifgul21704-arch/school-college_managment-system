@@ -33,11 +33,26 @@ import {
   X,
   MessageSquareText,
   Copy,
+  DollarSign,
+  Building2,
+  UploadCloud,
+  Receipt,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { AiResponseRenderer } from './ui/AiResponseRenderer';
-import { Student, AttendanceRecord, FeeRecord, TimetableEntry, ResultRecord, Announcement } from '../types';
+import { PaymentReceiptModal } from './ui/PaymentReceiptModal';
+import {
+  Student,
+  AttendanceRecord,
+  FeeRecord,
+  TimetableEntry,
+  ResultRecord,
+  Announcement,
+  PaymentTransaction,
+  PaymentSettings,
+  OutstandingFeeSummary,
+} from '../types';
 
 interface StudentPortalProps {
   onBackToWebsite: () => void;
@@ -158,6 +173,41 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
   const [printingResult, setPrintingResult] = useState<ResultRecord | null>(null);
   const [printingFee, setPrintingFee] = useState<FeeRecord | null>(null);
 
+  // Online Fee Payment and Receipt states
+  const [feeSummary, setFeeSummary] = useState<OutstandingFeeSummary | null>(null);
+  const [paymentSettings, setPaymentSettings] = useState<PaymentSettings | null>(null);
+  const [paymentHistory, setPaymentHistory] = useState<PaymentTransaction[]>([]);
+  const [viewingReceiptPayment, setViewingReceiptPayment] = useState<PaymentTransaction | null>(null);
+  const [showPayModal, setShowPayModal] = useState<boolean>(false);
+  const [payingFee, setPayingFee] = useState<FeeRecord | null>(null);
+  const [payAmount, setPayAmount] = useState<number | string>('');
+  const [payMethod, setPayMethod] = useState<'Online Gateway' | 'Bank Deposit'>('Online Gateway');
+  const [payGatewayProvider, setPayGatewayProvider] = useState<'JazzCash' | 'Easypaisa' | 'Raast'>('JazzCash');
+  const [payBankName, setPayBankName] = useState<string>('Askari Bank Limited');
+  const [payDepositDate, setPayDepositDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [payDepositSlipRef, setPayDepositSlipRef] = useState<string>('');
+  const [paySlipAttachmentUrl, setPaySlipAttachmentUrl] = useState<string>('');
+  const [payParentPhone, setPayParentPhone] = useState<string>(user?.phone || '');
+  const [payNotes, setPayNotes] = useState<string>('');
+  const [payModalSubmitting, setPayModalSubmitting] = useState<boolean>(false);
+  const [payModalError, setPayModalError] = useState<string | null>(null);
+  const [payModalSuccess, setPayModalSuccess] = useState<string | null>(null);
+
+  const loadPaymentData = async (targetStudentId?: string) => {
+    try {
+      const [summary, settings, history] = await Promise.all([
+        api.getFeeSummary(targetStudentId).catch(() => null),
+        api.getPublicPaymentSettings().catch(() => null),
+        api.getParentPaymentHistory().catch(() => []),
+      ]);
+      if (summary) setFeeSummary(summary);
+      if (settings) setPaymentSettings(settings);
+      setPaymentHistory(Array.isArray(history) ? history : []);
+    } catch (err) {
+      console.warn('Payment data load notice:', err);
+    }
+  };
+
   // Load Real MongoDB Notifications
   const loadNotifications = async () => {
     try {
@@ -227,8 +277,9 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
         console.warn('Notices load notice:', annErr);
       }
 
-      // Notifications
+      // Notifications & Fee Payments
       await loadNotifications();
+      await loadPaymentData(targetStudentId);
     } catch (err: any) {
       console.warn('Student portal details notice:', err);
       setPortalError(err?.message || 'Unable to load student academic records at this time.');
@@ -465,6 +516,83 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
       setUnlinkError(err.message || 'Failed to unlink child.');
     } finally {
       setUnlinkLoading(false);
+    }
+  };
+
+  // Payment Modal Handlers
+  const handleOpenPayModal = (targetFee?: FeeRecord) => {
+    setPayModalError(null);
+    setPayModalSuccess(null);
+    if (targetFee) {
+      setPayingFee(targetFee);
+      setPayAmount(targetFee.pending_amount);
+    } else {
+      const pendingVoucher = fees.find(f => f.pending_amount > 0);
+      setPayingFee(pendingVoucher || null);
+      setPayAmount(pendingVoucher ? pendingVoucher.pending_amount : (feeSummary?.total_outstanding || 0));
+    }
+    setPayDepositDate(new Date().toISOString().split('T')[0]);
+    setShowPayModal(true);
+  };
+
+  const handleSubmitPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!payingFee) {
+      setPayModalError('Please select a valid fee voucher to pay.');
+      return;
+    }
+
+    const amt = Number(payAmount);
+    if (isNaN(amt) || amt <= 0) {
+      setPayModalError('Please enter a valid payment amount greater than zero.');
+      return;
+    }
+
+    if (amt > payingFee.pending_amount) {
+      setPayModalError(`Payment amount cannot exceed voucher remaining balance (PKR ${payingFee.pending_amount.toLocaleString()}).`);
+      return;
+    }
+
+    setPayModalSubmitting(true);
+    setPayModalError(null);
+    setPayModalSuccess(null);
+
+    try {
+      const res = await api.initiateFeePayment({
+        fee_id: payingFee.id,
+        student_id: payingFee.student_id,
+        amount: amt,
+        method: payMethod,
+        gateway_provider: payMethod === 'Online Gateway' ? payGatewayProvider : undefined,
+        bank_name: payMethod === 'Bank Deposit' ? payBankName : undefined,
+        deposit_date: payMethod === 'Bank Deposit' ? payDepositDate : undefined,
+        deposit_slip_ref: payMethod === 'Bank Deposit' ? payDepositSlipRef : undefined,
+        receipt_attachment_url: payMethod === 'Bank Deposit' ? paySlipAttachmentUrl : undefined,
+        parent_phone: payParentPhone,
+        notes: payNotes,
+      });
+
+      setPayModalSuccess(res.message || 'Payment processed successfully.');
+      if (selectedStudentId) {
+        const details = await api.getStudentById(selectedStudentId).catch(() => null);
+        if (details?.fees) setFees(details.fees);
+        await loadPaymentData(selectedStudentId);
+      }
+
+      if (res.payment.status === 'Paid') {
+        setTimeout(() => {
+          setViewingReceiptPayment(res.payment);
+        }, 1200);
+      }
+
+      setTimeout(() => {
+        setShowPayModal(false);
+        setPayModalSuccess(null);
+      }, 2000);
+    } catch (err: any) {
+      setPayModalError(err.message || 'Failed to submit fee payment.');
+    } finally {
+      setPayModalSubmitting(false);
     }
   };
 
@@ -2052,28 +2180,86 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
         )}
 
         {/* ==================================================== */}
-        {/* TAB 5: FEES                                          */}
+        {/* TAB 5: FEES & ONLINE PAYMENTS                        */}
         {/* ==================================================== */}
         {activeTab === 'fees' && (
           <div className="space-y-6">
+            {/* Outstanding Fee Summary Banner */}
+            <div className="bg-gradient-to-br from-neutral-900 to-neutral-950 text-white rounded-2xl p-6 sm:p-8 shadow-md border border-neutral-800">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
+                    <ShieldCheck className="w-4 h-4" />
+                    <span>Official Fee Account &middot; Shawan School &amp; College</span>
+                  </div>
+                  <h3 className="text-2xl sm:text-3xl font-extrabold font-display tracking-tight text-white">
+                    PKR {(feeSummary?.total_outstanding ?? totalPendingFee).toLocaleString()}
+                  </h3>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-400">
+                    <span>
+                      Current Month:{' '}
+                      <strong className="text-neutral-200 font-mono">
+                        PKR {(feeSummary?.current_month_fee ?? 0).toLocaleString()}
+                      </strong>
+                    </span>
+                    <span aria-hidden="true">&middot;</span>
+                    <span>
+                      Previous Balance:{' '}
+                      <strong className="text-neutral-200 font-mono">
+                        PKR {(feeSummary?.previous_balance ?? 0).toLocaleString()}
+                      </strong>
+                    </span>
+                    {feeSummary && feeSummary.late_fee_fine > 0 && (
+                      <>
+                        <span aria-hidden="true">&middot;</span>
+                        <span className="text-rose-400 font-semibold">
+                          Late Fine: PKR {feeSummary.late_fee_fine.toLocaleString()}
+                        </span>
+                      </>
+                    )}
+                    <span aria-hidden="true">&middot;</span>
+                    <span>
+                      Next Due Date:{' '}
+                      <strong className="text-neutral-200 font-mono">
+                        {feeSummary?.next_due_date || 'On Schedule'}
+                      </strong>
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenPayModal()}
+                    disabled={(feeSummary?.total_outstanding ?? totalPendingFee) <= 0}
+                    className="min-h-[44px] px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-neutral-800 disabled:text-neutral-500 disabled:cursor-not-allowed text-white text-xs sm:text-sm font-bold rounded-xl flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
+                  >
+                    <CreditCard className="w-4 h-4" />
+                    <span>{(feeSummary?.total_outstanding ?? totalPendingFee) > 0 ? 'Pay Outstanding Dues' : 'Dues Cleared'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => loadPaymentData(selectedStudentId)}
+                    className="min-h-[44px] px-4 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Refresh</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Fee Vouchers Table */}
             <div className="bg-white rounded-2xl border border-neutral-200 p-6 sm:p-8 shadow-xs space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-neutral-200">
                 <div>
-                  <h3 className="text-base font-bold text-neutral-900 font-display">Fee Vouchers & Payment History</h3>
+                  <h3 className="text-base font-bold text-neutral-900 font-display">Academic Fee Vouchers</h3>
                   <p className="text-xs text-neutral-500">
-                    Official challans, monthly tuition dues, and bank deposit records.
+                    Monthly tuition dues, laboratory charges, and individual challan slips for {student?.full_name}.
                   </p>
                 </div>
-                <div
-                  className={`text-xs font-bold px-3 py-1.5 rounded-lg border ${
-                    totalPendingFee > 0
-                      ? 'bg-rose-50 text-rose-800 border-rose-200'
-                      : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                  }`}
-                >
-                  {totalPendingFee > 0
-                    ? `Total Dues Outstanding: PKR ${totalPendingFee.toLocaleString()}`
-                    : 'All Dues Cleared (PKR 0)'}
+                <div className="text-xs font-mono text-neutral-500">
+                  Total Vouchers: <strong>{fees.length}</strong>
                 </div>
               </div>
 
@@ -2119,19 +2305,131 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
                             </span>
                           </td>
                           <td className="py-3 px-4 text-right">
-                            <button
-                              onClick={() => setPrintingFee(f)}
-                              className="px-3 py-1 text-xs font-semibold text-emerald-900 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-md cursor-pointer"
-                            >
-                              Print Challan Slip
-                            </button>
+                            <div className="flex items-center justify-end gap-2">
+                              {f.pending_amount > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenPayModal(f)}
+                                  className="px-3 py-1 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-600 rounded-md cursor-pointer transition-colors"
+                                >
+                                  Pay Now
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setPrintingFee(f)}
+                                className="px-3 py-1 text-xs font-semibold text-emerald-900 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-md cursor-pointer transition-colors"
+                              >
+                                Print Challan
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))
                     ) : (
                       <tr>
                         <td colSpan={7} className="py-8 text-center text-neutral-500 italic">
-                          Not available in the database.
+                          No fee vouchers found for this student.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Payment History & Verified Receipts */}
+            <div className="bg-white rounded-2xl border border-neutral-200 p-6 sm:p-8 shadow-xs space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-neutral-200">
+                <div>
+                  <h3 className="text-base font-bold text-neutral-900 font-display">
+                    Payment Ledger &amp; Official Receipts
+                  </h3>
+                  <p className="text-xs text-neutral-500">
+                    Real-time transaction history across online payment gateway, bank transfers, and office deposits.
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 text-xs text-neutral-500">
+                  <Receipt className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>Verified receipts stamped with official authority</span>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-neutral-50 text-neutral-700 font-semibold border-b border-neutral-200">
+                    <tr>
+                      <th className="py-3 px-4">Payment Ref</th>
+                      <th className="py-3 px-4">Receipt No</th>
+                      <th className="py-3 px-4">Date</th>
+                      <th className="py-3 px-4">Method</th>
+                      <th className="py-3 px-4">Amount Paid</th>
+                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4 text-right">Official Receipt</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-neutral-200">
+                    {paymentHistory.length > 0 ? (
+                      paymentHistory.map((p, idx) => (
+                        <tr key={`p-hist-${p.id || idx}`} className="hover:bg-neutral-50">
+                          <td className="py-3 px-4 font-mono font-bold text-neutral-900">
+                            {p.payment_reference}
+                          </td>
+                          <td className="py-3 px-4 font-mono text-neutral-700">
+                            {p.receipt_no || (
+                              <span className="text-amber-700 italic">Awaiting Verification</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 font-mono text-neutral-600">{p.date}</td>
+                          <td className="py-3 px-4">
+                            <span className="font-semibold text-neutral-800">
+                              {p.method}
+                              {p.gateway_provider ? ` (${p.gateway_provider})` : ''}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 font-mono font-bold text-emerald-800">
+                            PKR {p.amount.toLocaleString()}
+                          </td>
+                          <td className="py-3 px-4">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                                p.status === 'Paid' || p.verification_status === 'Verified'
+                                  ? 'bg-emerald-50 text-emerald-800'
+                                  : p.status === 'Rejected' || p.verification_status === 'Rejected'
+                                  ? 'bg-rose-50 text-rose-800'
+                                  : 'bg-amber-50 text-amber-800'
+                              }`}
+                            >
+                              {p.verification_status === 'Pending' ? 'Pending Verification' : p.status}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            {p.status === 'Paid' || p.verification_status === 'Verified' ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setViewingReceiptPayment(p);
+                                }}
+                                className="px-3 py-1 text-xs font-semibold text-emerald-900 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-md cursor-pointer transition-colors"
+                              >
+                                View Receipt
+                              </button>
+                            ) : p.status === 'Rejected' ? (
+                              <span className="text-[11px] text-rose-600 italic" title={p.rejection_reason}>
+                                Rejected: {p.rejection_reason || 'Slip mismatch'}
+                              </span>
+                            ) : (
+                              <span className="text-[11px] text-neutral-400 italic">
+                                Verification in progress
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={7} className="py-8 text-center text-neutral-500 italic">
+                          No previous payment records found.
                         </td>
                       </tr>
                     )}
@@ -2749,6 +3047,292 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
           </div>
         )}
       </main>
+
+      {/* ==================================================== */}
+      {/* ONLINE FEE PAYMENT MODAL                             */}
+      {/* ==================================================== */}
+      {showPayModal && payingFee && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-neutral-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="relative w-full max-w-lg bg-white rounded-2xl border border-neutral-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-200 bg-neutral-900 text-white">
+              <div>
+                <h3 className="text-sm sm:text-base font-bold font-display flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-emerald-400" />
+                  <span>Fee Payment &middot; {payingFee.fee_month} {payingFee.year}</span>
+                </h3>
+                <p className="text-[11px] text-neutral-300">
+                  Student: <strong className="text-white">{payingFee.student_name}</strong> &middot; Class: {payingFee.class_name}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPayModal(false)}
+                className="p-1.5 text-neutral-400 hover:text-white rounded-lg hover:bg-neutral-800 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleSubmitPayment} className="p-6 space-y-5">
+              {payModalError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <span>{payModalError}</span>
+                </div>
+              )}
+
+              {payModalSuccess && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-900 text-xs flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <span>{payModalSuccess}</span>
+                </div>
+              )}
+
+              {/* Outstanding Details Box */}
+              <div className="p-3.5 bg-neutral-50 rounded-xl border border-neutral-200 flex justify-between items-center text-xs">
+                <div>
+                  <span className="text-neutral-500 block">Total Voucher Dues:</span>
+                  <span className="font-mono text-neutral-800">PKR {payingFee.total_amount.toLocaleString()}</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-neutral-500 block">Remaining Payable:</span>
+                  <span className="font-mono font-bold text-rose-700 text-sm">
+                    PKR {payingFee.pending_amount.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+
+              {/* Payment Method Switcher */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-neutral-700 block">Select Payment Mode</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPayMethod('Online Gateway')}
+                    className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                      payMethod === 'Online Gateway'
+                        ? 'bg-emerald-900 text-white border-emerald-900 shadow-xs'
+                        : 'bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-50'
+                    }`}
+                  >
+                    <DollarSign className="w-3.5 h-3.5" />
+                    <span>Online Gateway (Instant)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPayMethod('Bank Deposit')}
+                    className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                      payMethod === 'Bank Deposit'
+                        ? 'bg-emerald-900 text-white border-emerald-900 shadow-xs'
+                        : 'bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-50'
+                    }`}
+                  >
+                    <Building2 className="w-3.5 h-3.5" />
+                    <span>Bank Transfer / Deposit</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Option A: Online Gateway Mode */}
+              {payMethod === 'Online Gateway' && (
+                <div className="space-y-3 p-3.5 bg-emerald-50/50 rounded-xl border border-emerald-200 text-xs">
+                  <span className="font-bold text-emerald-950 block">Select Mobile Wallet / FinTech Provider:</span>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['JazzCash', 'Easypaisa', 'Raast'] as const).map(gw => (
+                      <button
+                        key={gw}
+                        type="button"
+                        onClick={() => setPayGatewayProvider(gw)}
+                        className={`py-2 px-2 text-center rounded-lg border text-xs font-bold transition-colors cursor-pointer ${
+                          payGatewayProvider === gw
+                            ? 'bg-emerald-800 text-white border-emerald-800'
+                            : 'bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-50'
+                        }`}
+                      >
+                        {gw}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="space-y-1 pt-1">
+                    <label className="text-[11px] font-semibold text-neutral-700 block">
+                      {payGatewayProvider} Mobile Account Number:
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 0300 1234567"
+                      defaultValue={user?.phone || '03001234567'}
+                      className="w-full py-2 px-3 rounded-lg border border-neutral-300 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-emerald-700 bg-white"
+                      required
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1.5 text-[11px] text-emerald-900 pt-1">
+                    <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0" />
+                    <span>Instant sandbox verification active &middot; Automated official receipt issued</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Option B: Bank Deposit Mode */}
+              {payMethod === 'Bank Deposit' && (
+                <div className="space-y-3 text-xs">
+                  {/* Official School Bank Accounts */}
+                  <div className="p-3 bg-neutral-50 rounded-xl border border-neutral-200 space-y-1.5 text-[11px]">
+                    <span className="font-bold text-neutral-900 block border-b border-neutral-200 pb-1">
+                      Official School Collection Accounts:
+                    </span>
+                    <div>
+                      <strong className="text-neutral-900">Askari Bank Ltd:</strong> 0142100897654 (Paharpur Branch)
+                      <span className="block font-mono text-neutral-500">IBAN: PK45ASCM0142100897654001</span>
+                    </div>
+                    <div>
+                      <strong className="text-neutral-900">The Bank of Khyber:</strong> 0015002008741 (D.I. Khan)
+                      <span className="block font-mono text-neutral-500">IBAN: PK12BOKH0015002008741001</span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-semibold text-neutral-700 block">Deposited Bank</label>
+                      <select
+                        value={payBankName}
+                        onChange={e => setPayBankName(e.target.value)}
+                        className="w-full py-2 px-3 rounded-lg border border-neutral-300 text-xs bg-white"
+                      >
+                        <option value="Askari Bank Limited">Askari Bank Limited</option>
+                        <option value="The Bank of Khyber">The Bank of Khyber</option>
+                        <option value="Habib Bank Limited (HBL)">Habib Bank Limited</option>
+                        <option value="Other Bank / Online Transfer">Other Bank / Transfer</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-semibold text-neutral-700 block">Deposit Date</label>
+                      <input
+                        type="date"
+                        value={payDepositDate}
+                        onChange={e => setPayDepositDate(e.target.value)}
+                        className="w-full py-2 px-3 rounded-lg border border-neutral-300 text-xs bg-white font-mono"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-semibold text-neutral-700 block">
+                      Deposit Slip Reference / Transaction ID:
+                    </label>
+                    <input
+                      type="text"
+                      value={payDepositSlipRef}
+                      onChange={e => setPayDepositSlipRef(e.target.value)}
+                      placeholder="e.g. SLIP-98412 or 12-digit bank ref"
+                      className="w-full py-2 px-3 rounded-lg border border-neutral-300 text-xs font-mono bg-white"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-semibold text-neutral-700 block">
+                      Deposit Slip Document URL (Optional):
+                    </label>
+                    <input
+                      type="text"
+                      value={paySlipAttachmentUrl}
+                      onChange={e => setPaySlipAttachmentUrl(e.target.value)}
+                      placeholder="https://... or slip reference photo URL"
+                      className="w-full py-2 px-3 rounded-lg border border-neutral-300 text-xs font-mono bg-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Amount to Pay */}
+              <div className="space-y-1">
+                <div className="flex justify-between items-center text-xs">
+                  <label htmlFor="pay-amount-input" className="font-semibold text-neutral-700">
+                    Amount to Pay (PKR):
+                  </label>
+                  <span className="text-[11px] text-neutral-500">
+                    Max: PKR {payingFee.pending_amount.toLocaleString()}
+                  </span>
+                </div>
+                <input
+                  id="pay-amount-input"
+                  type="number"
+                  min={1}
+                  max={payingFee.pending_amount}
+                  value={payAmount}
+                  onChange={e => setPayAmount(e.target.value)}
+                  className="w-full py-2 px-3 rounded-lg border border-neutral-300 font-mono font-bold text-sm text-neutral-900 bg-white"
+                  required
+                />
+              </div>
+
+              {/* Parent Phone for SMS */}
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-neutral-700 block">
+                  Parent Mobile Phone (for Instant SMS Notification):
+                </label>
+                <input
+                  type="text"
+                  value={payParentPhone}
+                  onChange={e => setPayParentPhone(e.target.value)}
+                  placeholder="+92 300 0000000"
+                  className="w-full py-2 px-3 rounded-lg border border-neutral-300 font-mono text-xs text-neutral-900 bg-white"
+                  required
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-neutral-200">
+                <button
+                  type="button"
+                  onClick={() => setShowPayModal(false)}
+                  disabled={payModalSubmitting}
+                  className="px-4 py-2 text-xs font-semibold text-neutral-700 hover:bg-neutral-100 border border-neutral-300 rounded-xl cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={payModalSubmitting}
+                  className="px-5 py-2 text-xs font-bold text-white bg-emerald-900 hover:bg-emerald-800 disabled:opacity-50 rounded-xl flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                >
+                  {payModalSubmitting ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Processing...</span>
+                    </>
+                  ) : payMethod === 'Online Gateway' ? (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Confirm &amp; Pay PKR {Number(payAmount || 0).toLocaleString()}</span>
+                    </>
+                  ) : (
+                    <>
+                      <UploadCloud className="w-3.5 h-3.5" />
+                      <span>Submit Slip for Verification</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Official Printable Receipt Modal */}
+      {viewingReceiptPayment && (
+        <PaymentReceiptModal
+          payment={viewingReceiptPayment}
+          fee={fees.find(f => f.id === viewingReceiptPayment.fee_id) || null}
+          onClose={() => setViewingReceiptPayment(null)}
+        />
+      )}
     </div>
   );
 };

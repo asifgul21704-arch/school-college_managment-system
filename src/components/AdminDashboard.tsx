@@ -52,6 +52,7 @@ import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { AdminAiAssistant } from './AdminAiAssistant';
 import { ConfirmDialog } from './ui/ConfirmDialog';
+import { PaymentReceiptModal } from './ui/PaymentReceiptModal';
 import {
   Student,
   Teacher,
@@ -71,6 +72,8 @@ import {
   SchoolSettings,
   TeacherSignupRequest,
   TeacherTask,
+  PaymentTransaction,
+  PaymentSettings,
 } from '../types';
 
 interface AdminDashboardProps {
@@ -125,6 +128,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
   const [messages, setMessages] = useState<ContactMessage[]>([]);
   const [settings, setSettings] = useState<SchoolSettings | null>(null);
+
+  // Fee Payments & Approvals States
+  const [adminPayments, setAdminPayments] = useState<PaymentTransaction[]>([]);
+  const [adminPaymentStats, setAdminPaymentStats] = useState<{
+    total_collected: number;
+    today_collected: number;
+    monthly_collected: number;
+    pending_approvals_count: number;
+    rejected_count: number;
+    total_successful: number;
+    total_outstanding: number;
+  } | null>(null);
+  const [adminPaymentSettings, setAdminPaymentSettings] = useState<PaymentSettings | null>(null);
+  const [paymentTabFilter, setPaymentTabFilter] = useState<'all' | 'pending' | 'verified' | 'rejected' | 'settings'>('pending');
+  const [paymentSearchQuery, setPaymentSearchQuery] = useState<string>('');
+  const [paymentRejectModalItem, setPaymentRejectModalItem] = useState<PaymentTransaction | null>(null);
+  const [paymentRejectReason, setPaymentRejectReason] = useState<string>('');
+  const [paymentApproveModalItem, setPaymentApproveModalItem] = useState<PaymentTransaction | null>(null);
+  const [paymentActionLoading, setPaymentActionLoading] = useState<boolean>(false);
+  const [paymentReceiptViewing, setPaymentReceiptViewing] = useState<PaymentTransaction | null>(null);
+  const [slipZoomImageUrl, setSlipZoomImageUrl] = useState<string | null>(null);
+  const [paymentSettingsSaving, setPaymentSettingsSaving] = useState<boolean>(false);
+  const [paymentSettingsSuccess, setPaymentSettingsSuccess] = useState<string | null>(null);
 
   // Teacher Requests & Responsibilities States
   const [teacherRequests, setTeacherRequests] = useState<TeacherSignupRequest[]>([]);
@@ -384,6 +410,92 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  const loadAdminPayments = async () => {
+    try {
+      const vStatus = paymentTabFilter === 'pending'
+        ? 'Pending'
+        : paymentTabFilter === 'verified'
+        ? 'Verified'
+        : paymentTabFilter === 'rejected'
+        ? 'Rejected'
+        : undefined;
+
+      const res = await api.getAdminPayments({
+        verification_status: vStatus,
+        search: paymentSearchQuery.trim() || undefined,
+        limit: 100,
+      });
+      setAdminPayments(res.payments || []);
+      if (res.stats) setAdminPaymentStats(res.stats);
+    } catch (err: any) {
+      console.warn('Failed to load admin payments:', err);
+    }
+  };
+
+  const loadAdminPaymentSettings = async () => {
+    try {
+      const s = await api.getAdminPaymentSettings();
+      setAdminPaymentSettings(s);
+    } catch (err: any) {
+      console.warn('Failed to load payment settings:', err);
+    }
+  };
+
+  const handleApprovePayment = async (payment: PaymentTransaction) => {
+    setPaymentActionLoading(true);
+    try {
+      const res = await api.approveAdminPayment(payment.id);
+      showNotification(res.message || `Payment ${payment.payment_reference} approved successfully. Receipt: ${res.receipt_no}`);
+      setPaymentApproveModalItem(null);
+      await loadAdminPayments();
+      setFees(prev => prev.map(f => f.id === res.fee.id ? res.fee : f));
+    } catch (err: any) {
+      showError(err.message || 'Failed to approve payment');
+    } finally {
+      setPaymentActionLoading(false);
+    }
+  };
+
+  const handleRejectPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!paymentRejectModalItem) return;
+    if (!paymentRejectReason.trim()) {
+      showError('Please enter a rejection reason.');
+      return;
+    }
+
+    setPaymentActionLoading(true);
+    try {
+      const res = await api.rejectAdminPayment(paymentRejectModalItem.id, paymentRejectReason.trim());
+      showNotification(res.message || `Payment ${paymentRejectModalItem.payment_reference} marked as Rejected.`);
+      setPaymentRejectModalItem(null);
+      setPaymentRejectReason('');
+      await loadAdminPayments();
+    } catch (err: any) {
+      showError(err.message || 'Failed to reject payment');
+    } finally {
+      setPaymentActionLoading(false);
+    }
+  };
+
+  const handleSavePaymentSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminPaymentSettings) return;
+    setPaymentSettingsSaving(true);
+    setPaymentSettingsSuccess(null);
+    try {
+      const res = await api.updateAdminPaymentSettings(adminPaymentSettings);
+      setPaymentSettingsSuccess(res.message || 'Payment settings saved successfully.');
+      setAdminPaymentSettings(res.settings);
+      showNotification('Payment and SMS settings updated successfully');
+      setTimeout(() => setPaymentSettingsSuccess(null), 3000);
+    } catch (err: any) {
+      showError(err.message || 'Failed to update payment settings');
+    } finally {
+      setPaymentSettingsSaving(false);
+    }
+  };
+
   useEffect(() => {
     if (activeSection === 'mongodb') {
       fetchMongoInfo();
@@ -391,8 +503,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       fetchParentLinks();
     } else if (activeSection === 'attendance' && user) {
       fetchClassAttendance(attClass, attDate);
+    } else if (activeSection === 'payments') {
+      loadAdminPayments();
+      loadAdminPaymentSettings();
     }
-  }, [activeSection, attClass, attDate, user]);
+  }, [activeSection, attClass, attDate, user, paymentTabFilter]);
 
   const handleAdminLinkParent = async (parentId?: string, studentId?: string) => {
     const pId = parentId || manualLinkParentId;
@@ -1382,6 +1497,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     { id: 'admissions', label: 'Admissions', icon: FileText, badge: stats?.pendingAdmissions, teacherAllowed: false },
     { id: 'attendance', label: 'Attendance', icon: Calendar, teacherAllowed: true },
     { id: 'fees', label: 'Fees Management', icon: CreditCard, teacherAllowed: false },
+    {
+      id: 'payments',
+      label: 'Payments & Approvals',
+      icon: DollarSign,
+      badge: adminPaymentStats?.pending_approvals_count ? String(adminPaymentStats.pending_approvals_count) : undefined,
+      teacherAllowed: false,
+    },
     { id: 'timetable', label: 'Timetable', icon: Clock, teacherAllowed: true },
     { id: 'exams', label: 'Exams & Results', icon: Award, teacherAllowed: true },
     { id: 'announcements', label: 'Announcements', icon: Bell, teacherAllowed: true },
@@ -3223,6 +3345,818 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </>
                 )}
               </div>
+            </div>
+          );
+        })()}
+
+        {/* ==================================================== */}
+        {/* 5B. FEE PAYMENTS & VERIFICATION CONSOLE              */}
+        {/* ==================================================== */}
+        {activeSection === 'payments' && (() => {
+          return (
+            <div className="space-y-6">
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-xl sm:text-2xl font-bold text-neutral-900 font-display">
+                    Fee Payments &amp; Verification Console
+                  </h2>
+                  <p className="text-xs text-neutral-500 mt-1">
+                    Verify student deposit slips, approve collections, issue official numbered receipts, and manage SMS notifications.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      loadAdminPayments();
+                      loadAdminPaymentSettings();
+                    }}
+                    className="min-h-[38px] px-3.5 py-1.5 text-xs font-semibold bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50 rounded-xl flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Refresh</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentTabFilter('settings')}
+                    className={`min-h-[38px] px-3.5 py-1.5 text-xs font-semibold rounded-xl flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors ${
+                      paymentTabFilter === 'settings'
+                        ? 'bg-emerald-900 text-white'
+                        : 'bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50'
+                    }`}
+                  >
+                    <SettingsIcon className="w-3.5 h-3.5" />
+                    <span>Payment &amp; SMS Settings</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Collection KPI Stats Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                <div className="p-4 bg-white rounded-xl border border-neutral-200 shadow-xs">
+                  <span className="text-[11px] font-medium text-neutral-500 block">Total Collected</span>
+                  <span className="text-lg font-bold font-mono text-emerald-800 block mt-1">
+                    PKR {(adminPaymentStats?.total_collected || 0).toLocaleString()}
+                  </span>
+                  <span className="text-[10px] text-neutral-400">All-time ledger</span>
+                </div>
+
+                <div className="p-4 bg-white rounded-xl border border-neutral-200 shadow-xs">
+                  <span className="text-[11px] font-medium text-neutral-500 block">Today&apos;s Collection</span>
+                  <span className="text-lg font-bold font-mono text-neutral-900 block mt-1">
+                    PKR {(adminPaymentStats?.today_collected || 0).toLocaleString()}
+                  </span>
+                  <span className="text-[10px] text-emerald-600 font-semibold">Today</span>
+                </div>
+
+                <div className="p-4 bg-white rounded-xl border border-neutral-200 shadow-xs">
+                  <span className="text-[11px] font-medium text-neutral-500 block">This Month</span>
+                  <span className="text-lg font-bold font-mono text-neutral-900 block mt-1">
+                    PKR {(adminPaymentStats?.monthly_collected || 0).toLocaleString()}
+                  </span>
+                  <span className="text-[10px] text-neutral-400">Current calendar month</span>
+                </div>
+
+                <div className={`p-4 rounded-xl border shadow-xs ${
+                  (adminPaymentStats?.pending_approvals_count || 0) > 0
+                    ? 'bg-amber-50/70 border-amber-300 text-amber-950'
+                    : 'bg-white border-neutral-200'
+                }`}>
+                  <span className="text-[11px] font-medium text-neutral-500 block">Pending Approvals</span>
+                  <span className="text-lg font-extrabold font-mono text-amber-900 block mt-1">
+                    {adminPaymentStats?.pending_approvals_count || 0}
+                  </span>
+                  <span className="text-[10px] text-amber-700 font-semibold">Requires verification</span>
+                </div>
+
+                <div className="p-4 bg-white rounded-xl border border-neutral-200 shadow-xs">
+                  <span className="text-[11px] font-medium text-neutral-500 block">Outstanding Dues</span>
+                  <span className="text-lg font-bold font-mono text-rose-800 block mt-1">
+                    PKR {(adminPaymentStats?.total_outstanding || 0).toLocaleString()}
+                  </span>
+                  <span className="text-[10px] text-neutral-400">Across all students</span>
+                </div>
+
+                <div className="p-4 bg-white rounded-xl border border-neutral-200 shadow-xs">
+                  <span className="text-[11px] font-medium text-neutral-500 block">Settled Transactions</span>
+                  <span className="text-lg font-bold font-mono text-neutral-900 block mt-1">
+                    {adminPaymentStats?.total_successful || 0}
+                  </span>
+                  <span className="text-[10px] text-neutral-400">Receipts issued</span>
+                </div>
+              </div>
+
+              {/* Sub-Tabs & Search Toolbar */}
+              <div className="bg-white rounded-2xl border border-neutral-200 p-4 shadow-xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
+                <div className="flex flex-wrap items-center gap-1.5 p-1 bg-neutral-100 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentTabFilter('pending')}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 ${
+                      paymentTabFilter === 'pending'
+                        ? 'bg-white text-neutral-900 shadow-xs'
+                        : 'text-neutral-600 hover:text-neutral-900'
+                    }`}
+                  >
+                    <span>Pending Verification</span>
+                    {(adminPaymentStats?.pending_approvals_count || 0) > 0 && (
+                      <span className="px-1.5 py-0.2 bg-amber-500 text-white font-mono text-[10px] rounded-full">
+                        {adminPaymentStats?.pending_approvals_count}
+                      </span>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPaymentTabFilter('all')}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                      paymentTabFilter === 'all'
+                        ? 'bg-white text-neutral-900 shadow-xs'
+                        : 'text-neutral-600 hover:text-neutral-900'
+                    }`}
+                  >
+                    All Transactions
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPaymentTabFilter('verified')}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                      paymentTabFilter === 'verified'
+                        ? 'bg-white text-neutral-900 shadow-xs'
+                        : 'text-neutral-600 hover:text-neutral-900'
+                    }`}
+                  >
+                    Verified / Paid
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPaymentTabFilter('rejected')}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                      paymentTabFilter === 'rejected'
+                        ? 'bg-white text-neutral-900 shadow-xs'
+                        : 'text-neutral-600 hover:text-neutral-900'
+                    }`}
+                  >
+                    Rejected ({adminPaymentStats?.rejected_count || 0})
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPaymentTabFilter('settings')}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                      paymentTabFilter === 'settings'
+                        ? 'bg-white text-neutral-900 shadow-xs'
+                        : 'text-neutral-600 hover:text-neutral-900'
+                    }`}
+                  >
+                    Payment &amp; SMS Settings
+                  </button>
+                </div>
+
+                {paymentTabFilter !== 'settings' && (
+                  <div className="relative min-w-[260px]">
+                    <Search className="w-3.5 h-3.5 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={paymentSearchQuery}
+                      onChange={e => setPaymentSearchQuery(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') loadAdminPayments();
+                      }}
+                      placeholder="Search ref, receipt, student, phone..."
+                      className="w-full pl-9 pr-8 py-2 text-xs bg-neutral-50 border border-neutral-300 rounded-xl focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-700 font-mono"
+                    />
+                    {paymentSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPaymentSearchQuery('');
+                          setTimeout(() => loadAdminPayments(), 50);
+                        }}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700 p-0.5 cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* View 1: Settings Panel */}
+              {paymentTabFilter === 'settings' && adminPaymentSettings && (
+                <form onSubmit={handleSavePaymentSettings} className="space-y-6">
+                  {paymentSettingsSuccess && (
+                    <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-900 text-xs flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>{paymentSettingsSuccess}</span>
+                    </div>
+                  )}
+
+                  {/* Gateways Card */}
+                  <div className="bg-white rounded-2xl border border-neutral-200 p-6 shadow-xs space-y-4">
+                    <div className="flex items-center justify-between pb-3 border-b border-neutral-200">
+                      <div>
+                        <h3 className="text-sm font-bold text-neutral-900 font-display">
+                          FinTech Online Payment Gateways
+                        </h3>
+                        <p className="text-xs text-neutral-500">
+                          Enable direct instant online student fee collection via mobile wallets.
+                        </p>
+                      </div>
+                      <div className="text-xs font-mono">
+                        Mode: <strong className="text-emerald-700">{adminPaymentSettings.gateways.mode}</strong>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <label className="flex items-center justify-between p-3.5 rounded-xl border border-neutral-200 bg-neutral-50 cursor-pointer">
+                        <div>
+                          <span className="font-bold text-xs text-neutral-900 block">JazzCash</span>
+                          <span className="text-[11px] text-neutral-500">Mobile account payments</span>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={adminPaymentSettings.gateways.jazzcash_enabled}
+                          onChange={e =>
+                            setAdminPaymentSettings({
+                              ...adminPaymentSettings,
+                              gateways: { ...adminPaymentSettings.gateways, jazzcash_enabled: e.target.checked },
+                            })
+                          }
+                          className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-700"
+                        />
+                      </label>
+
+                      <label className="flex items-center justify-between p-3.5 rounded-xl border border-neutral-200 bg-neutral-50 cursor-pointer">
+                        <div>
+                          <span className="font-bold text-xs text-neutral-900 block">Easypaisa</span>
+                          <span className="text-[11px] text-neutral-500">Telenor microfinance gateway</span>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={adminPaymentSettings.gateways.easypaisa_enabled}
+                          onChange={e =>
+                            setAdminPaymentSettings({
+                              ...adminPaymentSettings,
+                              gateways: { ...adminPaymentSettings.gateways, easypaisa_enabled: e.target.checked },
+                            })
+                          }
+                          className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-700"
+                        />
+                      </label>
+
+                      <label className="flex items-center justify-between p-3.5 rounded-xl border border-neutral-200 bg-neutral-50 cursor-pointer">
+                        <div>
+                          <span className="font-bold text-xs text-neutral-900 block">Raast Instant Pay</span>
+                          <span className="text-[11px] text-neutral-500">State Bank instant interbank</span>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={adminPaymentSettings.gateways.raast_enabled}
+                          onChange={e =>
+                            setAdminPaymentSettings({
+                              ...adminPaymentSettings,
+                              gateways: { ...adminPaymentSettings.gateways, raast_enabled: e.target.checked },
+                            })
+                          }
+                          className="w-4 h-4 rounded text-emerald-700 focus:ring-emerald-700"
+                        />
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* School Bank Accounts Card */}
+                  <div className="bg-white rounded-2xl border border-neutral-200 p-6 shadow-xs space-y-4">
+                    <div className="pb-3 border-b border-neutral-200">
+                      <h3 className="text-sm font-bold text-neutral-900 font-display">
+                        Official School Collection Bank Accounts
+                      </h3>
+                      <p className="text-xs text-neutral-500">
+                        These accounts are displayed on student fee challans and parent portal bank deposit instructions.
+                      </p>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-neutral-50 text-neutral-700 font-semibold border-b border-neutral-200">
+                          <tr>
+                            <th className="py-2.5 px-3">Bank Name</th>
+                            <th className="py-2.5 px-3">Account Title</th>
+                            <th className="py-2.5 px-3">Account Number</th>
+                            <th className="py-2.5 px-3">IBAN</th>
+                            <th className="py-2.5 px-3">Branch</th>
+                            <th className="py-2.5 px-3 text-center">Active</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-neutral-200">
+                          {adminPaymentSettings.bank_accounts.map((b, idx) => (
+                            <tr key={`bank-${idx}`}>
+                              <td className="py-2.5 px-3 font-semibold text-neutral-900">{b.bank_name}</td>
+                              <td className="py-2.5 px-3 text-neutral-800">{b.account_title}</td>
+                              <td className="py-2.5 px-3 font-mono text-neutral-800">{b.account_number}</td>
+                              <td className="py-2.5 px-3 font-mono text-neutral-600">{b.iban}</td>
+                              <td className="py-2.5 px-3 text-neutral-600">{b.branch}</td>
+                              <td className="py-2.5 px-3 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={b.active}
+                                  onChange={e => {
+                                    const next = [...adminPaymentSettings.bank_accounts];
+                                    next[idx].active = e.target.checked;
+                                    setAdminPaymentSettings({ ...adminPaymentSettings, bank_accounts: next });
+                                  }}
+                                  className="w-4 h-4 rounded text-emerald-700"
+                                />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Policies Card */}
+                  <div className="bg-white rounded-2xl border border-neutral-200 p-6 shadow-xs space-y-4">
+                    <div className="pb-3 border-b border-neutral-200">
+                      <h3 className="text-sm font-bold text-neutral-900 font-display">
+                        Fee Collection Policies &amp; Late Fines
+                      </h3>
+                      <p className="text-xs text-neutral-500">
+                        Configure installment policies and overdue fine charges.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                      <label className="flex items-center justify-between p-3.5 rounded-xl border border-neutral-200 bg-neutral-50 cursor-pointer">
+                        <div>
+                          <span className="font-bold text-neutral-900 block">Allow Partial Payments</span>
+                          <span className="text-[11px] text-neutral-500">Allow parents to pay in partial installments</span>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={adminPaymentSettings.policies.allow_partial}
+                          onChange={e =>
+                            setAdminPaymentSettings({
+                              ...adminPaymentSettings,
+                              policies: { ...adminPaymentSettings.policies, allow_partial: e.target.checked },
+                            })
+                          }
+                          className="w-4 h-4 rounded text-emerald-700"
+                        />
+                      </label>
+
+                      <div className="space-y-1">
+                        <label className="font-semibold text-neutral-700 block">
+                          Minimum Partial Payment (PKR):
+                        </label>
+                        <input
+                          type="number"
+                          value={adminPaymentSettings.policies.min_partial_amount}
+                          onChange={e =>
+                            setAdminPaymentSettings({
+                              ...adminPaymentSettings,
+                              policies: {
+                                ...adminPaymentSettings.policies,
+                                min_partial_amount: Number(e.target.value) || 0,
+                              },
+                            })
+                          }
+                          className="w-full py-2 px-3 border border-neutral-300 rounded-lg font-mono text-xs"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-semibold text-neutral-700 block">
+                          Late Fee Surcharge Fine (PKR):
+                        </label>
+                        <input
+                          type="number"
+                          value={adminPaymentSettings.policies.late_fee_amount}
+                          onChange={e =>
+                            setAdminPaymentSettings({
+                              ...adminPaymentSettings,
+                              policies: {
+                                ...adminPaymentSettings.policies,
+                                late_fee_amount: Number(e.target.value) || 0,
+                              },
+                            })
+                          }
+                          className="w-full py-2 px-3 border border-neutral-300 rounded-lg font-mono text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1 pt-2">
+                      <label className="text-xs font-semibold text-neutral-700 block">
+                        Parent Payment Instructions:
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={adminPaymentSettings.policies.payment_instructions}
+                        onChange={e =>
+                          setAdminPaymentSettings({
+                            ...adminPaymentSettings,
+                            policies: {
+                              ...adminPaymentSettings.policies,
+                              payment_instructions: e.target.value,
+                            },
+                          })
+                        }
+                        className="w-full py-2 px-3 border border-neutral-300 rounded-lg text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  {/* SMS Notifications Card */}
+                  <div className="bg-white rounded-2xl border border-neutral-200 p-6 shadow-xs space-y-4">
+                    <div className="flex items-center justify-between pb-3 border-b border-neutral-200">
+                      <div>
+                        <h3 className="text-sm font-bold text-neutral-900 font-display">
+                          Parent Automated SMS Confirmation Engine
+                        </h3>
+                        <p className="text-xs text-neutral-500">
+                          Configure automated text message alerts sent to parent mobile phones upon submission, verification, and rejection.
+                        </p>
+                      </div>
+                      <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-neutral-900">
+                        <input
+                          type="checkbox"
+                          checked={adminPaymentSettings.sms.enabled}
+                          onChange={e =>
+                            setAdminPaymentSettings({
+                              ...adminPaymentSettings,
+                              sms: { ...adminPaymentSettings.sms, enabled: e.target.checked },
+                            })
+                          }
+                          className="w-4 h-4 rounded text-emerald-700"
+                        />
+                        <span>Enable SMS Gateway</span>
+                      </label>
+                    </div>
+
+                    <div className="space-y-3 text-xs">
+                      <div className="space-y-1">
+                        <label className="font-semibold text-neutral-700 block">
+                          1. Deposit Submission Received SMS Template:
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={adminPaymentSettings.sms.template_submission}
+                          onChange={e =>
+                            setAdminPaymentSettings({
+                              ...adminPaymentSettings,
+                              sms: { ...adminPaymentSettings.sms, template_submission: e.target.value },
+                            })
+                          }
+                          className="w-full py-2 px-3 border border-neutral-300 rounded-lg font-mono text-xs"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-semibold text-neutral-700 block">
+                          2. Payment Verified &amp; Receipt Confirmed SMS Template:
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={adminPaymentSettings.sms.template_approved}
+                          onChange={e =>
+                            setAdminPaymentSettings({
+                              ...adminPaymentSettings,
+                              sms: { ...adminPaymentSettings.sms, template_approved: e.target.value },
+                            })
+                          }
+                          className="w-full py-2 px-3 border border-neutral-300 rounded-lg font-mono text-xs"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="font-semibold text-neutral-700 block">
+                          3. Payment Rejection SMS Template:
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={adminPaymentSettings.sms.template_rejected}
+                          onChange={e =>
+                            setAdminPaymentSettings({
+                              ...adminPaymentSettings,
+                              sms: { ...adminPaymentSettings.sms, template_rejected: e.target.value },
+                            })
+                          }
+                          className="w-full py-2 px-3 border border-neutral-300 rounded-lg font-mono text-xs"
+                        />
+                      </div>
+
+                      <div className="p-3 bg-neutral-50 rounded-xl border border-neutral-200 text-[11px] text-neutral-600">
+                        Available variables: <code className="text-emerald-800">{'{parent_name}'}</code>,{' '}
+                        <code className="text-emerald-800">{'{student_name}'}</code>,{' '}
+                        <code className="text-emerald-800">{'{class_name}'}</code>,{' '}
+                        <code className="text-emerald-800">{'{amount}'}</code>,{' '}
+                        <code className="text-emerald-800">{'{ref}'}</code>,{' '}
+                        <code className="text-emerald-800">{'{receipt_no}'}</code>,{' '}
+                        <code className="text-emerald-800">{'{reason}'}</code>,{' '}
+                        <code className="text-emerald-800">{'{school_name}'}</code>.
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Save Button */}
+                  <div className="flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={paymentSettingsSaving}
+                      className="min-h-[42px] px-6 py-2.5 bg-emerald-900 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl flex items-center gap-2 shadow-xs cursor-pointer transition-colors"
+                    >
+                      {paymentSettingsSaving ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Saving Settings...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-3.5 h-3.5" />
+                          <span>Save Payment &amp; SMS Settings</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* View 2: Payments Ledger Table */}
+              {paymentTabFilter !== 'settings' && (
+                <div className="bg-white rounded-2xl border border-neutral-200 shadow-xs overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-neutral-50 text-neutral-700 font-semibold border-b border-neutral-200">
+                        <tr>
+                          <th className="py-3 px-4">Payment Ref &amp; Date</th>
+                          <th className="py-3 px-4">Student Particulars</th>
+                          <th className="py-3 px-4">Parent / Contact</th>
+                          <th className="py-3 px-4">Method &amp; Details</th>
+                          <th className="py-3 px-4">Amount Paid</th>
+                          <th className="py-3 px-4">Deposit Slip / Proof</th>
+                          <th className="py-3 px-4">Verification Status</th>
+                          <th className="py-3 px-4 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-neutral-200">
+                        {adminPayments.length > 0 ? (
+                          adminPayments.map((p, idx) => (
+                            <tr key={`adm-p-${p.id || idx}`} className="hover:bg-neutral-50">
+                              <td className="py-3 px-4">
+                                <strong className="font-mono text-neutral-900 block">{p.payment_reference}</strong>
+                                <span className="font-mono text-[11px] text-neutral-500">{p.date}</span>
+                                {p.fee_month && (
+                                  <span className="text-[11px] text-neutral-400 block">
+                                    Voucher: {p.fee_month} {p.year}
+                                  </span>
+                                )}
+                              </td>
+
+                              <td className="py-3 px-4">
+                                <strong className="font-semibold text-neutral-900 block">
+                                  {p.student_name || 'Student'}
+                                </strong>
+                                <span className="text-neutral-500 block text-[11px]">
+                                  {p.class_name || 'Class'} &middot; Roll: {p.admission_no || p.student_id}
+                                </span>
+                              </td>
+
+                              <td className="py-3 px-4">
+                                <span className="font-semibold text-neutral-800 block">
+                                  {p.parent_name || 'Guardian'}
+                                </span>
+                                <span className="font-mono text-[11px] text-neutral-600 block">
+                                  {p.parent_phone || 'N/A'}
+                                </span>
+                              </td>
+
+                              <td className="py-3 px-4">
+                                <span className="font-semibold text-neutral-900 block">{p.method}</span>
+                                {p.bank_name && (
+                                  <span className="text-[11px] text-neutral-500 block">{p.bank_name}</span>
+                                )}
+                                {p.gateway_provider && (
+                                  <span className="text-[11px] text-emerald-800 font-semibold block">
+                                    {p.gateway_provider}
+                                  </span>
+                                )}
+                              </td>
+
+                              <td className="py-3 px-4 font-mono font-bold text-sm text-neutral-900">
+                                PKR {p.amount.toLocaleString()}
+                              </td>
+
+                              <td className="py-3 px-4">
+                                {p.deposit_slip_ref ? (
+                                  <span className="font-mono text-[11px] text-neutral-800 block">
+                                    Ref: {p.deposit_slip_ref}
+                                  </span>
+                                ) : (
+                                  <span className="text-[11px] text-neutral-400 italic">No slip ref</span>
+                                )}
+                                {p.receipt_attachment_url ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSlipZoomImageUrl(p.receipt_attachment_url || null)}
+                                    className="text-[11px] text-emerald-800 underline hover:text-emerald-900 font-semibold inline-flex items-center gap-1 cursor-pointer mt-0.5"
+                                  >
+                                    <Eye className="w-3 h-3" />
+                                    <span>View Slip Proof</span>
+                                  </button>
+                                ) : null}
+                              </td>
+
+                              <td className="py-3 px-4">
+                                <span
+                                  className={`px-2.5 py-1 rounded text-[11px] font-bold inline-block ${
+                                    p.verification_status === 'Verified' || p.status === 'Paid'
+                                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                      : p.verification_status === 'Rejected' || p.status === 'Rejected'
+                                      ? 'bg-rose-50 text-rose-800 border border-rose-200'
+                                      : 'bg-amber-50 text-amber-900 border border-amber-200'
+                                  }`}
+                                >
+                                  {p.verification_status === 'Pending' ? 'Pending Approval' : p.verification_status || p.status}
+                                </span>
+                                {p.receipt_no && (
+                                  <span className="font-mono text-[10px] text-neutral-500 block mt-0.5">
+                                    Rec: {p.receipt_no}
+                                  </span>
+                                )}
+                                {p.rejection_reason && (
+                                  <span className="text-[10px] text-rose-700 block mt-0.5 max-w-[140px] truncate" title={p.rejection_reason}>
+                                    {p.rejection_reason}
+                                  </span>
+                                )}
+                              </td>
+
+                              <td className="py-3 px-4 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  {p.verification_status === 'Pending' ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => setPaymentApproveModalItem(p)}
+                                        className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white text-[11px] font-semibold rounded-md flex items-center gap-1 cursor-pointer transition-colors"
+                                      >
+                                        <Check className="w-3 h-3" />
+                                        <span>Approve</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setPaymentRejectModalItem(p);
+                                          setPaymentRejectReason('');
+                                        }}
+                                        className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 text-[11px] font-semibold rounded-md flex items-center gap-1 cursor-pointer transition-colors"
+                                      >
+                                        <X className="w-3 h-3" />
+                                        <span>Reject</span>
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => setPaymentReceiptViewing(p)}
+                                      className="px-2.5 py-1 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 border border-neutral-300 text-[11px] font-semibold rounded-md flex items-center gap-1 cursor-pointer transition-colors"
+                                    >
+                                      <Printer className="w-3 h-3" />
+                                      <span>Receipt</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={8} className="py-12 text-center text-neutral-500 italic">
+                              No payment transactions match this filter.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Approve Confirmation Dialog */}
+              {paymentApproveModalItem && (
+                <ConfirmDialog
+                  open={true}
+                  title="Approve Fee Deposit & Issue Receipt"
+                  description={`Are you sure you want to approve deposit payment ${paymentApproveModalItem.payment_reference} of PKR ${paymentApproveModalItem.amount.toLocaleString()} for student ${paymentApproveModalItem.student_name}? This will reduce their fee voucher balance, generate official receipt, and dispatch SMS confirmation to ${paymentApproveModalItem.parent_phone || 'the parent'}.`}
+                  confirmLabel="Yes, Approve & Issue Receipt"
+                  cancelLabel="Cancel"
+                  variant="primary"
+                  loading={paymentActionLoading}
+                  onConfirm={() => handleApprovePayment(paymentApproveModalItem)}
+                  onCancel={() => setPaymentApproveModalItem(null)}
+                />
+              )}
+
+              {/* Rejection Reason Modal */}
+              {paymentRejectModalItem && (
+                <div className="fixed inset-0 z-50 overflow-y-auto bg-neutral-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+                  <div className="relative w-full max-w-md bg-white rounded-2xl border border-neutral-200 shadow-2xl p-6 space-y-4">
+                    <div className="flex items-center justify-between pb-2 border-b border-neutral-200">
+                      <h3 className="text-sm font-bold text-neutral-900 font-display flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-rose-600" />
+                        <span>Reject Deposit Payment</span>
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={() => setPaymentRejectModalItem(null)}
+                        className="p-1 text-neutral-400 hover:text-neutral-700"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <p className="text-xs text-neutral-600">
+                      Please enter the reason for rejecting payment Ref:{' '}
+                      <strong className="font-mono text-neutral-900">
+                        {paymentRejectModalItem.payment_reference}
+                      </strong>{' '}
+                      (PKR {paymentRejectModalItem.amount.toLocaleString()}). This reason will be dispatched to the parent via SMS and in-app alert.
+                    </p>
+
+                    <form onSubmit={handleRejectPayment} className="space-y-4">
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-neutral-700 block">Rejection Reason</label>
+                        <textarea
+                          rows={3}
+                          value={paymentRejectReason}
+                          onChange={e => setPaymentRejectReason(e.target.value)}
+                          placeholder="e.g. Deposit slip reference not found in Askari Bank daily statement, or amount deposited is incorrect."
+                          className="w-full py-2 px-3 border border-neutral-300 rounded-lg text-xs"
+                          required
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => setPaymentRejectModalItem(null)}
+                          className="px-4 py-2 text-xs font-semibold text-neutral-700 border border-neutral-300 rounded-xl hover:bg-neutral-100"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={paymentActionLoading || !paymentRejectReason.trim()}
+                          className="px-4 py-2 text-xs font-bold text-white bg-rose-700 hover:bg-rose-600 disabled:opacity-50 rounded-xl"
+                        >
+                          {paymentActionLoading ? 'Rejecting...' : 'Confirm Rejection & Send SMS'}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+
+              {/* Slip Proof Zoom Modal */}
+              {slipZoomImageUrl && (
+                <div className="fixed inset-0 z-50 bg-neutral-950/80 backdrop-blur-xs flex items-center justify-center p-4">
+                  <div className="relative max-w-2xl w-full bg-white rounded-2xl overflow-hidden p-4 space-y-3">
+                    <div className="flex justify-between items-center pb-2 border-b border-neutral-200">
+                      <span className="text-xs font-bold text-neutral-900">Deposit Slip Document Proof</span>
+                      <button
+                        type="button"
+                        onClick={() => setSlipZoomImageUrl(null)}
+                        className="p-1 text-neutral-400 hover:text-neutral-700"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="max-h-[70vh] overflow-auto flex items-center justify-center bg-neutral-50 rounded-xl p-2">
+                      <img
+                        src={slipZoomImageUrl}
+                        alt="Bank Deposit Slip Proof"
+                        className="max-w-full max-h-[65vh] object-contain rounded-lg"
+                        onError={(e: any) => {
+                          e.currentTarget.src = '';
+                          e.currentTarget.alt = 'Deposit slip document preview not available as an image file.';
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Official Printable Receipt Modal */}
+              {paymentReceiptViewing && (
+                <PaymentReceiptModal
+                  payment={paymentReceiptViewing}
+                  fee={fees.find(f => f.id === paymentReceiptViewing.fee_id) || null}
+                  onClose={() => setPaymentReceiptViewing(null)}
+                />
+              )}
             </div>
           );
         })()}

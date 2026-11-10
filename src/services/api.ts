@@ -20,6 +20,9 @@ import {
   TeacherTask,
   HomeworkItem,
   TeacherSignupRequest,
+  PaymentTransaction,
+  PaymentSettings,
+  OutstandingFeeSummary,
 } from '../types';
 
 const LEGACY_LOCALSTORAGE_TOKEN_KEY = 'shawan_auth_token';
@@ -525,6 +528,74 @@ export const api = {
     }),
   deleteFee: (id: string) =>
     request<{ message: string; item: FeeRecord }>(`/fees/${id}`, { method: 'DELETE' }),
+
+  // Online Fee Payments & Verification Flow
+  getFeeSummary: (student_id?: string) =>
+    request<OutstandingFeeSummary>(`/parent/fees/summary${student_id ? `?student_id=${encodeURIComponent(student_id)}` : ''}`),
+  getPublicPaymentSettings: () =>
+    request<PaymentSettings>('/payments/settings'),
+  initiateFeePayment: (data: {
+    fee_id: string;
+    student_id: string;
+    amount: number;
+    method: string;
+    gateway_provider?: string;
+    bank_name?: string;
+    account_number?: string;
+    deposit_date?: string;
+    deposit_slip_ref?: string;
+    receipt_attachment_url?: string;
+    notes?: string;
+    parent_phone?: string;
+  }) =>
+    request<{ message: string; payment: PaymentTransaction; fee: FeeRecord; receipt_no?: string }>('/parent/payments/initiate', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getParentPaymentHistory: () =>
+    request<PaymentTransaction[]>('/parent/payments/history'),
+  getAdminPayments: (params?: {
+    status?: string;
+    verification_status?: string;
+    search?: string;
+    limit?: number;
+    skip?: number;
+  }) => {
+    const query = new URLSearchParams(
+      Object.entries(params || {})
+        .filter(([_, v]) => v !== undefined && v !== '')
+        .map(([k, v]) => [k, String(v)])
+    ).toString();
+    return request<{
+      payments: PaymentTransaction[];
+      totalCount: number;
+      stats: {
+        total_collected: number;
+        today_collected: number;
+        monthly_collected: number;
+        pending_approvals_count: number;
+        rejected_count: number;
+        total_successful: number;
+        total_outstanding: number;
+      };
+    }>(`/admin/payments${query ? `?${query}` : ''}`);
+  },
+  approveAdminPayment: (id: string) =>
+    request<{ message: string; payment: PaymentTransaction; fee: FeeRecord; receipt_no: string }>(`/admin/payments/${id}/approve`, {
+      method: 'POST',
+    }),
+  rejectAdminPayment: (id: string, reason: string) =>
+    request<{ message: string; payment: PaymentTransaction }>(`/admin/payments/${id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
+  getAdminPaymentSettings: () =>
+    request<PaymentSettings>('/admin/payments/settings'),
+  updateAdminPaymentSettings: (settings: Partial<PaymentSettings>) =>
+    request<{ message: string; settings: PaymentSettings }>('/admin/payments/settings', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    }),
 
   // Timetable
   getTimetable: (params?: { class_name?: string; section?: string; day?: string }) => {
