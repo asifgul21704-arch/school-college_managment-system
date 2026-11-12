@@ -44,6 +44,8 @@ test('parent unlink clears child-specific payment and academic data from the cur
     'setTimetable([])',
     'setFeeSummary(null)',
     'setPaymentHistory([])',
+    'setNotifications([])',
+    'setUnreadCount(0)',
     'setViewingReceiptPayment(null)',
     'setPayingFee(null)',
     'setShowPayModal(false)',
