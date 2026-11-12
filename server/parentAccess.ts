@@ -86,9 +86,14 @@ export function buildStudentParentClaimFilter(
 }
 
 /** Atomic unlink filter: clear ownership only if the student is still owned by this parent. */
-export function buildStudentParentReleaseFilter(studentMongoId: unknown, canonicalUserId: string): Record<string, unknown> {
-  if (!studentMongoId || !String(canonicalUserId || '').trim()) return { _id: null };
-  return { _id: studentMongoId, parent_user_id: canonicalUserId };
+export function buildStudentParentReleaseFilter(
+  studentMongoId: unknown,
+  canonicalUserId: string,
+  mongoUserId = ''
+): Record<string, unknown> {
+  const ownerIds = Array.from(new Set([canonicalUserId, mongoUserId].map(value => String(value || '').trim()).filter(Boolean)));
+  if (!studentMongoId || ownerIds.length === 0) return { _id: null };
+  return { _id: studentMongoId, parent_user_id: { $in: ownerIds } };
 }
 
 /** Prevent a parent from taking over a student record already assigned to another parent account. */
