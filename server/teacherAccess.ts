@@ -14,7 +14,7 @@ export function isExactTeacherName(recordName: unknown, authenticatedName: unkno
 export function isExactTeacherSubject(assignedSubjects: unknown[], requestedSubject: unknown): boolean {
   if (typeof requestedSubject !== 'string') return false;
   const normalize = (value: unknown) =>
-    typeof value === 'string' ? value.trim().replace(/\\s+/g, ' ').toLocaleLowerCase('en') : '';
+    typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('en') : '';
   const requested = normalize(requestedSubject);
   return Boolean(requested && Array.isArray(assignedSubjects) &&
     assignedSubjects.some(subject => normalize(subject) === requested));
