@@ -44,3 +44,17 @@ test('role policy helpers match the middleware contract', () => {
   assert.equal(hasExactRole('super_admin', ['admin']), false);
   assert.equal(hasExactRole('admin', ['admin']), true);
 });
+
+test('payment history route roles exclude teachers and other non-owner roles', () => {
+  const guard = requireRole(['parent', 'student', 'admin']);
+  for (const role of ['parent', 'student', 'admin', 'super_admin']) {
+    const { response, nextCalled } = runGuard(guard, { role });
+    assert.equal(response.statusCode, 200);
+    assert.equal(nextCalled, true);
+  }
+  for (const role of ['teacher', 'guest']) {
+    const { response, nextCalled } = runGuard(guard, { role });
+    assert.equal(response.statusCode, 403);
+    assert.equal(nextCalled, false);
+  }
+});
