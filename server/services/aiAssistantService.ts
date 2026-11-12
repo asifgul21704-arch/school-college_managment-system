@@ -1917,7 +1917,7 @@ export const ControlledSchoolTools = {
       totalOutstanding: unpaidData.grandTotalDue,
       students: unpaidData.students.slice(0, 5),
       draftUrdu,
-      draftEnglish: `Dear Respected Parent,\nThis is a gentle reminder from Shawan School and College, Paharpur, D.I. Khan that tuition fee dues are currently outstanding. Please deposit the pending voucher at the school accounts office.\nThank you,\nAdministration Shawan School & College`,
+      draftEnglish: `Dear Respected Parent,\nThis is a gentle reminder from School and College Management System that tuition fee dues are currently outstanding. Please deposit the pending voucher at the school accounts office.\nThank you,\nSchool Administration`,
       actionReady: true,
       actionType: 'SEND_FEE_REMINDER_SMS',
     };
@@ -2073,7 +2073,7 @@ export async function processAdminAiQuery(
   const prompt = (rawPrompt || '').trim();
   if (!prompt) {
     return {
-      text: 'Hello! I am the Shawan School and College Admin AI Assistant. How can I assist you with school records today?',
+      text: 'Hello! I am the School and College Management System Admin AI Assistant. How can I assist you with school records today?',
       aiProviderStatus: getAiProviderStatus(),
     };
   }
@@ -2603,7 +2603,7 @@ export async function processAdminAiQuery(
         .join('\n');
 
       return {
-        text: `### 👨‍🏫 Shawan School & College Faculty Directory & Assigned Classes\n\nFound **${dirData.count}** active faculty members on institutional record:\n\n| Teacher Name | Primary Subject | Assigned Classes | Qualification | Contact Phone |\n|---|---|---|---|---|\n${rows}\n\n*Tip: You can ask for a specific teacher's complete dossier, e.g. "Give me the complete record of teacher ${dirData.teachers[0]?.name || 'Muhammad Ali'}"*.`,
+        text: `### 👨‍🏫 School & College Faculty Directory & Assigned Classes\n\nFound **${dirData.count}** active faculty members on institutional record:\n\n| Teacher Name | Primary Subject | Assigned Classes | Qualification | Contact Phone |\n|---|---|---|---|---|\n${rows}\n\n*Tip: You can ask for a specific teacher's complete dossier, e.g. "Give me the complete record of teacher ${dirData.teachers[0]?.name || 'Muhammad Ali'}"*.`,
         toolUsed: 'getFacultyDirectoryWithClasses',
         data: dirData,
         auditLogId: auditId,
