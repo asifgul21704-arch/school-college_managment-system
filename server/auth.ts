@@ -5,6 +5,7 @@ import mongoose from 'mongoose';
 import { UserModel, type UserRole } from './models/User.ts';
 import { RevokedTokenModel } from './models/RevokedToken.ts';
 import { RateLimitBucketModel } from './models/RateLimitBucket.ts';
+import { hasAnyRole, hasExactRole } from './roleAccess.ts';
 
 const DEFAULT_INSECURE_SECRET = 'shawan-school-and-college-secure-jwt-secret-2026-paharpur';
 export const SESSION_COOKIE_NAME = 'shawan_session';
@@ -533,7 +534,7 @@ export function requireRole(allowedRoles: UserRole[]) {
       return res.status(401).json({ error: 'Authentication required.' });
     }
 
-    if (req.user.role === 'super_admin' || allowedRoles.includes(req.user.role)) {
+    if (hasAnyRole(req.user.role, allowedRoles)) {
       return next();
     }
 
@@ -549,7 +550,7 @@ export function requireExactRole(allowedRoles: UserRole[]) {
       return res.status(401).json({ error: 'Authentication required. Token missing.' });
     }
 
-    if (allowedRoles.includes(req.user.role)) {
+    if (hasExactRole(req.user.role, allowedRoles)) {
       return next();
     }
 
