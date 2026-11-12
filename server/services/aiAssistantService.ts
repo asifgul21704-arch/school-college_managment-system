@@ -12,6 +12,8 @@ import {
   ResultModel,
   ExamModel,
   SchoolSettingsModel,
+  ExpenseModel,
+  PayrollModel,
 } from '../models/index.ts';
 
 import mongoose from 'mongoose';
@@ -2762,6 +2764,51 @@ export async function processAdminAiQuery(
       text: `### 🏫 Shawan School and College: Administrative Overview\n\n* **Total Active Students:** **${overview.totalStudents}**\n* **Active Faculty Members:** **${overview.totalTeachers}**\n* **Configured Classes:** **${overview.totalClasses}**\n* **Today's Attendance Rate:** **${overview.attendanceRate}%** (${overview.todayPresent}/${overview.todayMarked} marked)\n* **Tuition Fees Collected:** **PKR ${overview.totalCollectedFee.toLocaleString()}**\n* **Total Pending Dues:** **PKR ${overview.totalPendingFee.toLocaleString()}**\n* **New Admissions:** **${overview.approvedAdmissions}** Approved, **${overview.pendingAdmissions}** Pending\n\n*All statistics retrieved via live MongoDB Atlas database aggregation.*`,
       toolUsed: 'getSchoolOverview',
       data: overview,
+      auditLogId: auditId,
+      aiProviderStatus: getAiProviderStatus(),
+    };
+  }
+
+  // ----------------------------------------------------
+  // FINANCE INTELLIGENCE: Expense, payroll and income-vs-expense reports
+  // ----------------------------------------------------
+  if (
+    pLower.includes('income vs expense') ||
+    pLower.includes('expense report') ||
+    pLower.includes('expense summary') ||
+    pLower.includes('payroll report') ||
+    pLower.includes('salary report') ||
+    pLower.includes('salary summary')
+  ) {
+    const monthMatch = prompt.match(/\b(20\d{2})-(0?[1-9]|1[0-2])\b/);
+    const now = new Date();
+    const year = monthMatch ? Number(monthMatch[1]) : now.getFullYear();
+    const month = monthMatch ? Number(monthMatch[2]) : now.getMonth() + 1;
+    const periodPrefix = `${year}-${String(month).padStart(2, '0')}`;
+    const [expenseDocs, payrollDocs, feeSummary] = await Promise.all([
+      ExpenseModel.find({ expense_date: { $regex: `^${periodPrefix}` } }).lean(),
+      PayrollModel.find({ salary_year: year, salary_month: month }).lean(),
+      ControlledSchoolTools.getFeeSummary(),
+    ]);
+    const operationalExpenses = expenseDocs.filter((row: any) => row.category !== 'Salaries');
+    const expenseTotal = operationalExpenses.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0);
+    const payrollTotal = payrollDocs.reduce((sum: number, row: any) => sum + Number(row.net_salary || 0), 0);
+    const payrollPaid = payrollDocs.reduce((sum: number, row: any) => sum + Number(row.paid_amount || 0), 0);
+    const totalOutflow = expenseTotal + payrollTotal;
+    const collected = Number(feeSummary.totalPaid || 0);
+    const expenseByCategory = new Map<string, number>();
+    operationalExpenses.forEach((row: any) => expenseByCategory.set(row.category, (expenseByCategory.get(row.category) || 0) + Number(row.amount || 0)));
+    const categoryRows = Array.from(expenseByCategory.entries()).map(([category, amount]) => `| ${category} | PKR ${amount.toLocaleString()} |`).join('\n');
+    const auditId = await recordAuditLog(
+      context,
+      'AI_FINANCE_REPORT',
+      'FINANCE',
+      `Generated live finance report for ${periodPrefix}; ${expenseDocs.length} expense records and ${payrollDocs.length} payroll records.`
+    );
+    return {
+      text: `### Finance Intelligence Report — ${periodPrefix}\n\n* **Fee collections (all-time fee ledger):** PKR ${collected.toLocaleString()}\n* **Operating expenses (${operationalExpenses.length} records):** PKR ${expenseTotal.toLocaleString()}\n* **Payroll net salary (${payrollDocs.length} records):** PKR ${payrollTotal.toLocaleString()} (paid PKR ${payrollPaid.toLocaleString()})\n* **Recorded total outflow for selected month:** PKR ${totalOutflow.toLocaleString()}\n* **Operating balance indicator:** PKR ${(collected - totalOutflow).toLocaleString()}\n\n#### Operating expense categories\n| Category | Amount |\n|---|---:|\n${categoryRows || '| No expense records | PKR 0 |'}\n\n*Expense and payroll figures are filtered to ${periodPrefix}. Fee collection total is the current fee-ledger aggregate and is not period-filtered. The operating balance indicator is therefore not a formal accounting profit/loss figure.*`,
+      toolUsed: 'getFinanceIntelligenceReport',
+      data: { period: periodPrefix, feeCollectionsAllTime: collected, operationalExpenses: expenseTotal, payrollNet: payrollTotal, payrollPaid, totalOutflow, expenseCount: expenseDocs.length, payrollCount: payrollDocs.length },
       auditLogId: auditId,
       aiProviderStatus: getAiProviderStatus(),
     };
