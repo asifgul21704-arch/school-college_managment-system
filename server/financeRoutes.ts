@@ -213,18 +213,25 @@ financeRouter.post('/payroll/:id/payment', async (req: AuthenticatedRequest, res
     if (!Number.isFinite(amount) || amount <= 0 || !validIsoDate(paymentDate) || !methods.includes(method)) {
       return res.status(400).json({ error: 'Provide a positive payment amount, valid date and payment method.' });
     }
-    const row = await PayrollModel.findOne({ record_id: req.params.id });
-    if (!row) return res.status(404).json({ error: 'Payroll record not found.' });
-    if (amount > row.net_salary - row.paid_amount) return res.status(400).json({ error: 'Payment exceeds the remaining salary balance.' });
-    row.paid_amount = Number((row.paid_amount + amount).toFixed(2));
-    row.payment_history = [...(row.payment_history || []), { amount: Number(amount.toFixed(2)), payment_date: paymentDate, payment_method: method, recorded_by: req.user?.id || 'unknown', recorded_at: new Date().toISOString() }];
-    row.payment_date = paymentDate;
-    row.payment_method = method;
-    row.status = row.paid_amount >= row.net_salary ? 'Paid' : 'Partially Paid';
-    row.updated_at = new Date().toISOString();
-    await row.save();
-    await audit(req, 'PAYROLL_PAYMENT_RECORDED', 'Payroll', row.record_id, `Recorded PKR ${amount} for ${row.staff_name}; total paid PKR ${row.paid_amount}.`);
-    return res.json({ ...row.toObject(), id: row.record_id });
+    const existing = await PayrollModel.findOne({ record_id: req.params.id });
+    if (!existing) return res.status(404).json({ error: 'Payroll record not found.' });
+    const previousPaid = Number(existing.paid_amount || 0);
+    const remaining = Number(existing.net_salary || 0) - previousPaid;
+    if (amount > remaining) return res.status(400).json({ error: 'Payment exceeds the remaining salary balance.' });
+    const nextPaid = Number((previousPaid + amount).toFixed(2));
+    const now = new Date().toISOString();
+    const updated = await PayrollModel.findOneAndUpdate(
+      { record_id: req.params.id, paid_amount: previousPaid, net_salary: existing.net_salary },
+      {
+        $inc: { paid_amount: Number(amount.toFixed(2)) },
+        $push: { payment_history: { amount: Number(amount.toFixed(2)), payment_date: paymentDate, payment_method: method, recorded_by: req.user?.id || 'unknown', recorded_at: now } },
+        $set: { payment_date: paymentDate, payment_method: method, status: nextPaid >= Number(existing.net_salary) ? 'Paid' : 'Partially Paid', updated_at: now },
+      },
+      { new: true, runValidators: true }
+    );
+    if (!updated) return res.status(409).json({ error: 'This salary record changed during payment. Refresh the payroll and retry to prevent duplicate or excess payment.' });
+    await audit(req, 'PAYROLL_PAYMENT_RECORDED', 'Payroll', updated.record_id, `Recorded PKR ${amount} for ${updated.staff_name}; total paid PKR ${updated.paid_amount}.`);
+    return res.json({ ...updated.toObject(), id: updated.record_id });
   } catch {
     return res.status(500).json({ error: 'Unable to record salary payment.' });
   }
