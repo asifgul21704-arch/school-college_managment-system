@@ -48,3 +48,11 @@ export function isExactGuardianNameMatch(studentFatherName: unknown, verifiedGua
   const guardian = normalize(verifiedGuardianName);
   return Boolean(father && guardian && father === guardian);
 }
+
+/** Checks whether two identifier sets share a known alias for the same student record. */
+export function areSameStudentIdentity(leftIdentifiers: unknown[], rightIdentifiers: unknown[]): boolean {
+  const normalize = (value: unknown) =>
+    value === null || value === undefined ? '' : String(value).trim();
+  const left = new Set(leftIdentifiers.map(normalize).filter(Boolean));
+  return rightIdentifiers.map(normalize).some(value => Boolean(value) && left.has(value));
+}
