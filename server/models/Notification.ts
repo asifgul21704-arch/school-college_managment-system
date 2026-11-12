@@ -27,6 +27,7 @@ const NotificationSchema = new Schema<INotification>(
     action_id: {
       type: String,
       default: undefined,
+      maxlength: 64,
     },
     title: {
       type: String,
