@@ -1,7 +1,7 @@
 import express, { type Request, type Response } from 'express';
 import { financeRouter } from './financeRoutes.ts';
 import { buildNotificationVisibilityFilter, canMarkNotificationRead } from './notificationAccess.ts';
-import { collectParentStudentReferences, isParentLinkedToStudent } from './parentAccess.ts';
+import { buildParentPaymentHistoryFilter, collectParentStudentReferences, isParentLinkedToStudent } from './parentAccess.ts';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jsonwebtoken from 'jsonwebtoken';
@@ -7325,12 +7325,9 @@ router.get('/parent/payments/history', authenticateToken, async (req: Authentica
     if (user.role === 'parent') {
       const linked = await getLinkedStudentIdsForParent(user);
       const studentIds = Array.from(linked);
-      query = {
-        $or: [
-          { parent_user_id: user.id },
-          { student_id: { $in: studentIds } },
-        ],
-      };
+      // A stale denormalized parent_user_id must never expose a former child's payment history.
+      // Empty link sets intentionally produce student_id: { $in: [] }, which returns no records.
+      query = buildParentPaymentHistoryFilter(linked);
     } else if (user.role === 'student') {
       const studentDoc = await StudentModel.findOne({
         $or: [{ user_id: user.id }, { email: user.email.toLowerCase() }],
