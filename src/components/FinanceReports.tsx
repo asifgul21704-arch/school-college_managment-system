@@ -10,6 +10,13 @@ interface FinanceReportsProps {
 }
 
 const money = (value: number) => `PKR ${Math.round(value || 0).toLocaleString('en-PK')}`;
+const monthNumber = (value: string) => {
+  const raw = String(value || '').trim().toLowerCase();
+  const numeric = raw.match(/^(0?[1-9]|1[0-2])$/);
+  if (numeric) return Number(numeric[1]);
+  const parsed = new Date(`${raw} 1, 2020`);
+  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getMonth() + 1;
+};
 const dateKey = (value: unknown) => {
   if (!value) return '';
   const d = new Date(String(value));
@@ -59,19 +66,13 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
       setError(err?.message || 'Reports could not be loaded from the school database.');
     } finally {
       setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
-  useEffect(() => { void load(); }, []);
-
-  const classes = useMemo(() => Array.from(new Set([
-    ...fees.map(f => f.class_name),
-    ...students.map(s => s.class_name),
-    ...attendance.map(a => a.class_name),
-  ].filter(Boolean))).sort(), [fees, students, attendance]);
-
-  const filteredFees = useMemo(() => fees.filter(f =>
+      se  const filteredFees = useMemo(() => fees.filter(f => {
+    if (classFilter !== 'all' && f.class_name !== classFilter) return false;
+    if (!monthFilter) return true;
+    const [year, month] = monthFilter.split('-').map(Number);
+    const matchesVoucherPeriod = Number(f.year) === year && monthNumber(String(f.fee_month || '')) === month;
+    return matchesVoucherPeriod || dateKey(f.due_date).startsWith(monthFilter);
+  }), [fees, classFilter, monthFilter]);() => fees.filter(f =>
     (classFilter === 'all' || f.class_name === classFilter) &&
     (!monthFilter || `${f.year}-${String(f.fee_month || '').match(/\d+/)?.[0]?.padStart(2, '0') || ''}`.startsWith(monthFilter) ||
       dateKey(f.due_date).startsWith(monthFilter))
