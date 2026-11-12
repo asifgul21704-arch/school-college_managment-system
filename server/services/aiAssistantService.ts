@@ -20,6 +20,7 @@ import {
 import mongoose from 'mongoose';
 import { GoogleGenAI } from '@google/genai';
 import { sanitizeErrorMessage } from '../config/db.ts';
+import { validateParentNotificationAction } from '../notificationUtils.ts';
 
 export interface AdminAiQueryContext {
   userId: string;
@@ -1994,34 +1995,15 @@ export const ControlledSchoolTools = {
     confirmed: boolean,
     context: AdminAiQueryContext
   ) {
-    if (context.userRole !== 'admin' && context.userRole !== 'super_admin') {
-      throw new Error('Forbidden: Admin confirmation is required.');
-    }
-    if (!confirmed) {
-      throw new Error('Action aborted: Explicit admin confirmation is mandatory.');
-    }
-    if (!['SEND_SMS_ABSENT', 'SEND_SMS_FEES'].includes(actionType)) {
-      throw new Error('Unsupported notification action type.');
-    }
-    const recipients = payload?.recipients;
-    const message = typeof payload?.message === 'string' ? payload.message.trim() : '';
-    if (!Array.isArray(recipients) || recipients.length === 0) {
-      throw new Error('No linked parent accounts were selected. No notifications were created.');
-    }
-    if (!message || message.length > 1000) {
-      throw new Error('Notification message is required and must be 1000 characters or fewer.');
-    }
-    const studentIds = new Set<string>();
-    for (const recipient of recipients) {
-      const studentId = typeof recipient?.studentId === 'string' ? recipient.studentId.trim() : '';
-      if (!studentId || studentId.length > 128) {
-        throw new Error('Invalid student reference. No notifications were created.');
-      }
-      studentIds.add(studentId);
-    }
+    const { studentIds, message } = validateParentNotificationAction(
+      actionType,
+      payload,
+      confirmed,
+      context.userRole
+    );
 
     // Resolve recipients again on the server at execution time; never trust client-supplied parent user IDs.
-    const parentDocs = await ParentModel.find({ linked_students: { $in: Array.from(studentIds) } })
+    const parentDocs = await ParentModel.find({ linked_students: { $in: studentIds } })
       .select('user_id linked_students')
       .lean();
     const uniqueParentIds = new Set(
