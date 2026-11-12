@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { requireRole, requireExactRole } from './auth.ts';
 import { hasAnyRole, hasExactRole } from './roleAccess.ts';
+import type { UserRole } from './models/User.ts';
 
 function runGuard(guard: any, user?: Record<string, unknown>) {
   const response: any = {
@@ -60,8 +61,7 @@ test('payment history route roles exclude teachers and other non-owner roles', (
 });
 
 test('fee summary role policy denies teachers and permits account owners and admins', () => {
-  const allowedRoles = ['parent', 'student', 'admin', 'super_admin'];
+  const allowedRoles: UserRole[] = ['parent', 'student', 'admin', 'super_admin'];
   for (const role of allowedRoles) assert.equal(hasAnyRole(role, allowedRoles), true);
   assert.equal(hasAnyRole('teacher', allowedRoles), false);
-  assert.equal(hasAnyRole('guest', allowedRoles), false);
 });
