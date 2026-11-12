@@ -6,6 +6,9 @@ import { UserModel } from './models/User.ts';
 import { StudentModel } from './models/Student.ts';
 import { FeeModel } from './models/Fee.ts';
 import { FeePaymentModel } from './models/FeePayment.ts';
+import { AttendanceModel } from './models/Attendance.ts';
+import { ExamModel } from './models/Exam.ts';
+import { ResultModel } from './models/Result.ts';
 
 const API = process.env.E2E_API_BASE_URL || 'http://127.0.0.1:3000/api';
 const PASSWORD = 'E2eStrongPass!2026';
@@ -117,6 +120,9 @@ before(async () => {
     StudentModel.init(),
     FeeModel.init(),
     FeePaymentModel.init(),
+    AttendanceModel.init(),
+    ExamModel.init(),
+    ResultModel.init(),
   ]);
 
   const adminPasswordHash = await bcrypt.hash(PASSWORD, 10);
@@ -146,9 +152,69 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   const studentB = await registerStudent('B', 'E2E Parent B');
   const studentD = await registerStudent('D', 'E2E Parent D');
 
+  await Promise.all([
+    AttendanceModel.create({
+      student_id: studentA.id, student_name: 'E2E Student A', class_name: 'E2E Class',
+      section: 'A', date: '2026-11-12', status: 'Present', marked_by: 'E2E',
+    }),
+    AttendanceModel.create({
+      student_id: studentB.id, student_name: 'E2E Student B', class_name: 'E2E Class',
+      section: 'A', date: '2026-11-12', status: 'Absent', marked_by: 'E2E',
+    }),
+  ]);
+
+  const examOne = `E2E-EXAM-ONE-${RUN_ID}`;
+  const examTwo = `E2E-EXAM-TWO-${RUN_ID}`;
+  await Promise.all([
+    ExamModel.create({
+      record_id: examOne, title: 'E2E Unit Test', term: 'Term 1',
+      academic_year: '2026-2027', start_date: '2026-11-12',
+      end_date: '2026-11-12', classes: ['E2E Class', 'Other Class'], status: 'Completed',
+    }),
+    ExamModel.create({
+      record_id: examTwo, title: 'E2E Confidential Assessment', term: 'Term 2',
+      academic_year: '2026-2027', start_date: '2026-11-12',
+      end_date: '2026-11-12', classes: ['E2E Class'], status: 'Completed',
+    }),
+  ]);
+  await Promise.all([
+    ResultModel.create({
+      record_id: `E2E-RESULT-A-${RUN_ID}`, exam_id: examOne, exam_title: 'E2E Unit Test',
+      student_id: studentA.id, student_name: 'E2E Student A', class_name: 'E2E Class',
+      section: 'A', subjects: [{ subject_name: 'Computer Science', total_marks: 100, obtained_marks: 90, grade: 'A1' }],
+      total_marks: 100, obtained_marks: 90, percentage: 90, overall_grade: 'A1', published: true,
+    }),
+    ResultModel.create({
+      record_id: `E2E-RESULT-B-${RUN_ID}`, exam_id: examOne, exam_title: 'E2E Unit Test',
+      student_id: studentB.id, student_name: 'E2E Student B', class_name: 'E2E Class',
+      section: 'A', subjects: [{ subject_name: 'Computer Science', total_marks: 100, obtained_marks: 70, grade: 'A' }],
+      total_marks: 100, obtained_marks: 70, percentage: 70, overall_grade: 'A', published: true,
+    }),
+    ResultModel.create({
+      record_id: `E2E-RESULT-A-PRIVATE-${RUN_ID}`, exam_id: examTwo, exam_title: 'E2E Confidential Assessment',
+      student_id: studentA.id, student_name: 'E2E Student A', class_name: 'E2E Class',
+      section: 'A', subjects: [{ subject_name: 'Computer Science', total_marks: 100, obtained_marks: 40, grade: 'D' }],
+      total_marks: 100, obtained_marks: 40, percentage: 40, overall_grade: 'D', published: false,
+    }),
+  ]);
+
   const parentA = await registerParent('A', studentA.admissionNo);
   assert.equal(parentA.status, 201, JSON.stringify(parentA.data));
   const parentAToken = parentA.data.token as string;
+
+  const parentAAttendance = await api('GET', `/attendance?student_id=${encodeURIComponent(studentA.id)}`, undefined, parentAToken);
+  assert.equal(parentAAttendance.status, 200);
+  assert.equal(parentAAttendance.data.length, 1);
+  assert.equal(parentAAttendance.data[0].student_id, studentA.id);
+  const parentACrossAttendance = await api('GET', `/attendance?student_id=${encodeURIComponent(studentB.id)}`, undefined, parentAToken);
+  assert.equal(parentACrossAttendance.status, 403);
+  const parentAResults = await api('GET', `/results?student_id=${encodeURIComponent(studentA.id)}`, undefined, parentAToken);
+  assert.equal(parentAResults.status, 200);
+  assert.equal(parentAResults.data.length, 1);
+  assert.equal(parentAResults.data[0].published, true);
+  assert.equal(parentAResults.data[0].student_id, studentA.id);
+  const parentACrossResults = await api('GET', `/results?student_id=${encodeURIComponent(studentB.id)}`, undefined, parentAToken);
+  assert.equal(parentACrossResults.status, 403);
 
   const parentB = await registerParent('B', studentB.admissionNo);
   assert.equal(parentB.status, 201, JSON.stringify(parentB.data));
@@ -212,6 +278,17 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   assert.equal(studentAReadsSelf.status, 200);
   const studentAReadsB = await api('GET', `/students/${encodeURIComponent(studentB.id)}`, undefined, studentA.token);
   assert.equal(studentAReadsB.status, 403);
+  const studentAAttendance = await api('GET', `/attendance?student_id=${encodeURIComponent(studentA.id)}`, undefined, studentA.token);
+  assert.equal(studentAAttendance.status, 200);
+  assert.equal(studentAAttendance.data.length, 1);
+  const studentACrossAttendance = await api('GET', `/attendance?student_id=${encodeURIComponent(studentB.id)}`, undefined, studentA.token);
+  assert.equal(studentACrossAttendance.status, 403);
+  const studentAResults = await api('GET', `/results?student_id=${encodeURIComponent(studentA.id)}`, undefined, studentA.token);
+  assert.equal(studentAResults.status, 200);
+  assert.equal(studentAResults.data.length, 1);
+  assert.equal(studentAResults.data[0].published, true);
+  const studentACrossResults = await api('GET', `/results?student_id=${encodeURIComponent(studentB.id)}`, undefined, studentA.token);
+  assert.equal(studentACrossResults.status, 403);
 
   const feeA = await createFee(studentA, 'A');
   const feeB = await createFee(studentB, 'B');
@@ -262,6 +339,10 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   assert.equal(unlinkA.status, 200, JSON.stringify(unlinkA.data));
   const oldSessionReadsA = await api('GET', `/students/${encodeURIComponent(studentA.id)}`, undefined, parentAToken);
   assert.equal(oldSessionReadsA.status, 403);
+  const oldSessionAttendance = await api('GET', `/attendance?student_id=${encodeURIComponent(studentA.id)}`, undefined, parentAToken);
+  assert.equal(oldSessionAttendance.status, 403);
+  const oldSessionResults = await api('GET', `/results?student_id=${encodeURIComponent(studentA.id)}`, undefined, parentAToken);
+  assert.equal(oldSessionResults.status, 403);
   const oldSessionChildren = await api('GET', '/parents/my-students', undefined, parentAToken);
   assert.equal(oldSessionChildren.status, 200);
   assert.deepEqual(oldSessionChildren.data, []);
@@ -492,4 +573,12 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   assert.equal(teacherReadsUnassignedStudent.status, 403);
   const teacherReadsUnassignedAttendance = await api('GET', `/attendance/student/${encodeURIComponent(studentG.id)}`, undefined, teacherToken);
   assert.equal(teacherReadsUnassignedAttendance.status, 403);
+  const teacherReadsAssignedAttendance = await api('GET', `/attendance/student/${encodeURIComponent(studentA.id)}`, undefined, teacherToken);
+  assert.equal(teacherReadsAssignedAttendance.status, 200);
+  const teacherReadsUnassignedResults = await api('GET', `/results?student_id=${encodeURIComponent(studentG.id)}`, undefined, teacherToken);
+  assert.equal(teacherReadsUnassignedResults.status, 403);
+  const teacherAssignedResults = await api('GET', `/results?student_id=${encodeURIComponent(studentA.id)}`, undefined, teacherToken);
+  assert.equal(teacherAssignedResults.status, 200);
+  assert.equal(teacherAssignedResults.data.length, 2);
+  assert.ok(teacherAssignedResults.data.some((result: any) => result.published === false));
 });
