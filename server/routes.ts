@@ -7656,7 +7656,7 @@ router.post('/admin/payments/:id/reject', authenticateToken, requireRole(['super
   }
 
   try {
-    const paymentDoc = await FeePaymentModel.findOneAndUpdate(
+    let paymentDoc = await FeePaymentModel.findOneAndUpdate(
       {
         _id: paymentId,
         status: 'Pending Verification',
