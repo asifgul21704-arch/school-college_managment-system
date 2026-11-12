@@ -157,6 +157,43 @@ function ensureMongoReady(res: Response): boolean {
   return true;
 }
 
+/**
+ * Persist one notification per business action and recipient.
+ * The Notification schema's unique partial index makes concurrent retries safe.
+ */
+async function createNotificationOnce(input: {
+  actionId: string;
+  userId?: string;
+  role: string;
+  title: string;
+  message: string;
+  link?: string;
+}): Promise<boolean> {
+  const userId = String(input.userId || '').trim();
+  try {
+    const result = await NotificationModel.updateOne(
+      { action_id: input.actionId, user_id: userId },
+      {
+        $setOnInsert: {
+          action_id: input.actionId,
+          user_id: userId,
+          role: input.role,
+          title: input.title,
+          message: input.message,
+          link: input.link || '',
+          read: false,
+        },
+      },
+      { upsert: true }
+    );
+    return result.upsertedCount === 1;
+  } catch (err: any) {
+    // A concurrent request may win the unique-index race; treat it as a replay.
+    if (err?.code === 11000) return false;
+    throw err;
+  }
+}
+
 function isMongoUnavailableError(err: any): boolean {
   if (mongoose.connection.readyState !== 1) return true;
   const name = String(err?.name || '');
@@ -7249,21 +7286,24 @@ router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent
         );
       }
 
-      // Notify Admin Dashboard
-      await NotificationModel.create([
-        {
+      // Notify Admin and parent exactly once for this persisted payment action.
+      const notificationActionId = `fee-submit:${paymentDoc._id.toString()}`;
+      await Promise.all([
+        createNotificationOnce({
+          actionId: notificationActionId,
           role: 'admin',
           title: 'New Fee Payment Verification Required',
           message: `Parent submitted Bank Deposit of PKR ${paymentAmount.toLocaleString()} for ${feeDoc.student_name} (${feeDoc.class_name}). Slip Ref: ${cleanSlipRef || paymentRef}.`,
           link: '/admin',
-        },
-        {
-          user_id: user.id,
+        }),
+        createNotificationOnce({
+          actionId: notificationActionId,
+          userId: user.id,
           role: 'parent',
           title: 'Payment Submission Received',
           message: `Your payment voucher submission of PKR ${paymentAmount.toLocaleString()} (Ref: ${paymentRef}) has been received and is pending verification.`,
           link: '/student-portal',
-        },
+        }),
       ]);
 
       return res.status(201).json({
@@ -7499,10 +7539,11 @@ router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['supe
       );
     }
 
-    // Notify Parent in-app
+    // Notify Parent in-app exactly once for this approved payment action.
     if (paymentDoc.parent_user_id) {
-      await NotificationModel.create({
-        user_id: paymentDoc.parent_user_id,
+      await createNotificationOnce({
+        actionId: `fee-approve:${paymentDoc._id.toString()}`,
+        userId: paymentDoc.parent_user_id,
         role: 'parent',
         title: 'Fee Payment Approved & Receipt Issued',
         message: `Your deposit of PKR ${paymentDoc.amount.toLocaleString()} for ${paymentDoc.student_name || feeDoc.student_name} has been verified. Official Receipt: ${receiptNo}.`,
