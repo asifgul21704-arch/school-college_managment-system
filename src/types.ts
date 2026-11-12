@@ -495,6 +495,7 @@ export interface PayrollRecord {
   paid_amount: number;
   payment_date?: string;
   payment_method?: string;
+  payment_history: Array<{ amount: number; payment_date: string; payment_method: string; recorded_by: string; recorded_at: string }>;
   notes?: string;
   status: 'Unpaid' | 'Partially Paid' | 'Paid';
   created_by: string;
