@@ -10,6 +10,7 @@ import { FeePaymentModel } from './models/FeePayment.ts';
 const API = process.env.E2E_API_BASE_URL || 'http://127.0.0.1:3000/api';
 const PASSWORD = 'E2eStrongPass!2026';
 const DOB = '2011-02-03';
+const RUN_ID = Date.now().toString(36);
 
 function assertIsolatedTarget() {
   const expected = String(process.env.E2E_EXPECTED_DATABASE_NAME || '');
@@ -36,7 +37,7 @@ async function api(method: string, path: string, body?: unknown, token?: string)
 async function registerStudent(label: string, fatherName: string) {
   const result = await api('POST', '/auth/register-student', {
     full_name: `E2E Student ${label}`,
-    email: `student-${label.toLowerCase()}@e2e.invalid`,
+    email: `student-${label.toLowerCase()}-${RUN_ID}@e2e.invalid`,
     password: PASSWORD,
     confirm_password: PASSWORD,
     dob: DOB,
@@ -52,13 +53,13 @@ async function registerStudent(label: string, fatherName: string) {
     id: result.data.studentProfile.id as string,
     admissionNo: result.data.studentProfile.admission_no as string,
     token: result.data.token as string,
-    email: `student-${label.toLowerCase()}@e2e.invalid`,
+    email: `student-${label.toLowerCase()}-${RUN_ID}@e2e.invalid`,
   };
 }
 
 async function registerParent(label: string, childAdmissionNo: string) {
   const name = `E2E Parent ${label}`;
-  const email = `parent-${label.toLowerCase()}@e2e.invalid`;
+  const email = `parent-${label.toLowerCase()}-${RUN_ID}@e2e.invalid`;
   const result = await api('POST', '/auth/register-parent', {
     full_name: name,
     email,
@@ -71,7 +72,7 @@ async function registerParent(label: string, childAdmissionNo: string) {
 }
 
 async function createFee(student: { id: string }, label: string) {
-  const voucherId = `E2E-VOUCHER-${label}`;
+  const voucherId = `E2E-VOUCHER-${RUN_ID}-${label}`;
   await FeeModel.create({
     voucher_id: voucherId,
     student_id: student.id,
@@ -110,7 +111,6 @@ before(async () => {
   await mongoose.connect(process.env.MONGODB_URI!);
   assert.equal(mongoose.connection.name, process.env.E2E_EXPECTED_DATABASE_NAME);
   assert.equal(String(mongoose.connection.host || '').includes('.mongodb.net'), false);
-  await mongoose.connection.dropDatabase();
   await Promise.all([
     UserModel.init(),
     StudentModel.init(),
@@ -120,15 +120,15 @@ before(async () => {
 
   const adminPasswordHash = await bcrypt.hash(PASSWORD, 10);
   await UserModel.create({
-    record_id: 'usr_e2e_admin',
-    email: 'admin@e2e.invalid',
+    record_id: `usr_e2e_admin_${RUN_ID}`,
+    email: `admin-${RUN_ID}@e2e.invalid`,
     password_hash: adminPasswordHash,
     name: 'E2E Administrator',
     role: 'admin',
     status: 'active',
   });
   const adminLogin = await api('POST', '/auth/login', {
-    email: 'admin@e2e.invalid',
+    email: `admin-${RUN_ID}@e2e.invalid`,
     password: PASSWORD,
   });
   assert.equal(adminLogin.status, 200, JSON.stringify(adminLogin.data));
@@ -172,7 +172,7 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   const feeA = await createFee(studentA, 'A');
   const feeB = await createFee(studentB, 'B');
 
-  const paymentA = await submitBankPayment(parentAToken, feeA, studentA.id, 'E2E-SLIP-A-001');
+  const paymentA = await submitBankPayment(parentAToken, feeA, studentA.id,  `E2E-SLIP-A-${RUN_ID}`);
   assert.equal(paymentA.status, 201, JSON.stringify(paymentA.data));
   const paymentAId = paymentA.data.payment.id;
 
@@ -180,15 +180,15 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   const paymentARetry = await submitBankPayment(parentAToken, feeA, studentA.id, 'E2E-SLIP-A-001');
   assert.equal(paymentARetry.status, 200, JSON.stringify(paymentARetry.data));
   assert.equal(paymentARetry.data.idempotent_replay, true);
-  assert.equal(await FeePaymentModel.countDocuments({ transaction_id: 'E2E-SLIP-A-001' }), 1);
+  assert.equal(await FeePaymentModel.countDocuments({ transaction_id: `E2E-SLIP-A-${RUN_ID}` }), 1);
 
-  const parentACrossPayment = await submitBankPayment(parentAToken, feeB, studentB.id, 'E2E-SLIP-A-CROSS');
+  const parentACrossPayment = await submitBankPayment(parentAToken, feeB, studentB.id,  `E2E-SLIP-A-CROSS-${RUN_ID}`);
   assert.equal(parentACrossPayment.status, 403);
 
-  const paymentB = await submitBankPayment(parentBToken, feeB, studentB.id, 'E2E-SLIP-B-001');
+  const paymentB = await submitBankPayment(parentBToken, feeB, studentB.id,  `E2E-SLIP-B-${RUN_ID}`);
   assert.equal(paymentB.status, 201, JSON.stringify(paymentB.data));
 
-  const studentACrossPayment = await submitBankPayment(studentA.token, feeB, studentB.id, 'E2E-SLIP-STUDENT-CROSS');
+  const studentACrossPayment = await submitBankPayment(studentA.token, feeB, studentB.id,  `E2E-SLIP-STUDENT-CROSS-${RUN_ID}`);
   assert.equal(studentACrossPayment.status, 403);
 
   const parentAHistory = await api('GET', '/parent/payments/history', undefined, parentAToken);
