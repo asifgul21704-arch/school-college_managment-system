@@ -25,3 +25,12 @@ export function areAllResultSubjectsAssignedToTeacher(assignedSubjects: unknown[
   return Array.isArray(resultSubjects) && resultSubjects.length > 0 &&
     resultSubjects.every(subject => isExactTeacherSubject(assignedSubjects, subject));
 }
+
+/** Attendance section labels must match the student's stored section exactly after normalization. */
+export function isExactSectionMatch(studentSection: unknown, requestedSection: unknown): boolean {
+  const normalize = (value: unknown) =>
+    typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('en') : '';
+  const actual = normalize(studentSection);
+  const requested = normalize(requestedSection);
+  return Boolean(actual && requested && actual === requested);
+}
