@@ -18,9 +18,10 @@ import {
 } from '../models/index.ts';
 
 import mongoose from 'mongoose';
+import { createHash } from 'node:crypto';
 import { GoogleGenAI } from '@google/genai';
 import { sanitizeErrorMessage } from '../config/db.ts';
-import { validateParentNotificationAction } from '../notificationUtils.ts';
+import { createNotificationBatchOnce, validateParentNotificationAction } from '../notificationUtils.ts';
 
 export interface AdminAiQueryContext {
   userId: string;
@@ -1939,13 +1940,14 @@ export const ControlledSchoolTools = {
       }));
       const safeRecipients = recipients.filter((r): r is NonNullable<typeof r> => Boolean(r));
       const messageText = `محترم والدین! آپ کا بچہ آج اسکول سے غیر حاضر ہے۔ براہ کرم وجہ کی اطلاع دیں۔ شکریہ۔`;
+      const actionId = createHash('sha256').update(JSON.stringify({ actionType: 'SEND_SMS_ABSENT', date: absentData.date, studentIds: safeRecipients.map(r => r.studentId).sort(), message: messageText })).digest('hex');
       return {
         requiresConfirmation: true,
         pendingAction: {
           actionType: 'SEND_SMS_ABSENT',
           title: `Create Absent Alert Notifications (${safeRecipients.length} Linked Parent Accounts)`,
           description: `After confirmation, this creates in-app notification records only for linked parent accounts (${safeRecipients.length} of ${candidates.length} students). Students without a verified parent account are excluded. No SMS will be sent.`,
-          payload: { recipients: safeRecipients, date: absentData.date, message: messageText },
+          payload: { actionId, recipients: safeRecipients, date: absentData.date, message: messageText },
           recipientCount: safeRecipients.length,
           previewText: messageText,
         },
@@ -1961,13 +1963,14 @@ export const ControlledSchoolTools = {
       }));
       const safeRecipients = recipients.filter((r): r is NonNullable<typeof r> => Boolean(r));
       const messageText = `محترم والدین! براہ کرم واجب الادا فیس جلد جمع کرائیں۔ شکریہ۔ اسکول انتظامیہ۔`;
+      const actionId = createHash('sha256').update(JSON.stringify({ actionType: 'SEND_SMS_FEES', date: new Date().toISOString().slice(0, 10), studentIds: safeRecipients.map(r => r.studentId).sort(), message: messageText })).digest('hex');
       return {
         requiresConfirmation: true,
         pendingAction: {
           actionType: 'SEND_SMS_FEES',
           title: `Create Fee Reminder Notifications (${safeRecipients.length} Linked Parent Accounts)`,
           description: `After confirmation, this creates in-app notification records only for linked parent accounts (${safeRecipients.length} of ${feeData.students.length} students) with outstanding fees. Unlinked accounts are excluded. No SMS will be sent.`,
-          payload: { recipients: safeRecipients, grandTotalDue: feeData.grandTotalDue, message: messageText },
+          payload: { actionId, recipients: safeRecipients, grandTotalDue: feeData.grandTotalDue, message: messageText },
           recipientCount: safeRecipients.length,
           previewText: messageText,
         },
@@ -2013,28 +2016,49 @@ export const ControlledSchoolTools = {
       throw new Error('No verified linked parent accounts found. No notifications were created.');
     }
 
-    for (const userId of uniqueParentIds) {
-      await NotificationModel.create({
-        user_id: userId,
-        // Private recipient scope: role-wide `parent` notifications are visible to every parent account.
-        role: 'private',
-        title: actionType === 'SEND_SMS_ABSENT' ? 'Student Absence Alert' : 'Fee Reminder',
-        message,
-        link: '/student-portal',
-        read: false,
-      });
-    }
+    const batchResult = await createNotificationBatchOnce(
+      actionId,
+      Array.from(uniqueParentIds),
+      async (batchId, userId) => {
+        try {
+          const result = await NotificationModel.updateOne(
+            { action_id: batchId, user_id: userId },
+            {
+              $setOnInsert: {
+                action_id: batchId,
+                user_id: userId,
+                // Private recipient scope: role-wide parent notifications are visible to every parent account.
+                role: 'private',
+                title: actionType === 'SEND_SMS_ABSENT' ? 'Student Absence Alert' : 'Fee Reminder',
+                message,
+                link: '/student-portal',
+                read: false,
+              },
+            },
+            { upsert: true }
+          );
+          return Number(result.upsertedCount || 0) === 1;
+        } catch (error: any) {
+          // Concurrent retries can race on the unique compound index. A duplicate
+          // key means the other request already created this recipient's record.
+          if (error?.code === 11000) return false;
+          throw error;
+        }
+      }
+    );
 
     const auditId = await recordAuditLog(
       context,
       `AI_ACTION_EXECUTED_${actionType}`,
       'IN_APP_NOTIFICATION',
-      `Admin confirmed and created in-app notification records for ${uniqueParentIds.size} linked parent accounts. No SMS was sent.`
+      `Notification batch ${actionId}: created ${batchResult.createdCount}, already existed ${batchResult.existingCount}, for ${uniqueParentIds.size} linked parent accounts. No SMS was sent.`
     );
     return {
       success: true,
-      message: `Created ${uniqueParentIds.size} in-app notification record(s) and saved the action to the audit log. No SMS was sent.`,
-      dispatchedCount: uniqueParentIds.size,
+      message: `Created ${batchResult.createdCount} new in-app notification record(s); ${batchResult.existingCount} duplicate/replayed record(s) were safely skipped. No SMS was sent.`,
+      dispatchedCount: batchResult.createdCount,
+      alreadyExistedCount: batchResult.existingCount,
+      actionId,
       auditLogId: auditId,
     };
   },
