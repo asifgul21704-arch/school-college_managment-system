@@ -7,7 +7,8 @@ import { RevokedTokenModel } from './models/RevokedToken.ts';
 import { RateLimitBucketModel } from './models/RateLimitBucket.ts';
 import { hasAnyRole, hasExactRole } from './roleAccess.ts';
 
-const DEFAULT_INSECURE_SECRET = 'shawan-school-and-college-secure-jwt-secret-2026-paharpur';
+// Development-only fallback is unique to this process; it is never a reusable source-controlled signing key.
+const DEVELOPMENT_PROCESS_SECRET = crypto.randomBytes(32).toString('hex');
 export const SESSION_COOKIE_NAME = 'shawan_session';
 const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
@@ -210,7 +211,7 @@ export function getJwtSecret(): string {
       );
     }
     if (
-      rawSecret === DEFAULT_INSECURE_SECRET ||
+      rawSecret === DEVELOPMENT_PROCESS_SECRET ||
       rawSecret === EXAMPLE_PLACEHOLDER_SECRET ||
       /^(replace_with|your_|changeme)/i.test(rawSecret)
     ) {
@@ -225,7 +226,7 @@ export function getJwtSecret(): string {
     }
     return rawSecret;
   }
-  return rawSecret || DEFAULT_INSECURE_SECRET;
+  return rawSecret || DEVELOPMENT_PROCESS_SECRET;
 }
 
 export interface AuthenticatedRequest extends Request {
