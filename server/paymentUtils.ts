@@ -27,3 +27,10 @@ export function collectStudentPaymentIdentifiers(student: {
       .filter(Boolean)
   ));
 }
+
+/** A bank transfer must include a stable reference so retries cannot create duplicate payment records. */
+export function normalizeDepositReference(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  const normalized = value.trim();
+  return normalized.length > 0 && normalized.length <= 128 ? normalized : '';
+}
