@@ -2644,16 +2644,16 @@ router.get('/admin/parent-links', authenticateToken, requireRole(['super_admin',
       if (Array.isArray(u.linked_student_ids)) {
         u.linked_student_ids.forEach((id: string) => parentStudentIds.add(id));
       }
-      if (prof && Array.isArray(prof.linked_students)) {
-        prof.linked_students.forEach((id: string) => parentStudentIds.add(id));
-      }
-      allStudents.forEach(s => {
-        if (s.parent_user_id === uid) parentStudentIds.add(s.id);
-      });
-
-      const linked = allStudents.filter(
-        s => parentStudentIds.has(s.id) || parentStudentIds.has(s.admission_no)
-      );
+      // Admin relationship view follows the same authoritative source as parent access:
+      // current User.linked_id / User.linked_student_ids only. Denormalized Parent and
+      // Student pointers are intentionally excluded so stale links cannot reappear.
+      const linked = studentDocs
+        .filter((student: any) => isParentLinkedToStudent(parentStudentIds, [
+          student.record_id,
+          student._id?.toString(),
+          student.admission_no,
+        ]))
+        .map(toStudentDto);
       return {
         id: uid,
         name: u.name,
