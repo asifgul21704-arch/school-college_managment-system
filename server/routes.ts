@@ -12767,7 +12767,7 @@ router.post('/teacher/ai/execute-action', authenticateToken, requireExactRole(['
       if (!examAllowsStudentClass) {
         return res.status(403).json({ error: 'Access denied: This examination is not assigned to the student class.' });
       }
-const cleanExamId = sanitizePlainText(exam_id || 'ex_term1', 80) || 'ex_term1';
+
       const pct = (om / tm) * 100;
       let grade = 'F';
       if (pct >= 80) grade = 'A1';
