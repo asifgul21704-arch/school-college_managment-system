@@ -1771,22 +1771,21 @@ router.post('/auth/register-parent', authRateLimiter, async (req: Request, res: 
 
   if (!ensureMongoReady(res)) return;
 
+  let createdUser: any = null;
+  let claimedStudent: any = null;
+  let canonicalParentId = '';
+  let verifiedChild: any = null;
+  let canonicalStudentId = '';
+  const linkedStudentIds: string[] = [];
+  const linkedStudentDtos: StudentDto[] = [];
+
   try {
     const existingUser = await UserModel.findOne({ email: cleanEmail }).lean();
     if (existingUser) {
       return res.status(409).json({ error: 'An account with this email address already exists' });
     }
 
-    const salt = await bcrypt.genSalt(10);
-    const password_hash = await bcrypt.hash(String(password), salt);
-
-    const ts = Date.now();
-    const randSuffix = Math.random().toString(36).slice(2, 6);
-    const newUserId = `usr_${ts}_${randSuffix}`;
-    const linkedStudentIds: string[] = [];
-    const linkedStudentDtos: StudentDto[] = [];
-
-    // Optional child linking during signup requires BOTH matching admission_no AND child_dob
+    // Verify the optional child before account creation, but do not claim ownership yet.
     if (child_admission_no && String(child_admission_no).trim()) {
       const cleanAdm = String(child_admission_no).trim().toUpperCase();
       const cleanChildDob = child_dob ? String(child_dob).trim() : '';
@@ -1795,37 +1794,67 @@ router.post('/auth/register-parent', authRateLimiter, async (req: Request, res: 
           error: 'Child date of birth is required when linking a student by admission number during registration',
         });
       }
-      const studentDoc = await StudentModel.findOne({
+      verifiedChild = await StudentModel.findOne({
         admission_no: { $regex: new RegExp(`^${escapeRegexLiteral(cleanAdm)}$`, 'i') },
       });
-      if (!studentDoc || studentDoc.dob !== cleanChildDob) {
+      if (!verifiedChild || verifiedChild.dob !== cleanChildDob) {
         return res.status(404).json({
           error: 'No student found matching both the provided admission number and date of birth.',
         });
       }
-      const sid = studentDoc.record_id || studentDoc._id.toString();
-      linkedStudentIds.push(sid);
-      studentDoc.parent_user_id = newUserId;
-      await studentDoc.save();
-      linkedStudentDtos.push(toStudentDto(studentDoc));
+      canonicalStudentId = verifiedChild.record_id || verifiedChild._id.toString();
     }
+
+    const salt = await bcrypt.genSalt(10);
+    const password_hash = await bcrypt.hash(String(password), salt);
+    const ts = Date.now();
+    const randSuffix = Math.random().toString(36).slice(2, 6);
+    const newUserId = `usr_${ts}_${randSuffix}`;
 
     const cleanName = sanitizePlainText(full_name, 150);
     const cleanPhone = phone ? sanitizePlainText(phone, 40) : '';
     const cleanAddress = address ? sanitizePlainText(address, 300) : '';
     const cleanOccupation = occupation ? sanitizePlainText(occupation, 150) : '';
 
-    const createdUser = await UserModel.create({
+    createdUser = await UserModel.create({
       record_id: newUserId,
       email: cleanEmail,
       password_hash,
       name: cleanName,
       role: 'parent',
       phone: cleanPhone,
-      linked_id: linkedStudentIds[0] || '',
-      linked_student_ids: linkedStudentIds,
+      linked_id: '',
+      linked_student_ids: [],
       status: 'active',
     });
+    canonicalParentId = createdUser.record_id || createdUser._id.toString();
+
+    if (verifiedChild) {
+      // Public registration uses the same atomic ownership claim and verified persistence
+      // as the authenticated parent-link workflow.
+      claimedStudent = await claimStudentForParent(
+        verifiedChild,
+        canonicalParentId,
+        createdUser._id.toString()
+      );
+      if (!claimedStudent) {
+        await UserModel.deleteOne({ _id: createdUser._id });
+        createdUser = null;
+        return res.status(409).json({
+          error: 'This student is already linked to another parent account. Please contact school administration if this is incorrect.',
+        });
+      }
+
+      await persistParentStudentLink(createdUser, verifiedChild, canonicalStudentId, canonicalParentId);
+      linkedStudentIds.push(canonicalStudentId);
+      linkedStudentDtos.push(toStudentDto(claimedStudent));
+
+      // Refresh the account document so the issued JWT and response reflect persisted links.
+      createdUser = await UserModel.findById(createdUser._id);
+      if (!createdUser) {
+        throw new Error('Parent account could not be reloaded after child linking.');
+      }
+    }
 
     await ParentModel.create({
       record_id: `prt_${newUserId}`,
@@ -1838,48 +1867,59 @@ router.post('/auth/register-parent', authRateLimiter, async (req: Request, res: 
       occupation: cleanOccupation,
       linked_students: linkedStudentIds,
     });
-
-    const userDto = toUserDto(createdUser);
-    await recordMongoAudit(
-      { id: userDto.id, name: userDto.name, role: userDto.role },
-      'Parent Account Registered',
-      'Parent',
-      userDto.id,
-      `Linked students: ${linkedStudentIds.length}`
-    );
-
-    const token = generateToken({
-      id: userDto.id,
-      email: userDto.email,
-      role: userDto.role,
-      name: userDto.name,
-      phone: userDto.phone,
-      linked_id: userDto.linked_id,
-      linked_student_ids: userDto.linked_student_ids,
-    });
-
-    setSessionCookie(req, res, token);
-
-    return res.status(201).json({
-      message: 'Parent account successfully created',
-      token,
-      user: {
-        id: userDto.id,
-        email: userDto.email,
-        name: userDto.name,
-        role: userDto.role,
-        phone: userDto.phone,
-        linked_id: userDto.linked_id,
-        linked_student_ids: userDto.linked_student_ids,
-      },
-      linked_students: linkedStudentDtos,
-    });
   } catch (err: any) {
+    // Roll back partial registration without releasing a student's claim owned by someone else.
+    if (createdUser) {
+      if (verifiedChild && canonicalParentId) {
+        await StudentModel.updateOne(
+          buildStudentParentReleaseFilter(verifiedChild._id, canonicalParentId, createdUser._id.toString()),
+          { $unset: { parent_user_id: '' } }
+        ).catch(() => {});
+      }
+      await ParentModel.deleteOne({ user_id: canonicalParentId }).catch(() => {});
+      await UserModel.deleteOne({ _id: createdUser._id }).catch(() => {});
+    }
     if (err?.code === 11000) {
       return res.status(409).json({ error: 'An account with this email address already exists' });
     }
     return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to register parent account') });
   }
+
+  const userDto = toUserDto(createdUser);
+  await recordMongoAudit(
+    { id: userDto.id, name: userDto.name, role: userDto.role },
+    'Parent Account Registered',
+    'Parent',
+    userDto.id,
+    `Linked students: ${linkedStudentIds.length}`
+  );
+
+  const token = generateToken({
+    id: userDto.id,
+    email: userDto.email,
+    role: userDto.role,
+    name: userDto.name,
+    phone: userDto.phone,
+    linked_id: userDto.linked_id,
+    linked_student_ids: userDto.linked_student_ids,
+  });
+
+  setSessionCookie(req, res, token);
+
+  return res.status(201).json({
+    message: 'Parent account successfully created',
+    token,
+    user: {
+      id: userDto.id,
+      email: userDto.email,
+      name: userDto.name,
+      role: userDto.role,
+      phone: userDto.phone,
+      linked_id: userDto.linked_id,
+      linked_student_ids: userDto.linked_student_ids,
+    },
+    linked_students: linkedStudentDtos,
+  });
 });
 
 // Teacher self-signup (MongoDB-authoritative with mandatory Admin approval)
