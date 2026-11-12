@@ -152,6 +152,19 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   assert.equal(parentB.status, 201, JSON.stringify(parentB.data));
   const parentBToken = parentB.data.token as string;
 
+  // Two simultaneous parent signups for one unclaimed child must have exactly one winner.
+  const studentC = await registerStudent('C', 'E2E Parent Race');
+  const raceAttempts = await Promise.all([
+    registerParent('RaceOne', studentC.admissionNo),
+    registerParent('RaceTwo', studentC.admissionNo),
+  ]);
+  assert.deepEqual(raceAttempts.map(result => result.status).sort(), [201, 409]);
+  const raceWinner = raceAttempts.find(result => result.status === 201)!;
+  const raceLoser = raceAttempts.find(result => result.status === 409)!;
+  const raceStudent = await StudentModel.findOne({ record_id: studentC.id }).lean();
+  assert.equal(raceStudent?.parent_user_id, raceWinner.data.user.id);
+  assert.equal(await UserModel.exists({ email: raceLoser.email }), null);
+
   // A second parent cannot claim a student already owned by Parent A.
   const blockedParent = await registerParent('Blocked', studentA.admissionNo);
   assert.equal(blockedParent.status, 409, JSON.stringify(blockedParent.data));
