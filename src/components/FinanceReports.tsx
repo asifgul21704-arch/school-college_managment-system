@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Activity, AlertTriangle, ArrowDownToLine, CalendarDays, ChartNoAxesCombined, FileSpreadsheet, Printer, RefreshCw, Sparkles, Wallet } from 'lucide-react';
 import { api } from '../services/api';
 import type { AttendanceRecord, ExpenseRecord, FeeRecord, PayrollRecord, Student, Teacher, VerifiedFeeCollectionRecord } from '../types';
+import { sumPayrollPayments } from '../../server/financeUtils';
 
 type ReportTab = 'overview' | 'fees' | 'defaulters' | 'attendance' | 'sessions' | 'expenses' | 'payroll';
 
@@ -219,10 +220,10 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
   const financeSummary = useMemo(() => {
     const verifiedIncome = collections.filter(p => (!monthFilter || p.date.startsWith(monthFilter)) && (classFilter === 'all' || p.class_name === classFilter)).reduce((sum,p)=>sum+Number(p.amount||0),0);
     const operatingExpense = filteredExpenses.filter(e=>e.category!=='Salaries').reduce((sum,e)=>sum+Number(e.amount||0),0);
-    const payrollPaid = filteredPayroll.reduce((sum,p)=>sum+Number(p.paid_amount||0),0);
+    const payrollPaid = sumPayrollPayments(payroll, monthFilter || undefined);
     const outflow = operatingExpense + payrollPaid;
     return { verifiedIncome, operatingExpense, payrollPaid, outflow, netCashIndicator: verifiedIncome-outflow };
-  }, [collections, monthFilter, classFilter, filteredExpenses, filteredPayroll]);
+  }, [collections, monthFilter, classFilter, filteredExpenses, payroll]);
   const saveExpense = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
