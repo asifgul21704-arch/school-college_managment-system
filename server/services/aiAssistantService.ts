@@ -14,6 +14,7 @@ import {
   SchoolSettingsModel,
   ExpenseModel,
   PayrollModel,
+  FeePaymentModel,
 } from '../models/index.ts';
 
 import mongoose from 'mongoose';
@@ -2785,17 +2786,17 @@ export async function processAdminAiQuery(
     const year = monthMatch ? Number(monthMatch[1]) : now.getFullYear();
     const month = monthMatch ? Number(monthMatch[2]) : now.getMonth() + 1;
     const periodPrefix = `${year}-${String(month).padStart(2, '0')}`;
-    const [expenseDocs, payrollDocs, feeSummary] = await Promise.all([
+    const [expenseDocs, payrollDocs, paymentDocs] = await Promise.all([
       ExpenseModel.find({ expense_date: { $regex: `^${periodPrefix}` } }).lean(),
       PayrollModel.find({ salary_year: year, salary_month: month }).lean(),
-      ControlledSchoolTools.getFeeSummary(),
+      FeePaymentModel.find({ date: { $regex: `^${periodPrefix}` }, status: 'Paid', verification_status: 'Verified' }).lean(),
     ]);
     const operationalExpenses = expenseDocs.filter((row: any) => row.category !== 'Salaries');
     const expenseTotal = operationalExpenses.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0);
     const payrollTotal = payrollDocs.reduce((sum: number, row: any) => sum + Number(row.net_salary || 0), 0);
     const payrollPaid = payrollDocs.reduce((sum: number, row: any) => sum + Number(row.paid_amount || 0), 0);
     const totalOutflow = expenseTotal + payrollTotal;
-    const collected = Number(feeSummary.totalPaid || 0);
+    const collected = paymentDocs.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0);
     const expenseByCategory = new Map<string, number>();
     operationalExpenses.forEach((row: any) => expenseByCategory.set(row.category, (expenseByCategory.get(row.category) || 0) + Number(row.amount || 0)));
     const categoryRows = Array.from(expenseByCategory.entries()).map(([category, amount]) => `| ${category} | PKR ${amount.toLocaleString()} |`).join('\n');
@@ -2806,7 +2807,7 @@ export async function processAdminAiQuery(
       `Generated live finance report for ${periodPrefix}; ${expenseDocs.length} expense records and ${payrollDocs.length} payroll records.`
     );
     return {
-      text: `### Finance Intelligence Report — ${periodPrefix}\n\n* **Fee collections (all-time fee ledger):** PKR ${collected.toLocaleString()}\n* **Operating expenses (${operationalExpenses.length} records):** PKR ${expenseTotal.toLocaleString()}\n* **Payroll net salary (${payrollDocs.length} records):** PKR ${payrollTotal.toLocaleString()} (paid PKR ${payrollPaid.toLocaleString()})\n* **Recorded total outflow for selected month:** PKR ${totalOutflow.toLocaleString()}\n* **Operating balance indicator:** PKR ${(collected - totalOutflow).toLocaleString()}\n\n#### Operating expense categories\n| Category | Amount |\n|---|---:|\n${categoryRows || '| No expense records | PKR 0 |'}\n\n*Expense and payroll figures are filtered to ${periodPrefix}. Fee collection total is the current fee-ledger aggregate and is not period-filtered. The operating balance indicator is therefore not a formal accounting profit/loss figure.*`,
+      text: `### Finance Intelligence Report — ${periodPrefix}\n\n* **Verified fee collections:** PKR ${collected.toLocaleString()}\n* **Operating expenses (${operationalExpenses.length} records):** PKR ${expenseTotal.toLocaleString()}\n* **Payroll net salary (${payrollDocs.length} records):** PKR ${payrollTotal.toLocaleString()} (paid PKR ${payrollPaid.toLocaleString()})\n* **Recorded total outflow for selected month:** PKR ${totalOutflow.toLocaleString()}\n* **Operating balance indicator:** PKR ${(collected - totalOutflow).toLocaleString()}\n\n#### Operating expense categories\n| Category | Amount |\n|---|---:|\n${categoryRows || '| No expense records | PKR 0 |'}\n\n*Expense and payroll figures are filtered to ${periodPrefix}. Fee collection total is the current fee-ledger aggregate and is not period-filtered. The operating balance indicator is therefore not a formal accounting profit/loss figure.*`,
       toolUsed: 'getFinanceIntelligenceReport',
       data: { period: periodPrefix, feeCollectionsAllTime: collected, operationalExpenses: expenseTotal, payrollNet: payrollTotal, payrollPaid, totalOutflow, expenseCount: expenseDocs.length, payrollCount: payrollDocs.length },
       auditLogId: auditId,
