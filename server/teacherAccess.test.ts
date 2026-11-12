@@ -17,3 +17,11 @@ test('fails closed for missing or malformed identity labels', () => {
   assert.equal(isExactTeacherName('Ali', ''), false);
   assert.equal(isExactTeacherName(null, 'Ali'), false);
 });
+
+test('teacher subject authorization requires exact normalized subject', async () => {
+  const { isExactTeacherSubject } = await import('./teacherAccess.ts');
+  assert.equal(isExactTeacherSubject(['Computer Science', 'Physics'], ' computer   science '), true);
+  assert.equal(isExactTeacherSubject(['Computer Science'], 'Computer'), false);
+  assert.equal(isExactTeacherSubject(['Computer Science'], 'Science'), false);
+  assert.equal(isExactTeacherSubject(['Physics'], ''), false);
+});
