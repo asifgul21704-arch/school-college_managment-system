@@ -231,6 +231,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
     setPrintingFee(null);
     setViewingReceiptPayment(null);
     setPayingFee(null);
+    setPayModalSubmitting(false);
     setNewInquiryChildId('');
     setShowPayModal(false);
     setPayModalError(null);
@@ -619,6 +620,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
       return;
     }
 
+    const requestVersion = portalLoadVersionRef.current;
     setPayModalSubmitting(true);
     setPayModalError(null);
     setPayModalSuccess(null);
@@ -637,27 +639,32 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
         notes: payNotes,
       });
 
+      if (requestVersion !== portalLoadVersionRef.current) return;
       setPayModalSuccess(res.message || 'Payment processed successfully.');
       if (selectedStudentId) {
         const details = await api.getStudentById(selectedStudentId).catch(() => null);
+        if (requestVersion !== portalLoadVersionRef.current) return;
         if (details?.fees) setFees(details.fees);
-        await loadPaymentData(selectedStudentId);
+        await loadPaymentData(selectedStudentId, requestVersion);
       }
 
       if (res.payment.status === 'Paid') {
         setTimeout(() => {
-          setViewingReceiptPayment(res.payment);
+          if (requestVersion === portalLoadVersionRef.current) setViewingReceiptPayment(res.payment);
         }, 1200);
       }
 
       setTimeout(() => {
+        if (requestVersion !== portalLoadVersionRef.current) return;
         setShowPayModal(false);
         setPayModalSuccess(null);
       }, 2000);
     } catch (err: any) {
-      setPayModalError(err.message || 'Failed to submit fee payment.');
+      if (requestVersion === portalLoadVersionRef.current) {
+        setPayModalError(err.message || 'Failed to submit fee payment.');
+      }
     } finally {
-      setPayModalSubmitting(false);
+      if (requestVersion === portalLoadVersionRef.current) setPayModalSubmitting(false);
     }
   };
 
