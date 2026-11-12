@@ -19,3 +19,17 @@ test('cash and unknown methods cannot be submitted through the parent payment en
     assert.equal(getParentPaymentMethodMode(method), 'unsupported');
   }
 });
+
+test('student payment filters include every stable student identifier alias', async () => {
+  const { collectStudentPaymentIdentifiers } = await import('./paymentUtils.ts');
+  assert.deepEqual(
+    collectStudentPaymentIdentifiers({
+      record_id: 'stu_001',
+      _id: '65aa00000000000000000001',
+      admission_no: 'ADM-001',
+    }),
+    ['stu_001', '65aa00000000000000000001', 'ADM-001']
+  );
+  assert.deepEqual(collectStudentPaymentIdentifiers({ record_id: 'stu_001', admission_no: 'stu_001' }), ['stu_001']);
+  assert.deepEqual(collectStudentPaymentIdentifiers(null), []);
+});
