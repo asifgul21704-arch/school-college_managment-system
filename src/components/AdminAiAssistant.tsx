@@ -264,7 +264,7 @@ export const AdminAiAssistant: React.FC<AdminAiAssistantProps> = ({ initialPromp
     { label: "Today's Absent", query: "Show today's absent students." },
     { label: 'Unpaid Fees List', query: 'Show students with unpaid fees.' },
     { label: 'Draft Fee Reminder', query: 'Draft fee reminder for students with unpaid fees.' },
-    { label: 'Absent SMS Alert', query: 'Send SMS alert to absent students.' },
+    { label: 'Absent Parent Notification', query: 'Send SMS alert to absent students.' },
   ];
 
   const adminDisplayName = user?.name || 'Administrator';
