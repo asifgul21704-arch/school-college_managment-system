@@ -2821,18 +2821,14 @@ router.post('/admin/parent-links/link', authenticateToken, requireRole(['super_a
     const canonicalParentId = parentUser.record_id || parentUser._id.toString();
     const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
 
-    const nextLinked = Array.isArray(parentUser.linked_student_ids) ? [...parentUser.linked_student_ids] : [];
-    if (!nextLinked.includes(canonicalStudentId)) {
-      nextLinked.push(canonicalStudentId);
+    // Admin linking uses the same atomic ownership claim as the parent portal.
+    // It cannot silently take a child away from another active parent account.
+    const claimedStudent = await claimStudentForParent(studentDoc, canonicalParentId, parentUser._id.toString());
+    if (!claimedStudent) {
+      return res.status(409).json({ error: 'This student is already linked to another parent account. Unlink the existing relationship first.' });
     }
-    parentUser.linked_student_ids = nextLinked;
-    if (!parentUser.linked_id) {
-      parentUser.linked_id = canonicalStudentId;
-    }
-    await parentUser.save();
 
-    studentDoc.parent_user_id = canonicalParentId;
-    await studentDoc.save();
+    await persistParentStudentLink(parentUser, studentDoc, canonicalStudentId, canonicalParentId);
 
     await ParentModel.findOneAndUpdate(
       { $or: [{ user_id: canonicalParentId }, { email: parentUser.email.toLowerCase() }] },
@@ -2867,7 +2863,6 @@ router.post('/admin/parent-links/link', authenticateToken, requireRole(['super_a
   }
 });
 
-// 6. Admin Unlink Student from Parent
 router.post('/admin/parent-links/unlink', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
   const { parent_id, student_id } = req.body || {};
   if (!parent_id || !student_id) {
@@ -2887,28 +2882,56 @@ router.post('/admin/parent-links/unlink', authenticateToken, requireRole(['super
 
     const canonicalParentId = parentUser.record_id || parentUser._id.toString();
     const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
-    const idsToPull = new Set([
+    const linkedSet = await getLinkedStudentIdsForParent({
+      id: canonicalParentId,
+      email: parentUser.email,
+    });
+    if (!linkedSet.has(canonicalStudentId) && !linkedSet.has(String(student_id))) {
+      return res.status(409).json({ error: 'This student is not currently linked to the selected parent account.' });
+    }
+
+    const idsToRemove = Array.from(new Set([
       canonicalStudentId,
       studentDoc._id.toString(),
       studentDoc.admission_no,
       String(student_id),
-    ]);
+    ].filter(Boolean)));
 
-    const filteredIds = (parentUser.linked_student_ids || []).filter((id: string) => !idsToPull.has(id));
-    parentUser.linked_student_ids = filteredIds;
-    if (!parentUser.linked_id || idsToPull.has(parentUser.linked_id)) {
-      parentUser.linked_id = filteredIds.length > 0 ? filteredIds[0] : '';
+    // Keep administrator unlink behavior identical to parent unlink behavior:
+    // current User links are cleared atomically, then only this parent's student claim is released.
+    const remainingLinksExpression = {
+      $filter: {
+        input: { $ifNull: ['$linked_student_ids', []] },
+        as: 'linkedId',
+        cond: { $not: [{ $in: ['$$linkedId', idsToRemove] }] },
+      },
+    };
+    const unlinkResult = await UserModel.updateOne(
+      { _id: parentUser._id, role: 'parent' },
+      [{
+        $set: {
+          linked_student_ids: remainingLinksExpression,
+          linked_id: {
+            $cond: [
+              { $in: [{ $ifNull: ['$linked_id', ''] }, idsToRemove] },
+              { $ifNull: [{ $arrayElemAt: [remainingLinksExpression, 0] }, ''] },
+              { $ifNull: ['$linked_id', ''] },
+            ],
+          },
+        },
+      }]
+    );
+    if (unlinkResult.matchedCount !== 1) {
+      return res.status(409).json({ error: 'Parent account changed during unlink. Refresh and try again.' });
     }
-    await parentUser.save();
 
-    if (studentDoc.parent_user_id === canonicalParentId || studentDoc.parent_user_id === String(parent_id)) {
-      studentDoc.parent_user_id = '';
-      await studentDoc.save();
-    }
-
+    await StudentModel.updateOne(
+      buildStudentParentReleaseFilter(studentDoc._id, canonicalParentId, parentUser._id.toString()),
+      { $unset: { parent_user_id: '' } }
+    );
     await ParentModel.updateMany(
       { $or: [{ user_id: canonicalParentId }, { email: parentUser.email.toLowerCase() }] },
-      { $pull: { linked_students: { $in: Array.from(idsToPull) } } }
+      { $pull: { linked_students: { $in: idsToRemove } } }
     );
 
     await recordMongoAudit(
