@@ -2,7 +2,25 @@ const http = require('http');
 const jsonwebtoken = require('jsonwebtoken');
 require('dotenv').config();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'shawan-school-and-college-secure-jwt-secret-2026-paharpur';
+const JWT_SECRET = process.env.JWT_SECRET;
+const TEST_TEACHER_EMAIL = process.env.E2E_TEACHER_EMAIL;
+const TEST_TEACHER_PASSWORD = process.env.E2E_TEACHER_PASSWORD;
+const E2E_EXPECTED_DATABASE_NAME = process.env.E2E_EXPECTED_DATABASE_NAME;
+
+function assertSafeE2ETarget() {
+  if (process.env.E2E_ALLOW_MUTATIONS !== 'true') {
+    throw new Error('Blocked: set E2E_ALLOW_MUTATIONS=true only when intentionally running against an isolated test database.');
+  }
+  if (!JWT_SECRET || JWT_SECRET.length < 32) {
+    throw new Error('Blocked: provide a dedicated JWT_SECRET for the isolated test environment (minimum 32 characters).');
+  }
+  if (!TEST_TEACHER_EMAIL || !TEST_TEACHER_PASSWORD) {
+    throw new Error('Blocked: provide E2E_TEACHER_EMAIL and E2E_TEACHER_PASSWORD for the test account.');
+  }
+  if (!E2E_EXPECTED_DATABASE_NAME || !/^e2e[_-]/i.test(E2E_EXPECTED_DATABASE_NAME)) {
+    throw new Error('Blocked: E2E_EXPECTED_DATABASE_NAME must identify a dedicated e2e_ or e2e- database.');
+  }
+}
 
 function makeToken(payload) {
   return jsonwebtoken.sign(payload, JWT_SECRET, { expiresIn: '1h' });
@@ -99,6 +117,19 @@ function getRequest(path, token) {
 }
 
 async function runTests() {
+  assertSafeE2ETarget();
+  const health = await getRequest('/health');
+  const database = health.data?.database;
+  if (
+    health.status !== 200 ||
+    health.data?.connected !== true ||
+    database?.connected !== true ||
+    database?.isAtlas !== false ||
+    database?.databaseName !== E2E_EXPECTED_DATABASE_NAME
+  ) {
+    throw new Error('Blocked: API health check did not confirm the expected isolated local E2E database. No test writes were performed.');
+  }
+
   console.log('====================================================');
   console.log('PHASE 5 — TEACHER PORTAL & ACADEMIC MANAGEMENT VERIFICATION');
   console.log('====================================================\n');
@@ -118,8 +149,8 @@ async function runTests() {
 
   // 1. Teacher login
   const loginSuccess = await postRequest('/auth/login', {
-    email: 'teacher@shawanschool.edu.pk',
-    password: 'TeacherPassword123!'
+    email: TEST_TEACHER_EMAIL,
+    password: TEST_TEACHER_PASSWORD
   });
   assert(
     loginSuccess.status === 200 && loginSuccess.data?.token && loginSuccess.data?.user?.role === 'teacher',
@@ -128,7 +159,7 @@ async function runTests() {
   );
   const teacherToken = loginSuccess.data?.token || makeToken({
     id: 'usr_teacher_1',
-    email: 'teacher@shawanschool.edu.pk',
+    email: TEST_TEACHER_EMAIL,
     role: 'teacher',
     name: 'Prof. Tariq Mahmood',
     linked_id: 'tch_01'
@@ -136,8 +167,8 @@ async function runTests() {
 
   // 2. Invalid teacher login
   const loginInvalid = await postRequest('/auth/login', {
-    email: 'teacher@shawanschool.edu.pk',
-    password: 'WrongPassword123!'
+    email: TEST_TEACHER_EMAIL,
+    password: 'deliberately-invalid-e2e-password'
   });
   assert(
     loginInvalid.status === 401,
