@@ -12366,9 +12366,21 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
     const teacherStudents = allStudents.filter(s =>
       isClassAssignedToTeacher(assignedClasses, s.class_name)
     );
+    const findMentionedTeacherStudents = (query: string) => {
+      const fullNameMatches = teacherStudents.filter(student =>
+        query.includes(student.full_name.toLowerCase())
+      );
+      if (fullNameMatches.length > 0) {
+        const longestMatchLength = Math.max(...fullNameMatches.map(student => student.full_name.length));
+        return fullNameMatches.filter(student => student.full_name.length === longestMatchLength);
+      }
+      return teacherStudents.filter(student =>
+        query.includes(student.full_name.split(' ')[0].toLowerCase())
+      );
+    };
 
     if (lower.startsWith('mark ') || (lower.includes('mark') && (lower.includes('absent') || lower.includes('present') || lower.includes('leave')))) {
-      const matched = teacherStudents.filter(s => lower.includes(s.full_name.toLowerCase()) || lower.includes(s.full_name.split(' ')[0].toLowerCase()));
+      const matched = findMentionedTeacherStudents(lower);
       if (matched.length === 1) {
         const targetStudent = matched[0];
         let status = 'Absent';
@@ -12398,7 +12410,7 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
     }
 
     if (lower.includes('enter') && lower.includes('marks')) {
-      const matched = teacherStudents.filter(s => lower.includes(s.full_name.toLowerCase()) || lower.includes(s.full_name.split(' ')[0].toLowerCase()));
+      const matched = findMentionedTeacherStudents(lower);
       if (matched.length === 1) {
         const targetStudent = matched[0];
         const numMatch = lower.match(/\b\d{1,3}\b/);
