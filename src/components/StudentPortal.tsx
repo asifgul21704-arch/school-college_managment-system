@@ -200,6 +200,24 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
     portalLoadVersionRef.current += 1;
     setPortalError(null);
     setStudent(null);
+    setPortalAiMessages([{
+      sender: 'assistant',
+      text: user?.role === 'parent'
+        ? 'Ask questions about records for your currently linked children.'
+        : 'Ask questions about your personal academic records.',
+    }]);
+    setPortalAiInput('');
+    setPortalAiLoading(false);
+    setShowNewInquiryModal(false);
+    setNewInquiryMessage('');
+    setFoundStudents([]);
+    setSelectedCandidateId('');
+    setLinkStep('search');
+    setLinkError(null);
+    setLinkSuccess(null);
+    setStudentName('');
+    setClassName('');
+    setRollNo('');
     setNotifications([]);
     setUnreadCount(0);
     setAttendanceData(null);
@@ -650,10 +668,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
 
     setPortalAiMessages(prev => [...prev, { sender: 'user', text: queryText }]);
     setPortalAiInput('');
+    const requestVersion = portalLoadVersionRef.current;
     setPortalAiLoading(true);
 
     try {
       const res = await api.queryPortalAi(queryText);
+      if (requestVersion !== portalLoadVersionRef.current) return;
       setPortalAiMessages(prev => [
         ...prev,
         {
@@ -665,6 +685,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
         },
       ]);
     } catch (err: any) {
+      if (requestVersion !== portalLoadVersionRef.current) return;
       setPortalAiMessages(prev => [
         ...prev,
         {
@@ -673,7 +694,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
         },
       ]);
     } finally {
-      setPortalAiLoading(false);
+      if (requestVersion === portalLoadVersionRef.current) setPortalAiLoading(false);
     }
   };
 
