@@ -1,5 +1,6 @@
 import express, { type Request, type Response } from 'express';
 import { financeRouter } from './financeRoutes.ts';
+import { buildNotificationVisibilityFilter, canMarkNotificationRead } from './notificationAccess.ts';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jsonwebtoken from 'jsonwebtoken';
@@ -9753,13 +9754,7 @@ router.get('/notifications', authenticateToken, async (req: AuthenticatedRequest
     const userRole = req.user!.role;
     const allowedUserIds = await resolveNotificationAllowedUserIds(req.user!);
 
-    const notifs = await NotificationModel.find({
-      $or: [
-        { user_id: { $in: allowedUserIds } },
-        { role: userRole },
-        { role: 'all' },
-      ],
-    })
+    const notifs = await NotificationModel.find(buildNotificationVisibilityFilter(userRole, allowedUserIds))
       .sort({ created_at: -1 })
       .limit(50)
       .lean();
@@ -9810,12 +9805,7 @@ router.put('/notifications/:id/read', authenticateToken, async (req: Authenticat
     const userRole = req.user!.role;
     const allowedUserIds = await resolveNotificationAllowedUserIds(req.user!);
 
-    const isAdmin = userRole === 'super_admin' || userRole === 'admin';
-    const isAuthorized =
-      isAdmin ||
-      allowedUserIds.includes(notif.user_id) ||
-      notif.role === userRole ||
-      notif.role === 'all';
+    const isAuthorized = canMarkNotificationRead(userRole, allowedUserIds, notif);
 
     if (!isAuthorized) {
       return res.status(403).json({ error: 'Access denied: You may only mark your own notifications as read.' });
@@ -9836,14 +9826,7 @@ router.put('/notifications/mark-all-read', authenticateToken, async (req: Authen
     const allowedUserIds = await resolveNotificationAllowedUserIds(req.user!);
 
     await NotificationModel.updateMany(
-      {
-        read: false,
-        $or: [
-          { user_id: { $in: allowedUserIds } },
-          { role: userRole },
-          { role: 'all' },
-        ],
-      },
+      { read: false, ...buildNotificationVisibilityFilter(userRole, allowedUserIds) },
       { $set: { read: true } }
     );
 
