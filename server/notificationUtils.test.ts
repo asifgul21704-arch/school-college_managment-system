@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createNotificationBatchOnce, validateParentNotificationAction } from './notificationUtils.ts';
 
-const actionId = '4b6f1a20-7e31-4b2a-9d12-123456789abc';
+const actionId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const validPayload = {
   actionId,
   message: '  Fee reminder  ',
@@ -24,7 +24,7 @@ test('rejects non-admin roles, missing confirmation, unsupported actions, and cl
   assert.throws(() => validateParentNotificationAction('SEND_SMS_ABSENT', validPayload, true, 'teacher'), /Forbidden/);
   assert.throws(() => validateParentNotificationAction('SEND_SMS_ABSENT', validPayload, false, 'admin'), /confirmation/);
   assert.throws(() => validateParentNotificationAction('SEND_SMS_CUSTOM', validPayload, true, 'admin'), /Unsupported/);
-  assert.throws(() => validateParentNotificationAction('SEND_SMS_ABSENT', { ...validPayload, actionId: 'not-a-uuid' }, true, 'admin'), /server-issued/);
+  assert.throws(() => validateParentNotificationAction('SEND_SMS_ABSENT', { ...validPayload, actionId: 'not-a-uuid' }, true, 'admin'), /idempotency/);
 });
 
 test('rejects empty, oversized, or malformed recipient lists and invalid student IDs', () => {
