@@ -2,40 +2,35 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { collectParentStudentReferences } from './parentAccess.ts';
 
-test('parent access is derived from current database relationship records', () => {
+test('parent access comes only from the current database User record', () => {
   const ids = collectParentStudentReferences({
-    userRecord: { linked_id: 'student-a', linked_student_ids: ['student-a', 'student-b'] },
-    parentRecord: { linked_students: ['student-b', 'student-c'] },
-    childRecords: [{ record_id: 'student-d', _id: 'mongo-id-d', admission_no: 'ADM-004' }],
+    linked_id: 'student-a',
+    linked_student_ids: ['student-a', 'student-b'],
   });
 
-  assert.deepEqual([...ids].sort(), [
-    'ADM-004',
-    'mongo-id-d',
-    'student-a',
-    'student-b',
-    'student-c',
-    'student-d',
-  ]);
+  assert.deepEqual([...ids].sort(), ['student-a', 'student-b']);
 });
 
-test('removed links are absent when the current database records no longer contain them', () => {
+test('an unlinked database account immediately has no child access', () => {
   const ids = collectParentStudentReferences({
-    userRecord: { linked_id: '', linked_student_ids: [] },
-    parentRecord: { linked_students: [] },
-    childRecords: [],
+    linked_id: '',
+    linked_student_ids: [],
   });
 
   assert.equal(ids.size, 0);
   assert.equal(ids.has('previously-linked-child'), false);
 });
 
-test('missing and malformed relationship fields are safely ignored', () => {
+test('missing and malformed link fields are safely ignored', () => {
   const ids = collectParentStudentReferences({
-    userRecord: { linked_id: '  student-a  ', linked_student_ids: [' ', null, 'student-b'] },
-    parentRecord: { linked_students: 'not-an-array' },
-    childRecords: [{ record_id: null, _id: undefined, admission_no: 'ADM-01' }],
+    linked_id: '  student-a  ',
+    linked_student_ids: [' ', null, 'student-b'],
   });
 
-  assert.deepEqual([...ids].sort(), ['ADM-01', 'student-a', 'student-b']);
+  assert.deepEqual([...ids].sort(), ['student-a', 'student-b']);
+});
+
+test('missing user record fails closed', () => {
+  assert.equal(collectParentStudentReferences(null).size, 0);
+  assert.equal(collectParentStudentReferences(undefined).size, 0);
 });
