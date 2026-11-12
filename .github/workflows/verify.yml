@@ -63,53 +63,14 @@ jobs:
         run: |
           docker run -d --name e2e-mongo -p 27017:27017 mongo:7 mongod --replSet rs0 --bind_ip_all
           for attempt in {1..30}; do
-            if docker exec e2e-mongo mongosh --quiet --eval 'db.adminCommand({ ping: 1 }).ok' 2>/dev/null | grep -q '^1
-          npm run dev > /tmp/shawan-parent-e2e-server.log 2>&1 &
-          echo $! > /tmp/shawan-parent-e2e-server.pid
-          for attempt in {1..60}; do
-            if curl -fsS http://127.0.0.1:3000/api/health | grep -q '"connected":true'; then
-              echo "API connected to the disposable E2E database."
-              exit 0
-            fi
-            sleep 2
-          done
-          cat /tmp/shawan-parent-e2e-server.log
-          exit 1
-      - name: Run parent/student permissions and payment-history E2E
-        run: node --import tsx --test server/parentPaymentE2E.test.ts
-      - name: Show API logs on failure
-        if: failure()
-        run: |
-          test ! -f /tmp/shawan-parent-e2e-server.log || cat /tmp/shawan-parent-e2e-server.log
-          docker logs e2e-mongo || true
-      - name: Remove isolated MongoDB
-        if: always()
-        run: docker rm -f e2e-mongo || true
-; then
+            if docker exec e2e-mongo mongosh --quiet --eval 'db.adminCommand({ ping: 1 }).ok' 2>/dev/null | grep -q '^1$\|^1\.0$\|^true$'; then
               break
             fi
             sleep 2
           done
           docker exec e2e-mongo mongosh --quiet --eval 'rs.initiate()'
           for attempt in {1..30}; do
-            if docker exec e2e-mongo mongosh --quiet --eval 'try { rs.status().members.some(member => member.stateStr === "PRIMARY") ? 1 : 0 } catch (error) { 0 }' 2>/dev/null | grep -q '^1
-          npm run dev > /tmp/shawan-parent-e2e-server.log 2>&1 &
-          echo $! > /tmp/shawan-parent-e2e-server.pid
-          for attempt in {1..60}; do
-            if curl -fsS http://127.0.0.1:3000/api/health | grep -q '"connected":true'; then
-              echo "API connected to the disposable E2E database."
-              exit 0
-            fi
-            sleep 2
-          done
-          cat /tmp/shawan-parent-e2e-server.log
-          exit 1
-      - name: Run parent/student permissions and payment-history E2E
-        run: node --import tsx --test server/parentPaymentE2E.test.ts
-      - name: Show API logs on failure
-        if: failure()
-        run: cat /tmp/shawan-parent-e2e-server.log
-; then
+            if docker exec e2e-mongo mongosh --quiet --eval 'try { rs.status().members.some(member => member.stateStr === "PRIMARY") ? 1 : 0 } catch (error) { 0 }' 2>/dev/null | grep -q '^1$\|^true$'; then
               echo "Disposable MongoDB replica set is PRIMARY."
               exit 0
             fi
@@ -134,4 +95,9 @@ jobs:
         run: node --import tsx --test server/parentPaymentE2E.test.ts
       - name: Show API logs on failure
         if: failure()
-        run: cat /tmp/shawan-parent-e2e-server.log
+        run: |
+          test ! -f /tmp/shawan-parent-e2e-server.log || cat /tmp/shawan-parent-e2e-server.log
+          docker logs e2e-mongo || true
+      - name: Remove isolated MongoDB
+        if: always()
+        run: docker rm -f e2e-mongo || true
