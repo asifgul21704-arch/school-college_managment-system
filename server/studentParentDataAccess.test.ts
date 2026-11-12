@@ -38,6 +38,9 @@ test('parent unlink clears child-specific payment and academic data from the cur
   assert.match(studentPortal, /const clearStudentScopedData = \(\) =>/);
   for (const setter of [
     'setStudent(null)',
+    'setPortalAiInput(\'\')',
+    'setPortalAiLoading(false)',
+    'setPortalAiMessages([',
     'setAttendanceData(null)',
     'setFees([])',
     'setResults([])',
@@ -89,4 +92,15 @@ test('private API responses disable browser and shared-proxy caching after permi
   assert.match(apiCacheMiddleware, /Cache-Control', 'private, no-store, no-cache, max-age=0, must-revalidate'/);
   assert.match(apiCacheMiddleware, /Pragma', 'no-cache'/);
   assert.match(apiCacheMiddleware, /Expires', '0'/);
+});
+
+
+test('late Portal AI responses cannot restore unlinked child records into the browser chat', () => {
+  const start = studentPortal.indexOf('const handleSendPortalAi = async');
+  const end = studentPortal.indexOf('// Filter Attendance Records', start);
+  assert.ok(start >= 0 && end > start);
+  const handler = studentPortal.slice(start, end);
+  assert.match(handler, /const requestVersion = portalLoadVersionRef\.current/);
+  assert.match(handler, /await api\.queryPortalAi\(queryText\)[\s\S]*?requestVersion !== portalLoadVersionRef\.current/);
+  assert.match(handler, /finally \{\s*if \(requestVersion === portalLoadVersionRef\.current\) setPortalAiLoading\(false\)/);
 });
