@@ -7024,9 +7024,11 @@ router.get('/parent/fees/summary', authenticateToken, requireRole(['parent', 'st
       const linked = await getLinkedStudentIdsForParent(user);
       studentIds = Array.from(linked);
     } else if (user.role === 'student') {
-      const studentDoc = await StudentModel.findOne({
-        $or: [{ user_id: user.id }, { email: user.email.toLowerCase() }],
-      }).lean();
+      const studentDoc = user.linked_id
+        ? await findStudentByAnyId(user.linked_id)
+        : await StudentModel.findOne({
+            $or: [{ user_id: user.id }, { email: user.email.toLowerCase() }],
+          }).lean();
       if (studentDoc) {
         studentIds = collectStudentPaymentIdentifiers(studentDoc);
       }
@@ -7413,9 +7415,11 @@ router.get('/parent/payments/history', authenticateToken, requireRole(['parent',
       // Empty link sets intentionally produce student_id: { $in: [] }, which returns no records.
       query = buildParentPaymentHistoryFilter(linked);
     } else if (user.role === 'student') {
-      const studentDoc = await StudentModel.findOne({
-        $or: [{ user_id: user.id }, { email: user.email.toLowerCase() }],
-      }).lean();
+      const studentDoc = user.linked_id
+        ? await findStudentByAnyId(user.linked_id)
+        : await StudentModel.findOne({
+            $or: [{ user_id: user.id }, { email: user.email.toLowerCase() }],
+          }).lean();
       if (!studentDoc) {
         return res.json([]);
       }
@@ -10942,7 +10946,7 @@ router.post('/portal/ai/query', aiRateLimiter, authenticateToken, requireRole(['
           (d: any) => (d.record_id || d._id.toString()) === childDto.id || d._id.toString() === childDto.id
         );
         return new Set<string>(
-          [childDto.id, rawDoc?.record_id, rawDoc?._id ? rawDoc._id.toString() : ''].filter(Boolean) as string[]
+          [childDto.id, rawDoc?.record_id, rawDoc?._id ? rawDoc._id.toString() : '', rawDoc?.admission_no].filter(Boolean) as string[]
         );
       };
 
