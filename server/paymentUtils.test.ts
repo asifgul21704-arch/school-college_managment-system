@@ -9,13 +9,13 @@ test('wallet and online gateway methods are unavailable until provider verificat
 });
 
 test('bank deposit and transfer methods require manual verification', () => {
-  for (const method of ['Bank Deposit', 'Bank Transfer', 'Online Slip']) {
+  for (const method of ['Bank Deposit', 'Bank Transfer']) {
     assert.equal(getParentPaymentMethodMode(method), 'manual_verification', method);
   }
 });
 
 test('cash and unknown methods cannot be submitted through the parent payment endpoint', () => {
-  for (const method of ['Cash', 'Crypto', 'Gateway', '', null, undefined, 123]) {
+  for (const method of ['Cash', 'Crypto', 'Gateway', 'Online Slip', '', null, undefined, 123]) {
     assert.equal(getParentPaymentMethodMode(method), 'unsupported');
   }
 });
