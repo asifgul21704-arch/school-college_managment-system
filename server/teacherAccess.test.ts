@@ -32,3 +32,12 @@ test('teacher may manage a multi-subject result only when every subject is assig
   assert.equal(areAllResultSubjectsAssignedToTeacher(['Physics'], ['Physics', 'Chemistry']), false);
   assert.equal(areAllResultSubjectsAssignedToTeacher(['Physics'], []), false);
 });
+
+test('teacher attendance section must match the student actual section', async () => {
+  const { isExactSectionMatch } = await import('./teacherAccess.ts');
+  assert.equal(isExactSectionMatch('Section A', ' section   a '), true);
+  assert.equal(isExactSectionMatch('A', 'B'), false);
+  assert.equal(isExactSectionMatch('10-A', '10'), false);
+  assert.equal(isExactSectionMatch('', 'A'), false);
+  assert.equal(isExactSectionMatch('A', ''), false);
+});
