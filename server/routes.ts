@@ -3,7 +3,7 @@ import { financeRouter } from './financeRoutes.ts';
 import { buildNotificationVisibilityFilter, canMarkNotificationRead } from './notificationAccess.ts';
 import { buildParentPaymentHistoryFilter, collectParentStudentReferences, isParentLinkedToStudent } from './parentAccess.ts';
 import { isClassAssignedToTeacher } from './classAccess.ts';
-import { isExactTeacherName } from './teacherAccess.ts';
+import { isExactTeacherName, isExactTeacherSubject } from './teacherAccess.ts';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jsonwebtoken from 'jsonwebtoken';
@@ -6320,9 +6320,13 @@ router.post('/attendance/batch', authenticateToken, requireRole(['super_admin', 
       const assignedClasses = teacher?.classes || [];
       for (const { rec, studentDoc } of resolvedEntries) {
         const targetClass = String(rec.class_name || studentDoc.class_name || '');
+        const requestedSection = String(rec.section || studentDoc.section || 'A').trim();
+        const actualSection = String(studentDoc.section || 'A').trim();
         if (
           !isClassAssignedToTeacher(assignedClasses, targetClass) ||
-          !isClassAssignedToTeacher(assignedClasses, studentDoc.class_name)
+          !isClassAssignedToTeacher(assignedClasses, studentDoc.class_name) ||
+          targetClass.trim().toLocaleLowerCase('en') !== String(studentDoc.class_name || '').trim().toLocaleLowerCase('en') ||
+          requestedSection.toLocaleLowerCase('en') !== actualSection.toLocaleLowerCase('en')
         ) {
           return res.status(403).json({
             error: `Access denied: You are not assigned to class "${targetClass || studentDoc.class_name}".`,
@@ -8499,10 +8503,11 @@ router.post('/results', authenticateToken, requireRole(['super_admin', 'admin', 
     }
     const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
 
+    let authenticatedTeacher: TeacherDto | null = null;
     if (req.user?.role === 'teacher') {
-      const teacher = await getAuthenticatedTeacherMongo(req);
-      const assignedClasses = teacher?.classes || [];
-      if (!isClassAssignedToTeacher(assignedClasses, studentDoc.class_name)) {
+      authenticatedTeacher = await getAuthenticatedTeacherMongo(req);
+      const assignedClasses = authenticatedTeacher?.classes || [];
+      if (!authenticatedTeacher || !isClassAssignedToTeacher(assignedClasses, studentDoc.class_name)) {
         return res.status(403).json({
           error: `Access denied: You are not assigned to class "${studentDoc.class_name}".`,
         });
@@ -8513,6 +8518,25 @@ router.post('/results', authenticateToken, requireRole(['super_admin', 'admin', 
     const exam = examDoc ? toExamDto(examDoc) : null;
     if (!exam) {
       return res.status(400).json({ error: `Referenced exam ID "${cleanExamId}" was not found in the database.` });
+    }
+    if (authenticatedTeacher) {
+      const examClasses = Array.isArray(exam.classes) ? exam.classes : [];
+      if (examClasses.length > 0 && !examClasses.includes('All Classes') &&
+          !examClasses.some((name: string) => isClassAssignedToTeacher([studentDoc.class_name], name))) {
+        return res.status(403).json({ error: 'Access denied: This exam is not assigned to the student class.' });
+      }
+      const teacherIds = Array.from(new Set([authenticatedTeacher.id, req.user?.linked_id, req.user?.id].filter(Boolean)));
+      const assignmentDocs = await TeacherAssignmentModel.find({
+        teacher_id: { $in: teacherIds },
+        class_name: { $regex: new RegExp(`^${escapeRegexLiteral(studentDoc.class_name)}$`, 'i') },
+      }).select('subject').lean();
+      const allowedSubjects = [authenticatedTeacher.subject, ...assignmentDocs.map((item: any) => item.subject)];
+      for (const subject of subjects) {
+        const requested = sanitizePlainText(subject?.subject_name || subject?.subject || '', 120);
+        if (!isExactTeacherSubject(allowedSubjects, requested)) {
+          return res.status(403).json({ error: `Access denied: You are not assigned subject "${requested}".` });
+        }
+      }
     }
 
     const normalizedSubjects: Array<{ subject_name: string; total_marks: number; obtained_marks: number; grade: string }> = [];
@@ -11603,13 +11627,7 @@ router.post('/teacher/results', authenticateToken, requireExactRole(['teacher'])
 
     const cleanSubjectName = sanitizePlainText(subject_name, 120);
     const reqSubjLower = cleanSubjectName.toLowerCase();
-    const isSubjectAllowed = allowedSubjNames.some(
-      tSubj =>
-        tSubj.includes(reqSubjLower) ||
-        reqSubjLower.includes(tSubj) ||
-        tSubj.split('&').some(part => part.trim().length > 2 && reqSubjLower.includes(part.trim())) ||
-        reqSubjLower.split(' ').some(word => word.length > 3 && tSubj.includes(word))
-    );
+    const isSubjectAllowed = isExactTeacherSubject(allowedSubjNames, cleanSubjectName);
 
     if (!isSubjectAllowed) {
       return res.status(403).json({
@@ -11886,6 +11904,27 @@ router.post('/teacher/homework', authenticateToken, requireExactRole(['teacher']
     const teacher = await getAuthenticatedTeacherMongo(req);
     if (!teacher) {
       return res.status(404).json({ error: 'Teacher profile not linked.' });
+    }
+
+    const assignedClasses = teacher.classes || [];
+    const requestedClass = String(class_name).trim();
+    const requestedSection = String(section).trim();
+    const requestedSubject = String(subject).trim();
+    if (!isClassAssignedToTeacher(assignedClasses, requestedClass)) {
+      return res.status(403).json({ error: `Access denied: You are not assigned to class "${requestedClass}".` });
+    }
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter(Boolean)));
+    const classAssignments = await TeacherAssignmentModel.find({
+      teacher_id: { $in: teacherIds },
+      class_name: { $regex: new RegExp(`^${escapeRegexLiteral(requestedClass)}$`, 'i') },
+    }).select('section subject').lean();
+    const allowedSubjects = classAssignments.length > 0
+      ? classAssignments.filter((assignment: any) =>
+          String(assignment.section || '').trim().toLocaleLowerCase('en') === requestedSection.toLocaleLowerCase('en')
+        ).map((assignment: any) => assignment.subject)
+      : [teacher.subject];
+    if (!isExactTeacherSubject(allowedSubjects, requestedSubject)) {
+      return res.status(403).json({ error: 'Access denied: This subject/section is not assigned to your teacher account.' });
     }
 
     const homeworkId = `hwk_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
