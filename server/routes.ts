@@ -3,7 +3,7 @@ import { financeRouter } from './financeRoutes.ts';
 import { buildNotificationVisibilityFilter, canMarkNotificationRead } from './notificationAccess.ts';
 import { buildParentPaymentHistoryFilter, buildParentLinkedStudentFilter, collectParentStudentReferences, isParentLinkedToStudent, isExactGuardianNameMatch, areSameStudentIdentity, isStudentClaimedByAnotherParent } from './parentAccess.ts';
 import { isClassAssignedToTeacher, buildTeacherClassFilter } from './classAccess.ts';
-import { getParentPaymentMethodMode, collectStudentPaymentIdentifiers } from './paymentUtils.ts';
+import { getParentPaymentMethodMode, collectStudentPaymentIdentifiers, normalizeDepositReference } from './paymentUtils.ts';
 import { isExactTeacherName, isExactTeacherSubject, areAllResultSubjectsAssignedToTeacher, isExactSectionMatch } from './teacherAccess.ts';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
@@ -7225,16 +7225,22 @@ router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent
 
     const parentName = parentDoc?.name || user.name || 'Parent/Guardian';
     const resolvedParentPhone = parent_phone || parentDoc?.phone || user.phone || '';
+    // Require a stable bank reference: the unique transaction_id index prevents duplicate submissions on retry.
+    const cleanSlipRef = normalizeDepositReference(deposit_slip_ref);
+    if (!cleanSlipRef) {
+      return res.status(400).json({
+        error: 'A valid deposit slip reference or bank transaction ID is required. This prevents duplicate payment submissions.',
+      });
+    }
+
     const paymentRef = `PAY-${new Date().getFullYear()}-${crypto.randomUUID()}`;
     // Manual Bank Deposit / Wire Transfer (Requires Admin Verification)
-      const cleanSlipRef = String(deposit_slip_ref || notes || '').trim();
-
-      const paymentDoc = await FeePaymentModel.create({
+    const paymentDoc = await FeePaymentModel.create({
         fee_id: feeDoc.voucher_id || feeDoc._id.toString(),
         student_id: feeDoc.student_id,
         payment_reference: paymentRef,
         receipt_no: '',
-        transaction_id: cleanSlipRef || undefined,
+        transaction_id: cleanSlipRef,
         date: deposit_date || new Date().toISOString().split('T')[0],
         amount: paymentAmount,
         method: (method === 'Bank Transfer' ? 'Bank Transfer' : 'Bank Deposit') as any,
