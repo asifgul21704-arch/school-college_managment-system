@@ -86,14 +86,14 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
     setError('');
     try {
       const [feeRows, studentRows, attendanceRows, expenseRows, payrollRows, collectionRows, teacherRows, enrollmentRows] = await Promise.all([
-        api.getFees(),
-        api.getStudents(),
-        api.getAttendance(),
+        api.getAllFees(),
+        api.getAllStudents(),
+        api.getAllAttendance(),
         api.getFinanceExpenses(),
         api.getFinancePayroll(),
         api.getFinanceCollections({ month: monthFilter || undefined }),
-        api.getTeachers(),
-        api.getEnrollments(),
+        api.getAllTeachers(),
+        api.getAllEnrollments(),
       ]);
       setFees(Array.isArray(feeRows) ? feeRows : []);
       setStudents(Array.isArray(studentRows) ? studentRows : []);
