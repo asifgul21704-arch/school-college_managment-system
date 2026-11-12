@@ -3,6 +3,7 @@ import { financeRouter } from './financeRoutes.ts';
 import { buildNotificationVisibilityFilter, canMarkNotificationRead } from './notificationAccess.ts';
 import { buildParentPaymentHistoryFilter, collectParentStudentReferences, isParentLinkedToStudent, isExactGuardianNameMatch, areSameStudentIdentity } from './parentAccess.ts';
 import { isClassAssignedToTeacher } from './classAccess.ts';
+import { getParentPaymentMethodMode } from './paymentUtils.ts';
 import { isExactTeacherName, isExactTeacherSubject, areAllResultSubjectsAssignedToTeacher, isExactSectionMatch } from './teacherAccess.ts';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
@@ -7090,6 +7091,17 @@ router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent
 
   if (!cleanFeeId) {
     return res.status(400).json({ error: 'Fee voucher ID is required' });
+  }
+
+  const paymentMode = getParentPaymentMethodMode(method);
+  if (paymentMode === 'gateway_unavailable') {
+    return res.status(503).json({
+      error: 'Online payment gateway integration is not configured. No payment was charged or recorded. Please use bank deposit/transfer and wait for school verification.',
+      code: 'PAYMENT_GATEWAY_UNAVAILABLE',
+    });
+  }
+  if (paymentMode === 'unsupported') {
+    return res.status(400).json({ error: 'Unsupported payment method. Use Bank Deposit or Bank Transfer.' });
   }
 
   try {
