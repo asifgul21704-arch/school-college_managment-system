@@ -8658,7 +8658,10 @@ router.delete('/results/:id', authenticateToken, requireRole(['super_admin', 'ad
 
     if (req.user?.role === 'teacher') {
       const teacher = await getAuthenticatedTeacherMongo(req);
-      const assignedClasses = teacher?.classes || [];
+      if (!teacher) {
+        return res.status(404).json({ error: 'Teacher profile not linked.' });
+      }
+      const assignedClasses = teacher.classes || [];
       if (!isClassAssignedToTeacher(assignedClasses, existing.class_name)) {
         return res.status(403).json({
           error: `Access denied: You are not assigned to class "${existing.class_name}".`,
@@ -8708,7 +8711,10 @@ router.patch('/results/:id/publish', authenticateToken, requireRole(['super_admi
 
     if (req.user?.role === 'teacher') {
       const teacher = await getAuthenticatedTeacherMongo(req);
-      const assignedClasses = teacher?.classes || [];
+      if (!teacher) {
+        return res.status(404).json({ error: 'Teacher profile not linked.' });
+      }
+      const assignedClasses = teacher.classes || [];
       if (!isClassAssignedToTeacher(assignedClasses, existing.class_name)) {
         return res.status(403).json({
           error: `Access denied: You are not assigned to class "${existing.class_name}".`,
