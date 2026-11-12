@@ -18,10 +18,9 @@ import {
 } from '../models/index.ts';
 
 import mongoose from 'mongoose';
-import { createHash } from 'node:crypto';
 import { GoogleGenAI } from '@google/genai';
 import { sanitizeErrorMessage } from '../config/db.ts';
-import { createNotificationBatchOnce, validateParentNotificationAction } from '../notificationUtils.ts';
+import { createNotificationBatchId, createNotificationBatchOnce, validateParentNotificationAction } from '../notificationUtils.ts';
 
 export interface AdminAiQueryContext {
   userId: string;
@@ -1940,7 +1939,7 @@ export const ControlledSchoolTools = {
       }));
       const safeRecipients = recipients.filter((r): r is NonNullable<typeof r> => Boolean(r));
       const messageText = `محترم والدین! آپ کا بچہ آج اسکول سے غیر حاضر ہے۔ براہ کرم وجہ کی اطلاع دیں۔ شکریہ۔`;
-      const actionId = createHash('sha256').update(JSON.stringify({ actionType: 'SEND_SMS_ABSENT', date: absentData.date, studentIds: safeRecipients.map(r => r.studentId).sort(), message: messageText })).digest('hex');
+      const actionId = createNotificationBatchId('SEND_SMS_ABSENT', absentData.date, safeRecipients.map(r => r.studentId), messageText);
       return {
         requiresConfirmation: true,
         pendingAction: {
@@ -1963,14 +1962,15 @@ export const ControlledSchoolTools = {
       }));
       const safeRecipients = recipients.filter((r): r is NonNullable<typeof r> => Boolean(r));
       const messageText = `محترم والدین! براہ کرم واجب الادا فیس جلد جمع کرائیں۔ شکریہ۔ اسکول انتظامیہ۔`;
-      const actionId = createHash('sha256').update(JSON.stringify({ actionType: 'SEND_SMS_FEES', date: new Date().toISOString().slice(0, 10), studentIds: safeRecipients.map(r => r.studentId).sort(), message: messageText })).digest('hex');
+      const actionDate = new Date().toISOString().slice(0, 10);
+      const actionId = createNotificationBatchId('SEND_SMS_FEES', actionDate, safeRecipients.map(r => r.studentId), messageText);
       return {
         requiresConfirmation: true,
         pendingAction: {
           actionType: 'SEND_SMS_FEES',
           title: `Create Fee Reminder Notifications (${safeRecipients.length} Linked Parent Accounts)`,
           description: `After confirmation, this creates in-app notification records only for linked parent accounts (${safeRecipients.length} of ${feeData.students.length} students) with outstanding fees. Unlinked accounts are excluded. No SMS will be sent.`,
-          payload: { actionId, recipients: safeRecipients, grandTotalDue: feeData.grandTotalDue, message: messageText },
+          payload: { actionId, recipients: safeRecipients, grandTotalDue: feeData.grandTotalDue, date: actionDate, message: messageText },
           recipientCount: safeRecipients.length,
           previewText: messageText,
         },
@@ -1998,7 +1998,7 @@ export const ControlledSchoolTools = {
     confirmed: boolean,
     context: AdminAiQueryContext
   ) {
-    const { studentIds, message } = validateParentNotificationAction(
+    const { actionId, studentIds, message } = validateParentNotificationAction(
       actionType,
       payload,
       confirmed,
