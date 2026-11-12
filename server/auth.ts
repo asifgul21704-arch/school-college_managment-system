@@ -229,6 +229,12 @@ export function getJwtSecret(): string {
   return rawSecret || DEVELOPMENT_PROCESS_SECRET;
 }
 
+const ALLOWED_AUTH_ROLES = new Set<UserRole>(['super_admin', 'admin', 'teacher', 'parent', 'student']);
+
+export function isValidUserRole(role: unknown): role is UserRole {
+  return typeof role === 'string' && ALLOWED_AUTH_ROLES.has(role as UserRole);
+}
+
 export interface AuthenticatedRequest extends Request {
   user?: {
     id: string;
@@ -465,6 +471,10 @@ export async function authenticateToken(req: AuthenticatedRequest, res: Response
       return res.status(401).json({ error: 'Invalid or expired session. User account not found.' });
     }
 
+    if (!isValidUserRole(liveUser.role)) {
+      return res.status(403).json({ error: 'Account role is invalid. Access denied; contact an administrator.' });
+    }
+
     if (liveUser.password_changed_at) {
       const changedAtMs = new Date(liveUser.password_changed_at).getTime();
       const tokenIssuedMs =
@@ -513,7 +523,7 @@ export async function authenticateOptionalToken(req: AuthenticatedRequest, _res:
     const decoded: any = jsonwebtoken.verify(token, getJwtSecret());
     if (mongoose.connection.readyState === 1) {
       const liveUser = await resolveLiveUserFromDecoded(decoded);
-      if (liveUser) {
+      if (liveUser && isValidUserRole(liveUser.role) && (!liveUser.status || liveUser.status === 'active')) {
         req.user = {
           id: String(liveUser.record_id || liveUser._id),
           email: String(liveUser.email),
