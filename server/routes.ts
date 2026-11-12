@@ -1,4 +1,5 @@
 import express, { type Request, type Response } from 'express';
+import { financeRouter } from './financeRoutes.ts';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jsonwebtoken from 'jsonwebtoken';
@@ -125,6 +126,7 @@ import {
 } from './services/passwordResetEmailService.ts';
 
 export const router = express.Router();
+router.use('/finance', financeRouter);
 
 // Concurrency lock for in-flight fee payment operations per voucher ID (single-process fast guard, paired with DB atomic filter)
 const activePaymentLocks = new Set<string>();
