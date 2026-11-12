@@ -7497,67 +7497,96 @@ router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['supe
   const paymentId = String(req.params.id || '').trim();
 
   try {
-    const paymentDoc = await FeePaymentModel.findById(paymentId);
-    if (!paymentDoc) {
-      return res.status(404).json({ error: 'Payment record not found' });
-    }
-
-    if (paymentDoc.verification_status === 'Verified' || paymentDoc.status === 'Paid') {
-      return res.status(400).json({ error: 'This payment has already been verified and marked as Paid.' });
-    }
-
-    const feeDoc = await FeeModel.findOne(buildFeeLookupFilter(paymentDoc.fee_id)).lean();
-    if (!feeDoc) {
-      return res.status(404).json({ error: 'Associated fee voucher not found in database' });
-    }
-
-    const currentPending = Number(feeDoc.pending_amount) || 0;
-    const currentPaid = Number(feeDoc.paid_amount) || 0;
-    const currentTotal = Number(feeDoc.total_amount) || 0;
-
-    if (paymentDoc.amount > currentPending) {
-      return res.status(400).json({
-        error: `Approved payment amount (PKR ${paymentDoc.amount.toLocaleString()}) exceeds current remaining balance (PKR ${currentPending.toLocaleString()}).`,
+    if (!(await doesMongoSupportTransactions())) {
+      return res.status(503).json({
+        error: 'Payment approval requires a transaction-capable MongoDB deployment. No payment status or fee balance was changed.',
       });
     }
 
-    const receiptNo = `REC-${Date.now().toString().slice(-6)}${Math.floor(100 + Math.random() * 900)}`;
-    const nextPaid = currentPaid + paymentDoc.amount;
-    const nextPending = Math.max(0, currentTotal - nextPaid);
-    const nextStatus: FeeVoucherStatus = nextPending === 0 ? 'Paid' : 'Partial';
+    let paymentDoc: any = null;
+    let feeDoc: any = null;
+    let updatedFee: any = null;
+    let receiptNo = '';
+    const session = await mongoose.startSession();
+    try {
+      await session.withTransaction(async () => {
+        const pendingPayment = await FeePaymentModel.findOne({
+          _id: paymentId,
+          status: 'Pending Verification',
+          verification_status: 'Pending',
+        }).session(session);
+        if (!pendingPayment) {
+          const existing = await FeePaymentModel.findById(paymentId).session(session);
+          if (!existing) {
+            throw Object.assign(new Error('Payment record not found'), { statusCode: 404 });
+          }
+          throw Object.assign(new Error('This payment is no longer pending verification. It may already have been approved or rejected.'), { statusCode: 409 });
+        }
 
-    const paymentRecord = {
-      receipt_no: receiptNo,
-      date: new Date().toISOString().split('T')[0],
-      amount: paymentDoc.amount,
-      method: paymentDoc.method,
-      transaction_id: paymentDoc.deposit_slip_ref || paymentDoc.payment_reference,
-      notes: `Bank Deposit Approved by ${req.user!.name} (Ref: ${paymentDoc.payment_reference})`,
-    };
+        const currentFee = await FeeModel.findOne(buildFeeLookupFilter(pendingPayment.fee_id)).session(session).lean();
+        if (!currentFee) {
+          throw Object.assign(new Error('Associated fee voucher not found in database'), { statusCode: 404 });
+        }
 
-    // Update payment document
-    paymentDoc.status = 'Paid';
-    paymentDoc.verification_status = 'Verified';
-    paymentDoc.receipt_no = receiptNo;
-    paymentDoc.verified_by_id = req.user!.id;
-    paymentDoc.verified_by_name = req.user!.name;
-    paymentDoc.verified_at = new Date().toISOString();
-    paymentDoc.received_by = req.user!.name;
-    await paymentDoc.save();
+        const currentPending = Number(currentFee.pending_amount) || 0;
+        if (pendingPayment.amount > currentPending) {
+          throw Object.assign(new Error(
+            `Approved payment amount (PKR ${pendingPayment.amount.toLocaleString()}) exceeds current remaining balance (PKR ${currentPending.toLocaleString()}).`
+          ), { statusCode: 409 });
+        }
 
-    // Atomically update fee voucher
-    const updatedFee = await FeeModel.findOneAndUpdate(
-      { _id: feeDoc._id, pending_amount: { $gte: paymentDoc.amount } },
-      {
-        $set: {
-          paid_amount: nextPaid,
-          pending_amount: nextPending,
-          status: nextStatus,
-        },
-        $push: { payment_history: paymentRecord },
-      },
-      { returnDocument: 'after' }
-    ).lean();
+        receiptNo = `REC-${Date.now().toString().slice(-6)}${Math.floor(100 + Math.random() * 900)}`;
+        const nextPending = Math.max(0, currentPending - pendingPayment.amount);
+        const nextStatus: FeeVoucherStatus = nextPending === 0 ? 'Paid' : 'Partial';
+        const paymentRecord = {
+          receipt_no: receiptNo,
+          date: new Date().toISOString().split('T')[0],
+          amount: pendingPayment.amount,
+          method: pendingPayment.method,
+          transaction_id: pendingPayment.deposit_slip_ref || pendingPayment.payment_reference,
+          notes: `Bank Deposit Approved by ${req.user!.name} (Ref: ${pendingPayment.payment_reference})`,
+        };
+
+        updatedFee = await FeeModel.findOneAndUpdate(
+          { _id: currentFee._id, pending_amount: { $gte: pendingPayment.amount } },
+          {
+            $inc: { paid_amount: pendingPayment.amount, pending_amount: -pendingPayment.amount },
+            $set: { status: nextStatus },
+            $push: { payment_history: paymentRecord },
+          },
+          { session, returnDocument: 'after' }
+        ).lean();
+        if (!updatedFee) {
+          throw Object.assign(new Error('Voucher balance changed concurrently. Refresh and retry approval.'), { statusCode: 409 });
+        }
+
+        paymentDoc = await FeePaymentModel.findOneAndUpdate(
+          {
+            _id: pendingPayment._id,
+            status: 'Pending Verification',
+            verification_status: 'Pending',
+          },
+          {
+            $set: {
+              status: 'Paid',
+              verification_status: 'Verified',
+              receipt_no: receiptNo,
+              verified_by_id: req.user!.id,
+              verified_by_name: req.user!.name,
+              verified_at: new Date().toISOString(),
+              received_by: req.user!.name,
+            },
+          },
+          { session, new: true }
+        );
+        if (!paymentDoc) {
+          throw Object.assign(new Error('Payment was already processed by another administrator. No changes were committed.'), { statusCode: 409 });
+        }
+        feeDoc = currentFee;
+      });
+    } finally {
+      await session.endSession();
+    }
 
     // Send SMS Confirmation to parent
     const smsResult = await sendPaymentApprovalSms({
@@ -7609,6 +7638,9 @@ router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['supe
       receipt_no: receiptNo,
     });
   } catch (err: any) {
+    if (err?.statusCode === 404 || err?.statusCode === 409) {
+      return res.status(err.statusCode).json({ error: sanitizeErrorMessage(err.message) });
+    }
     return sendRouteError(res, err, 'Failed to approve payment');
   }
 });
