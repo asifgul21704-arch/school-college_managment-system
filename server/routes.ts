@@ -2202,8 +2202,6 @@ router.post('/parents/find-child', sensitiveActionRateLimiter, authenticateToken
     const alreadyLinkedIds = await getLinkedStudentIdsForParent({
       id: canonicalUserId,
       email: userDoc.email,
-      linked_id: userDoc.linked_id,
-      linked_student_ids: userDoc.linked_student_ids,
     });
 
     const unlinkedMatches = matches.filter(s => !alreadyLinkedIds.has(s.id));
