@@ -255,6 +255,13 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   const oldSessionHistory = await api('GET', '/parent/payments/history', undefined, parentAToken);
   assert.equal(oldSessionHistory.status, 200);
   assert.deepEqual(oldSessionHistory.data, []);
+  const oldSessionPaymentAttempt = await submitBankPayment(
+    parentAToken,
+    feeA,
+    studentA.id,
+    `E2E-SLIP-A-AFTER-UNLINK-${RUN_ID}`
+  );
+  assert.equal(oldSessionPaymentAttempt.status, 403);
   const oldSessionFeeSummary = await api('GET', '/parent/fees/summary', undefined, parentAToken);
   assert.equal(oldSessionFeeSummary.status, 200);
   assert.equal(oldSessionFeeSummary.data.total_outstanding, 0);
