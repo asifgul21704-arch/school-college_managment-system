@@ -40,3 +40,27 @@ test('payment attachments are validated and method labels are normalized', () =>
   assert.match(route, /method: paymentMethodLabel as any/);
   assert.match(route, /sanitizePlainText\(notes/);
 });
+
+
+test('parent payment history is rebuilt from current account links and ignores stale denormalized ownership', () => {
+  const route = between("router.get('/parent/payments/history'", '// 5. Admin Payments Management');
+  assert.match(route, /user\.role === 'parent'[\s\S]*?getLinkedStudentIdsForParent\(user\)/);
+  assert.match(route, /query = buildParentPaymentHistoryFilter\(linked\)/);
+  assert.match(route, /FeePaymentModel\.find\(query\)/);
+  assert.doesNotMatch(route, /parent_user_id:\s*user\.id/);
+  assert.doesNotMatch(route, /ParentModel\.find/);
+});
+
+test('student payment history is scoped to the live linked student aliases', () => {
+  const route = between("router.get('/parent/payments/history'", '// 5. Admin Payments Management');
+  assert.match(route, /user\.role === 'student'[\s\S]*?findStudentByAnyId\(user\.linked_id\)/);
+  assert.match(route, /collectStudentPaymentIdentifiers\(studentDoc\)/);
+  assert.match(route, /query = \{ student_id: \{ \$in: studentIds \} \}/);
+});
+
+test('payment history has no client-controlled student ID override for parent or student accounts', () => {
+  const route = between("router.get('/parent/payments/history'", '// 5. Admin Payments Management');
+  assert.doesNotMatch(route, /req\.query\.student_id/);
+  assert.match(route, /user\.role === 'parent'[\s\S]*?else if \(user\.role === 'student'\)/);
+  assert.match(route, /else \{\s*query = \{\};\s*\}/);
+});
