@@ -82,17 +82,18 @@ financeRouter.post('/expenses', async (req: AuthenticatedRequest, res: Response)
     const title = cleanText(req.body?.title);
     const category = cleanText(req.body?.category, 40);
     const amount = Number(req.body?.amount);
+    const roundedAmount = Number.isFinite(amount) ? Number(amount.toFixed(2)) : Number.NaN;
     const expenseDate = cleanText(req.body?.expense_date, 10);
     const allowedCategories = ['Utilities', 'Salaries', 'Maintenance', 'Supplies', 'Transport', 'Events', 'Other'];
     const allowedMethods = ['Cash', 'Bank Transfer', 'Cheque', 'JazzCash', 'Easypaisa', 'Other'];
     const method = cleanText(req.body?.payment_method || 'Cash', 30);
-    if (!title || !allowedCategories.includes(category) || !Number.isFinite(amount) || amount <= 0 || !isValidIsoDate(expenseDate) || !allowedMethods.includes(method)) {
-      return res.status(400).json({ error: 'Provide a valid title, category, positive amount, date and payment method.' });
+    if (!title || !allowedCategories.includes(category) || !Number.isFinite(roundedAmount) || roundedAmount < 0.01 || !isValidIsoDate(expenseDate) || !allowedMethods.includes(method)) {
+      return res.status(400).json({ error: 'Provide a valid title, category, amount of at least PKR 0.01, date and payment method.' });
     }
     const now = new Date().toISOString();
     const recordId = `exp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const row = await ExpenseModel.create({
-      record_id: recordId, title, category, amount: Number(amount.toFixed(2)), expense_date: expenseDate,
+      record_id: recordId, title, category, amount: roundedAmount, expense_date: expenseDate,
       payment_method: method, reference: cleanText(req.body?.reference, 100), notes: cleanText(req.body?.notes, 1000),
       created_by: req.user?.id || 'unknown', created_by_name: req.user?.name || 'Administrator',
       created_at: now, updated_at: now,
@@ -110,7 +111,10 @@ financeRouter.put('/expenses/:id', async (req: AuthenticatedRequest, res: Respon
     const updates: Record<string, any> = {};
     if (req.body?.title !== undefined) updates.title = cleanText(req.body.title);
     if (req.body?.category !== undefined) updates.category = cleanText(req.body.category, 40);
-    if (req.body?.amount !== undefined) updates.amount = Number(req.body.amount);
+    if (req.body?.amount !== undefined) {
+      const rawAmount = Number(req.body.amount);
+      updates.amount = Number.isFinite(rawAmount) ? Number(rawAmount.toFixed(2)) : Number.NaN;
+    }
     if (req.body?.expense_date !== undefined) updates.expense_date = cleanText(req.body.expense_date, 10);
     if (req.body?.payment_method !== undefined) updates.payment_method = cleanText(req.body.payment_method, 30);
     if (req.body?.reference !== undefined) updates.reference = cleanText(req.body.reference, 100);
@@ -120,7 +124,7 @@ financeRouter.put('/expenses/:id', async (req: AuthenticatedRequest, res: Respon
     if (updates.title !== undefined && !updates.title) return res.status(400).json({ error: 'Expense title cannot be empty.' });
     if (updates.category !== undefined && !allowedCategories.includes(updates.category)) return res.status(400).json({ error: 'Choose a supported expense category.' });
     if (updates.payment_method !== undefined && !allowedMethods.includes(updates.payment_method)) return res.status(400).json({ error: 'Choose a supported payment method.' });
-    if (updates.amount !== undefined && (!Number.isFinite(updates.amount) || updates.amount <= 0)) return res.status(400).json({ error: 'Expense amount must be greater than zero.' });
+    if (updates.amount !== undefined && (!Number.isFinite(updates.amount) || updates.amount < 0.01)) return res.status(400).json({ error: 'Expense amount must be at least PKR 0.01.' });
     if (updates.expense_date !== undefined && !isValidIsoDate(updates.expense_date)) return res.status(400).json({ error: 'Expense date must use a real calendar date in YYYY-MM-DD format.' });
     updates.updated_at = new Date().toISOString();
     const row = await ExpenseModel.findOneAndUpdate({ record_id: req.params.id }, { $set: updates }, { new: true, runValidators: true }).lean();
@@ -202,30 +206,31 @@ financeRouter.post('/payroll/:id/payment', async (req: AuthenticatedRequest, res
   if (!dbReady(res)) return;
   try {
     const amount = Number(req.body?.amount);
+    const roundedAmount = Number.isFinite(amount) ? Number(amount.toFixed(2)) : Number.NaN;
     const paymentDate = cleanText(req.body?.payment_date, 10);
     const method = cleanText(req.body?.payment_method, 30);
     const methods = ['Cash', 'Bank Transfer', 'Cheque', 'JazzCash', 'Easypaisa', 'Other'];
-    if (!Number.isFinite(amount) || amount <= 0 || !isValidIsoDate(paymentDate) || !methods.includes(method)) {
-      return res.status(400).json({ error: 'Provide a positive payment amount, valid date and payment method.' });
+    if (!Number.isFinite(roundedAmount) || roundedAmount < 0.01 || !isValidIsoDate(paymentDate) || !methods.includes(method)) {
+      return res.status(400).json({ error: 'Provide a payment amount of at least PKR 0.01, valid date and payment method.' });
     }
     const existing = await PayrollModel.findOne({ record_id: req.params.id });
     if (!existing) return res.status(404).json({ error: 'Payroll record not found.' });
     const previousPaid = Number(existing.paid_amount || 0);
     const remaining = Number(existing.net_salary || 0) - previousPaid;
-    if (amount > remaining) return res.status(400).json({ error: 'Payment exceeds the remaining salary balance.' });
-    const nextPaid = Number((previousPaid + amount).toFixed(2));
+    if (roundedAmount > remaining) return res.status(400).json({ error: 'Payment exceeds the remaining salary balance.' });
+    const nextPaid = Number((previousPaid + roundedAmount).toFixed(2));
     const now = new Date().toISOString();
     const updated = await PayrollModel.findOneAndUpdate(
       { record_id: req.params.id, paid_amount: previousPaid, net_salary: existing.net_salary },
       {
-        $inc: { paid_amount: Number(amount.toFixed(2)) },
-        $push: { payment_history: { amount: Number(amount.toFixed(2)), payment_date: paymentDate, payment_method: method, recorded_by: req.user?.id || 'unknown', recorded_at: now } },
+        $inc: { paid_amount: roundedAmount },
+        $push: { payment_history: { amount: roundedAmount, payment_date: paymentDate, payment_method: method, recorded_by: req.user?.id || 'unknown', recorded_at: now } },
         $set: { payment_date: paymentDate, payment_method: method, status: getPayrollStatus(Number(existing.net_salary), nextPaid), updated_at: now },
       },
       { new: true, runValidators: true }
     );
     if (!updated) return res.status(409).json({ error: 'This salary record changed during payment. Refresh the payroll and retry to prevent duplicate or excess payment.' });
-    await audit(req, 'PAYROLL_PAYMENT_RECORDED', 'Payroll', updated.record_id, `Recorded PKR ${amount} for ${updated.staff_name}; total paid PKR ${updated.paid_amount}.`);
+    await audit(req, 'PAYROLL_PAYMENT_RECORDED', 'Payroll', updated.record_id, `Recorded PKR ${roundedAmount} for ${updated.staff_name}; total paid PKR ${updated.paid_amount}.`);
     return res.json({ ...updated.toObject(), id: updated.record_id });
   } catch {
     return res.status(500).json({ error: 'Unable to record salary payment.' });
