@@ -1,7 +1,7 @@
 import express, { type Request, type Response } from 'express';
 import { financeRouter } from './financeRoutes.ts';
 import { buildNotificationVisibilityFilter, canMarkNotificationRead } from './notificationAccess.ts';
-import { buildParentPaymentHistoryFilter, collectParentStudentReferences, isParentLinkedToStudent, isExactGuardianNameMatch, areSameStudentIdentity } from './parentAccess.ts';
+import { buildParentPaymentHistoryFilter, collectParentStudentReferences, isParentLinkedToStudent, isExactGuardianNameMatch, areSameStudentIdentity, isStudentClaimedByAnotherParent } from './parentAccess.ts';
 import { isClassAssignedToTeacher } from './classAccess.ts';
 import { getParentPaymentMethodMode, collectStudentPaymentIdentifiers } from './paymentUtils.ts';
 import { isExactTeacherName, isExactTeacherSubject, areAllResultSubjectsAssignedToTeacher, isExactSectionMatch } from './teacherAccess.ts';
@@ -2091,6 +2091,9 @@ router.post('/parents/link-student', sensitiveActionRateLimiter, authenticateTok
 
     const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
     const canonicalUserId = userDoc.record_id || userDoc._id.toString();
+    if (isStudentClaimedByAnotherParent(studentDoc.parent_user_id, [canonicalUserId, userDoc._id.toString()])) {
+      return res.status(409).json({ error: 'This student is already linked to another parent account. Please contact school administration if this is incorrect.' });
+    }
 
     const nextLinked = Array.isArray(userDoc.linked_student_ids) ? [...userDoc.linked_student_ids] : [];
     if (!nextLinked.includes(canonicalStudentId)) {
@@ -2239,6 +2242,9 @@ router.post('/parents/confirm-link-child', sensitiveActionRateLimiter, authentic
 
     const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
     const canonicalUserId = userDoc.record_id || userDoc._id.toString();
+    if (isStudentClaimedByAnotherParent(studentDoc.parent_user_id, [canonicalUserId, userDoc._id.toString()])) {
+      return res.status(409).json({ error: 'This student is already linked to another parent account. Please contact school administration if this is incorrect.' });
+    }
 
     const nextLinked = Array.isArray(userDoc.linked_student_ids) ? [...userDoc.linked_student_ids] : [];
     if (!nextLinked.includes(canonicalStudentId)) {
