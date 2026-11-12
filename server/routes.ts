@@ -2415,27 +2415,31 @@ router.post('/parents/unlink-child', authenticateToken, requireRole(['parent']),
     ]);
 
     const idsToRemove = Array.from(idsToPull).filter(Boolean);
-    // Remove access from the authoritative User record atomically; never save a stale document snapshot.
+    // Update both authoritative link fields in one atomic MongoDB pipeline.
+    // Otherwise a request between $pull and a later linked_id update could re-read
+    // the legacy primary link and temporarily restore access after unlink.
+    const remainingLinksExpression = {
+      $filter: {
+        input: { $ifNull: ['$linked_student_ids', []] },
+        as: 'linkedId',
+        cond: { $not: [{ $in: ['$$linkedId', idsToRemove] }] },
+      },
+    };
     await UserModel.updateOne(
       { _id: userDoc._id, role: 'parent' },
-      { $pull: { linked_student_ids: { $in: idsToRemove } } }
+      [{
+        $set: {
+          linked_student_ids: remainingLinksExpression,
+          linked_id: {
+            $cond: [
+              { $in: [{ $ifNull: ['$linked_id', ''] }, idsToRemove] },
+              { $ifNull: [{ $arrayElemAt: [remainingLinksExpression, 0] }, ''] },
+              { $ifNull: ['$linked_id', ''] },
+            ],
+          },
+        },
+      }]
     );
-
-    // Release denormalized ownership only while this parent still owns the student.
-    // A concurrent relink by another parent cannot be overwritten by this stale request.
-    await StudentModel.updateOne(
-      buildStudentParentReleaseFilter(studentDoc._id, canonicalUserId, userDoc._id.toString()),
-      { $set: { parent_user_id: '' } }
-    );
-
-    const updatedUserDoc = await UserModel.findOne({ _id: userDoc._id, role: 'parent' }).lean();
-    if (updatedUserDoc?.linked_id && idsToPull.has(updatedUserDoc.linked_id)) {
-      const nextLinkedId = (updatedUserDoc.linked_student_ids || []).find((id: string) => !idsToPull.has(id)) || '';
-      await UserModel.updateOne(
-        { _id: userDoc._id, role: 'parent', linked_id: { $in: idsToRemove } },
-        { $set: { linked_id: nextLinkedId } }
-      );
-    }
 
     await ParentModel.updateMany(
       { $or: [{ user_id: canonicalUserId }, { email: userDoc.email.toLowerCase() }] },
