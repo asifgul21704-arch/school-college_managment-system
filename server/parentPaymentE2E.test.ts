@@ -404,6 +404,13 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   assert.equal(oldSessionReadsA.status, 403);
   const oldSessionPrivateDocument = await api('GET', `/documents/${encodeURIComponent(privateDocumentFilename)}`, undefined, parentAToken);
   assert.equal(oldSessionPrivateDocument.status, 403);
+  const oldParentCannotUploadForUnlinkedChild = await api('POST', '/upload', {
+    dataUrl: 'data:application/pdf;base64,JVBERi0xLjQKJUVPRgo=',
+    filename: 'E2E-Old-Parent-Upload.pdf',
+    category: 'student_document',
+    student_id: studentA.id,
+  }, parentAToken);
+  assert.equal(oldParentCannotUploadForUnlinkedChild.status, 403);
   const oldSessionAttendance = await api('GET', `/attendance?student_id=${encodeURIComponent(studentA.id)}`, undefined, parentAToken);
   assert.equal(oldSessionAttendance.status, 403);
   const oldSessionResults = await api('GET', `/results?student_id=${encodeURIComponent(studentA.id)}`, undefined, parentAToken);
@@ -659,6 +666,13 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   assert.equal(studentCannotUseTeacherAi.status, 403);
   const teacherReadsAssignedDocument = await api('GET', `/documents/${encodeURIComponent(privateDocumentFilename)}`, undefined, teacherToken);
   assert.equal(teacherReadsAssignedDocument.status, 200);
+  const teacherCannotUploadUnassignedDocument = await api('POST', '/upload', {
+    dataUrl: 'data:application/pdf;base64,JVBERi0xLjQKJUVPRgo=',
+    filename: 'E2E-Teacher-Unassigned.pdf',
+    category: 'student_document',
+    student_id: studentG.id,
+  }, teacherToken);
+  assert.equal(teacherCannotUploadUnassignedDocument.status, 403);
   const teacherRoster = await api('GET', '/students', undefined, teacherToken);
   assert.equal(teacherRoster.status, 200);
   assert.ok(teacherRoster.data.some((student: any) => student.id === studentA.id));
@@ -881,4 +895,52 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   const approvedAdmissionTracking = await api('GET', `/admissions/track/${encodeURIComponent(admissionNo)}`);
   assert.equal(approvedAdmissionTracking.status, 200);
   assert.equal(approvedAdmissionTracking.data.status, 'Approved');
+
+  // A parent with multiple linked children keeps access to the remaining child
+  // while every record and payment belonging to the unlinked child is revoked.
+  const studentM1 = await registerStudent('M1', 'E2E Parent M1');
+  const studentM2 = await registerStudent('M2', 'E2E Parent M1');
+  const parentM = await registerParent('M1', studentM1.admissionNo);
+  assert.equal(parentM.status, 201, JSON.stringify(parentM.data));
+  const parentMToken = parentM.data.token as string;
+  const findSecondChild = await api('POST', '/parents/find-child', {
+    father_name: parentM.name,
+    student_name: 'E2E Student M2',
+    class_name: 'E2E Class',
+    roll_no: studentM2.rollNo,
+  }, parentMToken);
+  assert.equal(findSecondChild.status, 200, JSON.stringify(findSecondChild.data));
+  assert.equal(findSecondChild.data.matches.length, 1);
+  const confirmSecondChild = await api('POST', '/parents/confirm-link-child', {
+    student_id: findSecondChild.data.matches[0].id,
+  }, parentMToken);
+  assert.equal(confirmSecondChild.status, 200, JSON.stringify(confirmSecondChild.data));
+  assert.equal(confirmSecondChild.data.linked_students.length, 2);
+
+  const feeM1 = await createFee(studentM1, 'M1');
+  const feeM2 = await createFee(studentM2, 'M2');
+  const paymentM1 = await submitBankPayment(parentMToken, feeM1, studentM1.id, `E2E-SLIP-M1-${RUN_ID}`);
+  const paymentM2 = await submitBankPayment(parentMToken, feeM2, studentM2.id, `E2E-SLIP-M2-${RUN_ID}`);
+  assert.equal(paymentM1.status, 201, JSON.stringify(paymentM1.data));
+  assert.equal(paymentM2.status, 201, JSON.stringify(paymentM2.data));
+  const parentMHistoryBeforeUnlink = await api('GET', '/parent/payments/history', undefined, parentMToken);
+  assert.equal(parentMHistoryBeforeUnlink.status, 200);
+  assert.equal(parentMHistoryBeforeUnlink.data.length, 2);
+
+  const unlinkOnlyM1 = await api('POST', '/parents/unlink-child', { student_id: studentM1.id }, parentMToken);
+  assert.equal(unlinkOnlyM1.status, 200, JSON.stringify(unlinkOnlyM1.data));
+  assert.equal(unlinkOnlyM1.data.linked_students.length, 1);
+  assert.equal(unlinkOnlyM1.data.linked_students[0].id, studentM2.id);
+  const multiParentCannotReadUnlinkedChild = await api('GET', `/students/${encodeURIComponent(studentM1.id)}`, undefined, parentMToken);
+  assert.equal(multiParentCannotReadUnlinkedChild.status, 403);
+  const multiParentCanReadRemainingChild = await api('GET', `/students/${encodeURIComponent(studentM2.id)}`, undefined, parentMToken);
+  assert.equal(multiParentCanReadRemainingChild.status, 200);
+  const multiParentHistoryAfterUnlink = await api('GET', '/parent/payments/history', undefined, parentMToken);
+  assert.equal(multiParentHistoryAfterUnlink.status, 200);
+  assert.equal(multiParentHistoryAfterUnlink.data.length, 1);
+  assert.equal(multiParentHistoryAfterUnlink.data[0].student_id, studentM2.id);
+  const multiParentChildList = await api('GET', '/parents/my-students', undefined, parentMToken);
+  assert.equal(multiParentChildList.status, 200);
+  assert.equal(multiParentChildList.data.length, 1);
+  assert.equal(multiParentChildList.data[0].id, studentM2.id);
 });
