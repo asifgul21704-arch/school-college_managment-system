@@ -86,7 +86,7 @@ financeRouter.post('/expenses', async (req: AuthenticatedRequest, res: Response)
     const allowedCategories = ['Utilities', 'Salaries', 'Maintenance', 'Supplies', 'Transport', 'Events', 'Other'];
     const allowedMethods = ['Cash', 'Bank Transfer', 'Cheque', 'JazzCash', 'Easypaisa', 'Other'];
     const method = cleanText(req.body?.payment_method || 'Cash', 30);
-    if (!title || !allowedCategories.includes(category) || !Number.isFinite(amount) || amount <= 0 || !validIsoDate(expenseDate) || !allowedMethods.includes(method)) {
+    if (!title || !allowedCategories.includes(category) || !Number.isFinite(amount) || amount <= 0 || !isValidIsoDate(expenseDate) || !allowedMethods.includes(method)) {
       return res.status(400).json({ error: 'Provide a valid title, category, positive amount, date and payment method.' });
     }
     const now = new Date().toISOString();
@@ -121,7 +121,7 @@ financeRouter.put('/expenses/:id', async (req: AuthenticatedRequest, res: Respon
     if (updates.category !== undefined && !allowedCategories.includes(updates.category)) return res.status(400).json({ error: 'Choose a supported expense category.' });
     if (updates.payment_method !== undefined && !allowedMethods.includes(updates.payment_method)) return res.status(400).json({ error: 'Choose a supported payment method.' });
     if (updates.amount !== undefined && (!Number.isFinite(updates.amount) || updates.amount <= 0)) return res.status(400).json({ error: 'Expense amount must be greater than zero.' });
-    if (updates.expense_date !== undefined && !validIsoDate(updates.expense_date)) return res.status(400).json({ error: 'Expense date must use a real calendar date in YYYY-MM-DD format.' });
+    if (updates.expense_date !== undefined && !isValidIsoDate(updates.expense_date)) return res.status(400).json({ error: 'Expense date must use a real calendar date in YYYY-MM-DD format.' });
     updates.updated_at = new Date().toISOString();
     const row = await ExpenseModel.findOneAndUpdate({ record_id: req.params.id }, { $set: updates }, { new: true, runValidators: true }).lean();
     if (!row) return res.status(404).json({ error: 'Expense record not found.' });
@@ -205,7 +205,7 @@ financeRouter.post('/payroll/:id/payment', async (req: AuthenticatedRequest, res
     const paymentDate = cleanText(req.body?.payment_date, 10);
     const method = cleanText(req.body?.payment_method, 30);
     const methods = ['Cash', 'Bank Transfer', 'Cheque', 'JazzCash', 'Easypaisa', 'Other'];
-    if (!Number.isFinite(amount) || amount <= 0 || !validIsoDate(paymentDate) || !methods.includes(method)) {
+    if (!Number.isFinite(amount) || amount <= 0 || !isValidIsoDate(paymentDate) || !methods.includes(method)) {
       return res.status(400).json({ error: 'Provide a positive payment amount, valid date and payment method.' });
     }
     const existing = await PayrollModel.findOne({ record_id: req.params.id });
