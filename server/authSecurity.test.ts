@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { getJwtSecret, extractTokenFromRequest, isValidUserRole } from './auth.ts';
 
 test('production rejects missing JWT_SECRET', () => {
@@ -93,4 +94,28 @@ test('live account roles are allowlisted and malformed roles fail closed', () =>
   for (const role of ['guest', 'owner', 'ADMIN', '', null, undefined, 1, {}]) {
     assert.equal(isValidUserRole(role), false);
   }
+});
+
+
+test('authenticated requests resolve role and parent links from the live MongoDB user record', () => {
+  const source = readFileSync(new URL('./auth.ts', import.meta.url), 'utf8');
+  assert.match(source, /const liveUser = await resolveLiveUserFromDecoded\(decoded\)/);
+  assert.match(source, /role: liveUser\.role as UserRole/);
+  assert.match(source, /linked_id: liveUser\.linked_id/);
+  assert.match(source, /linked_student_ids: Array\.isArray\(liveUser\.linked_student_ids\)/);
+  assert.doesNotMatch(source, /linked_id: decoded\.linked_id/);
+  assert.doesNotMatch(source, /linked_student_ids: decoded\.linked_student_ids/);
+});
+
+test('live account lookup uses stable user ID and email fallback only for legacy records', () => {
+  const source = readFileSync(new URL('./auth.ts', import.meta.url), 'utf8');
+  const start = source.indexOf('export async function resolveLiveUserFromDecoded');
+  const end = source.indexOf('export async function authenticateToken', start);
+  assert.ok(start >= 0 && end > start);
+  const lookup = source.slice(start, end);
+  assert.match(lookup, /record_id: rawId/);
+  assert.match(lookup, /_id: new mongoose\.Types\.ObjectId\(rawId\)/);
+  assert.match(lookup, /record_id: \{ \$exists: false \}/);
+  assert.match(lookup, /record_id: null/);
+  assert.match(lookup, /record_id: ''/);
 });
