@@ -1929,72 +1929,60 @@ export const ControlledSchoolTools = {
   async prepareSmsAction(type: 'ABSENT_ALERT' | 'FEE_REMINDER' | 'CUSTOM', customMessage?: string) {
     if (type === 'ABSENT_ALERT') {
       const absentData = await ControlledSchoolTools.getTodayAbsentStudents();
-      const recipients = absentData.absents
-        .filter(a => a.phone && a.phone !== 'Not available in database.' && a.phone !== 'N/A')
-        .map(a => ({
-          studentName: a.name,
-          className: a.class_name,
-          phone: a.phone,
-        }));
-
+      const candidates = absentData.absents;
+      const recipients = await Promise.all(candidates.map(async (student: any) => {
+        const parent = await ParentModel.findOne({ linked_students: student.id }).select('user_id').lean();
+        const userId = String(parent?.user_id || '').trim();
+        if (!userId) return null;
+        return { userId, studentName: student.name, className: student.class_name };
+      }));
+      const safeRecipients = recipients.filter((r): r is NonNullable<typeof r> => Boolean(r));
       const messageText = `محترم والدین! آپ کا بچہ آج اسکول سے غیر حاضر ہے۔ براہ کرم وجہ کی اطلاع دیں۔ شکریہ۔`;
-
       return {
         requiresConfirmation: true,
         pendingAction: {
           actionType: 'SEND_SMS_ABSENT',
-          title: `Create Absent Alert Notifications (${recipients.length} Parents)`,
-          description: `After confirmation, this will create in-app notification records for parents of ${recipients.length} absent students for ${absentData.date}. No SMS will be sent.`,
-          payload: {
-            recipients,
-            date: absentData.date,
-            message: messageText,
-          },
-          recipientCount: recipients.length,
+          title: `Create Absent Alert Notifications (${safeRecipients.length} Linked Parent Accounts)`,
+          description: `After confirmation, this creates in-app notification records only for linked parent accounts (${safeRecipients.length} of ${candidates.length} students). Students without a verified parent account are excluded. No SMS will be sent.`,
+          payload: { recipients: safeRecipients, date: absentData.date, message: messageText },
+          recipientCount: safeRecipients.length,
           previewText: messageText,
         },
       };
-    } else if (type === 'FEE_REMINDER') {
+    }
+    if (type === 'FEE_REMINDER') {
       const feeData = await ControlledSchoolTools.getStudentsWithUnpaidFees();
-      const recipients = feeData.students
-        .filter(s => s.phone && s.phone !== 'Not available in database.' && s.phone !== 'N/A')
-        .map(s => ({
-          studentName: s.studentName,
-          className: s.className,
-          phone: s.phone,
-          dueAmount: s.totalDue,
-        }));
-
+      const recipients = await Promise.all(feeData.students.map(async (student: any) => {
+        const parent = await ParentModel.findOne({ linked_students: student.id }).select('user_id').lean();
+        const userId = String(parent?.user_id || '').trim();
+        if (!userId) return null;
+        return { userId, studentName: student.studentName, className: student.className, dueAmount: student.totalDue };
+      }));
+      const safeRecipients = recipients.filter((r): r is NonNullable<typeof r> => Boolean(r));
       const messageText = `محترم والدین! براہ کرم واجب الادا فیس جلد جمع کرائیں۔ شکریہ۔ اسکول انتظامیہ۔`;
-
       return {
         requiresConfirmation: true,
         pendingAction: {
           actionType: 'SEND_SMS_FEES',
-          title: `Create Fee Reminder Notifications (${recipients.length} Parents)`,
-          description: `After confirmation, this will create in-app notification records for parents of ${recipients.length} students with outstanding fees totaling PKR ${feeData.grandTotalDue.toLocaleString()}. No SMS will be sent.`,
-          payload: {
-            recipients,
-            grandTotalDue: feeData.grandTotalDue,
-            message: messageText,
-          },
-          recipientCount: recipients.length,
+          title: `Create Fee Reminder Notifications (${safeRecipients.length} Linked Parent Accounts)`,
+          description: `After confirmation, this creates in-app notification records only for linked parent accounts (${safeRecipients.length} of ${feeData.students.length} students) with outstanding fees. Unlinked accounts are excluded. No SMS will be sent.`,
+          payload: { recipients: safeRecipients, grandTotalDue: feeData.grandTotalDue, message: messageText },
+          recipientCount: safeRecipients.length,
           previewText: messageText,
         },
       };
-    } else {
-      return {
-        requiresConfirmation: true,
-        pendingAction: {
-          actionType: 'SEND_SMS_CUSTOM',
-          title: 'Create Custom In-App Notification',
-          description: 'Create an in-app administrative notification after confirmation. No SMS will be sent.',
-          payload: { message: customMessage || '' },
-          recipientCount: 1,
-          previewText: customMessage || '',
-        },
-      };
     }
+    return {
+      requiresConfirmation: true,
+      pendingAction: {
+        actionType: 'SEND_SMS_CUSTOM',
+        title: 'Custom In-App Notification',
+        description: 'Custom notifications are temporarily unavailable until an explicit recipient account can be selected. No SMS will be sent.',
+        payload: { recipients: [], message: customMessage || '' },
+        recipientCount: 0,
+        previewText: customMessage || '',
+      },
+    };
   },
 
   /**
@@ -2006,39 +1994,56 @@ export const ControlledSchoolTools = {
     confirmed: boolean,
     context: AdminAiQueryContext
   ) {
+    if (context.userRole !== 'admin' && context.userRole !== 'super_admin') {
+      throw new Error('Forbidden: Admin confirmation is required.');
+    }
     if (!confirmed) {
-      throw new Error(
-        'Action aborted: Explicit admin confirmation is mandatory to execute sensitive actions.'
-      );
+      throw new Error('Action aborted: Explicit admin confirmation is mandatory.');
+    }
+    if (!['SEND_SMS_ABSENT', 'SEND_SMS_FEES'].includes(actionType)) {
+      throw new Error('Unsupported notification action type.');
+    }
+    const recipients = payload?.recipients;
+    const message = typeof payload?.message === 'string' ? payload.message.trim() : '';
+    if (!Array.isArray(recipients) || recipients.length === 0) {
+      throw new Error('No linked parent accounts were selected. No notifications were created.');
+    }
+    if (!message || message.length > 1000) {
+      throw new Error('Notification message is required and must be 1000 characters or fewer.');
+    }
+    const uniqueRecipients = new Map<string, any>();
+    for (const recipient of recipients) {
+      const userId = typeof recipient?.userId === 'string' ? recipient.userId.trim() : '';
+      if (!userId || userId.length > 128) {
+        throw new Error('Invalid parent account recipient. No notifications were created.');
+      }
+      uniqueRecipients.set(userId, recipient);
+    }
+    if (uniqueRecipients.size !== recipients.length) {
+      throw new Error('Duplicate parent account recipients detected. Please prepare the action again.');
     }
 
-    const recipients = payload?.recipients || [];
-    const message = payload?.message || '';
-
-    // Record notification entries in MongoDB
-    for (const r of recipients) {
+    for (const [userId, recipient] of uniqueRecipients) {
       await NotificationModel.create({
-        user_id: r.phone || 'parent',
-        title: `Administrative Alert: ${actionType}`,
-        message: `${message} [To: ${r.studentName || 'Student'}, Phone: ${r.phone}]`,
-        type: 'sms',
+        user_id: userId,
+        role: 'parent',
+        title: actionType === 'SEND_SMS_ABSENT' ? 'Student Absence Alert' : 'Fee Reminder',
+        message: message,
+        link: '/student-portal',
         read: false,
-        created_at: new Date(),
       });
     }
 
-    // Persist to AuditLog
     const auditId = await recordAuditLog(
       context,
       `AI_ACTION_EXECUTED_${actionType}`,
       'IN_APP_NOTIFICATION',
-      `Admin confirmed and logged notification alert for ${recipients.length} recipients.`
+      `Admin confirmed and created in-app notification records for ${uniqueRecipients.size} linked parent accounts. No SMS was sent.`
     );
-
     return {
       success: true,
-      message: `Recorded ${recipients.length} in-app notification record(s) and saved the action to the MongoDB audit log. No SMS was sent: an SMS gateway integration is not implemented in this workflow.`,
-      dispatchedCount: recipients.length,
+      message: `Created ${uniqueRecipients.size} in-app notification record(s) and saved the action to the audit log. No SMS was sent.`,
+      dispatchedCount: uniqueRecipients.size,
       auditLogId: auditId,
     };
   },
