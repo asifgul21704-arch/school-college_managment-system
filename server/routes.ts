@@ -2144,21 +2144,13 @@ router.post('/parents/link-student', sensitiveActionRateLimiter, authenticateTok
       return res.status(409).json({ error: 'This student is already linked to another parent account. Please contact school administration if this is incorrect.' });
     }
 
-    const nextLinked = Array.isArray(userDoc.linked_student_ids) ? [...userDoc.linked_student_ids] : [];
-    if (!nextLinked.includes(canonicalStudentId)) {
-      nextLinked.push(canonicalStudentId);
-    }
-    userDoc.linked_student_ids = nextLinked;
-    userDoc.linked_id = canonicalStudentId;
-    try {
-      await userDoc.save();
-    } catch (saveError) {
-      await StudentModel.updateOne(
-        { _id: claimedStudent._id, parent_user_id: canonicalUserId },
-        { $set: { parent_user_id: '' } }
-      );
-      throw saveError;
-    }
+    await UserModel.updateOne(
+      { _id: userDoc._id, role: 'parent' },
+      {
+        $addToSet: { linked_student_ids: canonicalStudentId },
+        $set: { linked_id: canonicalStudentId },
+      }
+    );
     Object.assign(studentDoc, claimedStudent.toObject ? claimedStudent.toObject() : claimedStudent);
 
     await ParentModel.findOneAndUpdate(
@@ -2302,21 +2294,13 @@ router.post('/parents/confirm-link-child', sensitiveActionRateLimiter, authentic
       return res.status(409).json({ error: 'This student is already linked to another parent account. Please contact school administration if this is incorrect.' });
     }
 
-    const nextLinked = Array.isArray(userDoc.linked_student_ids) ? [...userDoc.linked_student_ids] : [];
-    if (!nextLinked.includes(canonicalStudentId)) {
-      nextLinked.push(canonicalStudentId);
-    }
-    userDoc.linked_student_ids = nextLinked;
-    userDoc.linked_id = canonicalStudentId;
-    try {
-      await userDoc.save();
-    } catch (saveError) {
-      await StudentModel.updateOne(
-        { _id: claimedStudent._id, parent_user_id: canonicalUserId },
-        { $set: { parent_user_id: '' } }
-      );
-      throw saveError;
-    }
+    await UserModel.updateOne(
+      { _id: userDoc._id, role: 'parent' },
+      {
+        $addToSet: { linked_student_ids: canonicalStudentId },
+        $set: { linked_id: canonicalStudentId },
+      }
+    );
     Object.assign(studentDoc, claimedStudent.toObject ? claimedStudent.toObject() : claimedStudent);
 
     await ParentModel.findOneAndUpdate(
