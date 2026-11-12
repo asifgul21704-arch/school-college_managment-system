@@ -1,7 +1,7 @@
 import express, { type Response } from 'express';
 import mongoose from 'mongoose';
 import { authenticateToken, requireRole, type AuthenticatedRequest } from './auth.ts';
-import { ExpenseModel, PayrollModel, AuditLogModel } from './models/index.ts';
+import { ExpenseModel, PayrollModel, AuditLogModel, FeePaymentModel } from './models/index.ts';
 
 export const financeRouter = express.Router();
 financeRouter.use(authenticateToken, requireRole(['super_admin', 'admin']));
@@ -43,6 +43,35 @@ financeRouter.get('/expenses', async (req: AuthenticatedRequest, res: Response) 
     return res.json(rows.map(row => ({ ...row, id: row.record_id })));
   } catch {
     return res.status(500).json({ error: 'Unable to load expense records.' });
+  }
+});
+
+financeRouter.get('/collections', async (req: AuthenticatedRequest, res: Response) => {
+  if (!dbReady(res)) return;
+  try {
+    const filter: Record<string, any> = { status: 'Paid', verification_status: 'Verified' };
+    const month = cleanText(req.query.month, 7);
+    if (month) {
+      if (!/^\\d{4}-(0[1-9]|1[0-2])$/.test(month)) return res.status(400).json({ error: 'Month must use YYYY-MM format.' });
+      filter.date = { $gte: `${month}-01`, $lte: `${month}-31` };
+    }
+    if (req.query.class_name) filter.class_name = cleanText(req.query.class_name, 100);
+    const rows = await FeePaymentModel.find(filter).sort({ date: -1, created_at: -1 }).limit(5000).lean();
+    return res.json(rows.map(row => ({
+      id: String(row._id),
+      date: row.date,
+      amount: Number(row.amount || 0),
+      method: row.method,
+      receipt_no: row.receipt_no || '',
+      student_id: row.student_id,
+      student_name: row.student_name || '',
+      class_name: row.class_name || '',
+      fee_month: row.fee_month || '',
+      year: row.year || null,
+      verification_status: row.verification_status,
+    })));
+  } catch {
+    return res.status(500).json({ error: 'Unable to load verified fee collections.' });
   }
 });
 
