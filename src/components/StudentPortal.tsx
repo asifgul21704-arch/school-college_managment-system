@@ -200,6 +200,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
     portalLoadVersionRef.current += 1;
     setPortalError(null);
     setStudent(null);
+    setNotifications([]);
+    setUnreadCount(0);
     setAttendanceData(null);
     setFees([]);
     setResults([]);
@@ -333,6 +335,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
         } else {
           setSelectedStudentId('');
           clearStudentScopedData();
+          await loadNotifications();
           setLoading(false);
         }
       } catch (e: any) {
@@ -546,6 +549,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
       } else {
         setSelectedStudentId('');
         clearStudentScopedData();
+        await loadNotifications();
         setLoading(false);
       }
 
