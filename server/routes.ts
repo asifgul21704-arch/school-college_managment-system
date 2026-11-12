@@ -1,7 +1,7 @@
 import express, { type Request, type Response } from 'express';
 import { financeRouter } from './financeRoutes.ts';
 import { buildNotificationVisibilityFilter, canMarkNotificationRead } from './notificationAccess.ts';
-import { buildParentPaymentHistoryFilter, buildParentLinkedStudentFilter, collectParentStudentReferences, isParentLinkedToStudent, isExactGuardianNameMatch, areSameStudentIdentity, isStudentClaimedByAnotherParent, buildStudentParentClaimFilter } from './parentAccess.ts';
+import { buildParentPaymentHistoryFilter, buildParentLinkedStudentFilter, collectParentStudentReferences, isParentLinkedToStudent, isExactGuardianNameMatch, areSameStudentIdentity, isStudentClaimedByAnotherParent, buildStudentParentClaimFilter, buildStudentParentReleaseFilter } from './parentAccess.ts';
 import { isClassAssignedToTeacher, buildTeacherClassFilter } from './classAccess.ts';
 import { getParentPaymentMethodMode, collectStudentPaymentIdentifiers, normalizeDepositReference, isExactParentPaymentRetry } from './paymentUtils.ts';
 import { isExactTeacherName, isExactTeacherSubject, areAllResultSubjectsAssignedToTeacher, isExactSectionMatch } from './teacherAccess.ts';
@@ -2392,16 +2392,27 @@ router.post('/parents/unlink-child', authenticateToken, requireRole(['parent']),
       String(student_id),
     ]);
 
-    const filteredIds = (userDoc.linked_student_ids || []).filter((id: string) => !idsToPull.has(id));
-    userDoc.linked_student_ids = filteredIds;
-    if (!userDoc.linked_id || idsToPull.has(userDoc.linked_id)) {
-      userDoc.linked_id = filteredIds.length > 0 ? filteredIds[0] : '';
-    }
-    await userDoc.save();
+    const idsToRemove = Array.from(idsToPull).filter(Boolean);
+    // Remove access from the authoritative User record atomically; never save a stale document snapshot.
+    await UserModel.updateOne(
+      { _id: userDoc._id, role: 'parent' },
+      { $pull: { linked_student_ids: { $in: idsToRemove } } }
+    );
 
-    if (studentDoc.parent_user_id === canonicalUserId) {
-      studentDoc.parent_user_id = '';
-      await studentDoc.save();
+    // Release denormalized ownership only while this parent still owns the student.
+    // A concurrent relink by another parent cannot be overwritten by this stale request.
+    await StudentModel.updateOne(
+      buildStudentParentReleaseFilter(studentDoc._id, canonicalUserId),
+      { $set: { parent_user_id: '' } }
+    );
+
+    const updatedUserDoc = await UserModel.findOne({ _id: userDoc._id, role: 'parent' }).lean();
+    if (updatedUserDoc?.linked_id && idsToPull.has(updatedUserDoc.linked_id)) {
+      const nextLinkedId = (updatedUserDoc.linked_student_ids || []).find((id: string) => !idsToPull.has(id)) || '';
+      await UserModel.updateOne(
+        { _id: userDoc._id, role: 'parent', linked_id: { $in: idsToRemove } },
+        { $set: { linked_id: nextLinkedId } }
+      );
     }
 
     await ParentModel.updateMany(
@@ -2417,12 +2428,15 @@ router.post('/parents/unlink-child', authenticateToken, requireRole(['parent']),
       `Student: ${studentDoc.full_name}`
     );
 
-    const remainingLinked = await fetchLinkedStudentsForParentUser(canonicalUserId, userDoc.email);
+    const [remainingLinked, finalUserDoc] = await Promise.all([
+      fetchLinkedStudentsForParentUser(canonicalUserId, userDoc.email),
+      UserModel.findOne({ _id: userDoc._id, role: 'parent' }).lean(),
+    ]);
     return res.json({
       success: true,
       message: `Successfully unlinked ${studentDoc.full_name} from your account.`,
       linked_students: remainingLinked,
-      active_child_id: userDoc.linked_id || undefined,
+      active_child_id: finalUserDoc?.linked_id || undefined,
     });
   } catch (err: any) {
     return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to unlink child') });
