@@ -25,3 +25,10 @@ test('teacher subject authorization requires exact normalized subject', async ()
   assert.equal(isExactTeacherSubject(['Computer Science'], 'Science'), false);
   assert.equal(isExactTeacherSubject(['Physics'], ''), false);
 });
+
+test('teacher may manage a multi-subject result only when every subject is assigned', async () => {
+  const { areAllResultSubjectsAssignedToTeacher } = await import('./teacherAccess.ts');
+  assert.equal(areAllResultSubjectsAssignedToTeacher(['Physics', 'Math'], ['Physics', ' Math ']), true);
+  assert.equal(areAllResultSubjectsAssignedToTeacher(['Physics'], ['Physics', 'Chemistry']), false);
+  assert.equal(areAllResultSubjectsAssignedToTeacher(['Physics'], []), false);
+});
