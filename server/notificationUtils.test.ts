@@ -1,18 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createNotificationBatchOnce, validateParentNotificationAction } from './notificationUtils.ts';
+import { createNotificationBatchId, createNotificationBatchOnce, validateParentNotificationAction } from './notificationUtils.ts';
 
-const actionId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const message = 'Fee reminder';
+const date = '2026-11-12';
+const actionId = createNotificationBatchId('SEND_SMS_FEES', date, ['student-1', 'student-2'], message);
 const validPayload = {
   actionId,
+  date,
   message: '  Fee reminder  ',
   recipients: [{ studentId: 'student-1' }, { studentId: 'student-1' }, { studentId: 'student-2' }],
 };
 
 test('allows only confirmed admin and super-admin notification actions', () => {
   assert.deepEqual(
-    validateParentNotificationAction('SEND_SMS_ABSENT', validPayload, true, 'admin'),
-    { actionId, studentIds: ['student-1', 'student-2'], message: 'Fee reminder' },
+    validateParentNotificationAction('SEND_SMS_ABSENT', { ...validPayload, actionId: createNotificationBatchId('SEND_SMS_ABSENT', date, ['student-1', 'student-2'], message) }, true, 'admin'),
+    { actionId: createNotificationBatchId('SEND_SMS_ABSENT', date, ['student-1', 'student-2'], message), studentIds: ['student-1', 'student-2'], message: 'Fee reminder' },
   );
   assert.deepEqual(
     validateParentNotificationAction('SEND_SMS_FEES', validPayload, true, 'super_admin'),
@@ -24,7 +27,7 @@ test('rejects non-admin roles, missing confirmation, unsupported actions, and cl
   assert.throws(() => validateParentNotificationAction('SEND_SMS_ABSENT', validPayload, true, 'teacher'), /Forbidden/);
   assert.throws(() => validateParentNotificationAction('SEND_SMS_ABSENT', validPayload, false, 'admin'), /confirmation/);
   assert.throws(() => validateParentNotificationAction('SEND_SMS_CUSTOM', validPayload, true, 'admin'), /Unsupported/);
-  assert.throws(() => validateParentNotificationAction('SEND_SMS_ABSENT', { ...validPayload, actionId: 'not-a-uuid' }, true, 'admin'), /idempotency/);
+  assert.throws(() => validateParentNotificationAction('SEND_SMS_FEES', { ...validPayload, actionId: 'b'.repeat(64) }, true, 'admin'), /does not match/);
 });
 
 test('rejects empty, oversized, or malformed recipient lists and invalid student IDs', () => {
