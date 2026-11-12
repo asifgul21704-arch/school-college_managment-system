@@ -2297,14 +2297,21 @@ router.post('/parents/find-child', sensitiveActionRateLimiter, authenticateToken
     const candidateDocs = await StudentModel.find({
       $and: [{ $or: rollClauses }, { $or: classClauses }],
     }).lean();
-    const matches = candidateDocs.map(toStudentDto).filter(s => {
-      if (!isStudentNameMatch(s.full_name, cleanStudent)) return false;
-      if (!isStudentClassMatch(s.class_name, cleanClass)) return false;
-      const fatherMatches =
-        isFatherNameMatch(s.father_name, cleanFather) ||
-        (userDoc.name && isFatherNameMatch(s.father_name, userDoc.name));
-      return Boolean(fatherMatches);
-    });
+    const canonicalUserId = userDoc.record_id || userDoc._id.toString();
+    const currentParentIdentifiers = [canonicalUserId, userDoc._id.toString()];
+    const matches = candidateDocs
+      .filter(rawDoc => {
+        const student = toStudentDto(rawDoc);
+        if (!isStudentNameMatch(student.full_name, cleanStudent)) return false;
+        if (!isStudentClassMatch(student.class_name, cleanClass)) return false;
+        const fatherMatches =
+          isFatherNameMatch(student.father_name, cleanFather) ||
+          (userDoc.name && isFatherNameMatch(student.father_name, userDoc.name));
+        if (!fatherMatches) return false;
+        // Do not disclose candidate details for a student claimed by another parent account.
+        return !isStudentClaimedByAnotherParent(rawDoc.parent_user_id, currentParentIdentifiers);
+      })
+      .map(toStudentDto);
 
     if (matches.length === 0) {
       return res.status(404).json({
@@ -2312,7 +2319,6 @@ router.post('/parents/find-child', sensitiveActionRateLimiter, authenticateToken
       });
     }
 
-    const canonicalUserId = userDoc.record_id || userDoc._id.toString();
     const alreadyLinkedIds = await getLinkedStudentIdsForParent({
       id: canonicalUserId,
       email: userDoc.email,
