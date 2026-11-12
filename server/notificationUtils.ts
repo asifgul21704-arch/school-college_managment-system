@@ -1,6 +1,7 @@
 export type ParentNotificationActionType = 'SEND_SMS_ABSENT' | 'SEND_SMS_FEES';
 
 export interface ValidatedParentNotificationAction {
+  actionId: string;
   studentIds: string[];
   message: string;
 }
@@ -26,6 +27,11 @@ export function validateParentNotificationAction(
   }
 
   const data = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {};
+  const actionId = typeof data.actionId === 'string' ? data.actionId.trim() : '';
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(actionId)) {
+    throw new Error('A valid server-issued action confirmation token is required.');
+  }
+
   const message = typeof data.message === 'string' ? data.message.trim() : '';
   if (!message || message.length > 1000) {
     throw new Error('Notification message is required and must be 1000 characters or fewer.');
@@ -48,5 +54,20 @@ export function validateParentNotificationAction(
     studentIds.add(studentId);
   }
 
-  return { studentIds: Array.from(studentIds), message };
+  return { actionId, studentIds: Array.from(studentIds), message };
+}
+
+/**
+ * Run one idempotent write per recipient. The persistence adapter must enforce
+ * a unique (actionId, recipientId) key so concurrent/replayed requests are safe.
+ */
+export async function createNotificationBatchOnce(
+  actionId: string,
+  recipientIds: string[],
+  createOnce: (actionId: string, recipientId: string) => Promise<boolean>
+): Promise<{ createdCount: number; existingCount: number }> {
+  const uniqueRecipientIds = Array.from(new Set(recipientIds.map(id => id.trim()).filter(Boolean)));
+  const results = await Promise.all(uniqueRecipientIds.map(id => createOnce(actionId, id)));
+  const createdCount = results.filter(Boolean).length;
+  return { createdCount, existingCount: results.length - createdCount };
 }
