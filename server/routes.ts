@@ -7607,7 +7607,9 @@ router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['supe
       }
     );
 
-    // Notify Parent in-app exactly once for this approved payment action.
+    }
+    // This idempotent write runs on both first attempt and retry, recovering
+    // the notification if the payment transaction committed before a failure.
     if (paymentDoc.parent_user_id) {
       await createNotificationOnce({
         actionId: `fee-approve:${paymentDoc._id.toString()}`,
@@ -7618,15 +7620,15 @@ router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['supe
         link: '/student-portal',
       });
     }
-
+    if (!idempotentReplay) {
+      await recordMongoAudit(
+        req.user!,
+        'Approved Fee Payment',
+        'FeePayment',
+        paymentDoc.payment_reference,
+        `Verified deposit of PKR ${paymentDoc.amount} for ${paymentDoc.student_name}. Receipt: ${receiptNo}`
+      );
     }
-    await recordMongoAudit(
-      req.user!,
-      'Approved Fee Payment',
-      'FeePayment',
-      paymentDoc.payment_reference,
-      `Verified deposit of PKR ${paymentDoc.amount} for ${paymentDoc.student_name}. Receipt: ${receiptNo}`
-    );
 
     return res.json({
       message: 'Payment verified and approved successfully',
@@ -7714,25 +7716,27 @@ router.post('/admin/payments/:id/reject', authenticateToken, requireRole(['super
       }
     );
 
+    }
+    // Use the persisted rejection reason on retries; never let a replay alter it.
     if (paymentDoc.parent_user_id) {
       await createNotificationOnce({
         actionId: `fee-reject:${paymentDoc._id.toString()}`,
         userId: paymentDoc.parent_user_id,
         role: 'parent',
         title: 'Fee Payment Rejected',
-        message: `Your payment Ref: ${paymentDoc.payment_reference} for ${paymentDoc.student_name} was rejected. Reason: ${cleanReason}`,
+        message: `Your payment Ref: ${paymentDoc.payment_reference} for ${paymentDoc.student_name} was rejected. Reason: ${paymentDoc.rejection_reason || cleanReason}`,
         link: '/student-portal',
       });
     }
-
+    if (!idempotentReplay) {
+      await recordMongoAudit(
+        req.user!,
+        'Rejected Fee Payment',
+        'FeePayment',
+        paymentDoc.payment_reference,
+        `Rejected deposit of PKR ${paymentDoc.amount} for ${paymentDoc.student_name}. Reason: ${paymentDoc.rejection_reason || cleanReason}`
+      );
     }
-    await recordMongoAudit(
-      req.user!,
-      'Rejected Fee Payment',
-      'FeePayment',
-      paymentDoc.payment_reference,
-      `Rejected deposit of PKR ${paymentDoc.amount} for ${paymentDoc.student_name}. Reason: ${cleanReason}`
-    );
 
     return res.json({
       message: 'Payment rejected',
