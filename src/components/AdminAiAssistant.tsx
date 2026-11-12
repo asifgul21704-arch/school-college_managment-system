@@ -234,7 +234,7 @@ export const AdminAiAssistant: React.FC<AdminAiAssistantProps> = ({ initialPromp
       const confirmBotMsg: Message = {
         id: `confirmed-${Date.now()}`,
         sender: 'assistant',
-        text: `### Action Executed & Verified\n\n${res.message}\n\n* **Dispatched Recipients:** ${res.dispatchedCount || 0}\n* **Audit Reference:** \`${res.auditLogId || 'Logged'}\``,
+        text: `### Notification Records Created\n\n${res.message}\n\n* **Recipients Recorded:** ${res.dispatchedCount || 0}\n* **Audit Reference:** \`${res.auditLogId || 'Logged'}\``,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         toolUsed: 'executeConfirmedAction',
       };
