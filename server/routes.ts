@@ -2208,7 +2208,7 @@ router.post('/parents/find-child', sensitiveActionRateLimiter, authenticateToken
 
 // 2. Confirm & Link Verified Child to Guardian Account
 router.post('/parents/confirm-link-child', sensitiveActionRateLimiter, authenticateToken, requireRole(['parent']), async (req: AuthenticatedRequest, res: Response) => {
-  const { student_id, father_name } = req.body || {};
+  const { student_id } = req.body || {};
   if (!student_id) {
     return res.status(400).json({ error: 'Student ID is required for confirmation' });
   }
@@ -2225,12 +2225,11 @@ router.post('/parents/confirm-link-child', sensitiveActionRateLimiter, authentic
       return res.status(404).json({ error: 'Student record could not be found' });
     }
 
-    // A fuzzy search match is not sufficient proof to link a child account.
-    // Require an exact normalized match against either the supplied guardian name
-    // or the authenticated parent's registered account name.
-    const fatherMatches =
-      (father_name && isExactGuardianNameMatch(studentDoc.father_name, String(father_name))) ||
-      isExactGuardianNameMatch(studentDoc.father_name, userDoc.name);
+    // Never trust a guardian name supplied by the browser as proof of identity.
+    // The student's recorded father/guardian name must exactly match the authenticated
+    // parent's registered account name. For other legitimate guardians, use the
+    // admission-number + date-of-birth verification workflow or ask an admin to link.
+    const fatherMatches = isExactGuardianNameMatch(studentDoc.father_name, userDoc.name);
 
     if (!fatherMatches) {
       return res.status(403).json({
