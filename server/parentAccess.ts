@@ -85,6 +85,12 @@ export function buildStudentParentClaimFilter(
   };
 }
 
+/** Atomic unlink filter: clear ownership only if the student is still owned by this parent. */
+export function buildStudentParentReleaseFilter(studentMongoId: unknown, canonicalUserId: string): Record<string, unknown> {
+  if (!studentMongoId || !String(canonicalUserId || '').trim()) return { _id: null };
+  return { _id: studentMongoId, parent_user_id: canonicalUserId };
+}
+
 /** Prevent a parent from taking over a student record already assigned to another parent account. */
 export function isStudentClaimedByAnotherParent(
   existingParentUserId: unknown,
