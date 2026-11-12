@@ -25,6 +25,7 @@ import {
   OutstandingFeeSummary,
   ExpenseRecord,
   PayrollRecord,
+  VerifiedFeeCollectionRecord,
 } from '../types';
 
 const LEGACY_LOCALSTORAGE_TOKEN_KEY = 'shawan_auth_token';
@@ -1132,6 +1133,10 @@ export const api = {
     }),
 
   // Finance operations (admin-only API)
+  getFinanceCollections: (params?: { month?: string; class_name?: string }) => {
+    const query = new URLSearchParams(params as Record<string, string>).toString();
+    return request<VerifiedFeeCollectionRecord[]>(`/finance/collections${query ? `?${query}` : ''}`);
+  },
   getFinanceExpenses: (params?: { from?: string; to?: string; category?: string }) => {
     const query = new URLSearchParams(params as any).toString();
     return request<ExpenseRecord[]>(`/finance/expenses${query ? `?${query}` : ''}`);
