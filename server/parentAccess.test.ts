@@ -93,3 +93,12 @@ test('parent student lookup filter includes only linked aliases and fails closed
   );
   assert.deepEqual(buildParentLinkedStudentFilter(new Set()), { _id: { $in: [] } });
 });
+
+test('student unlink ownership release is atomic and restricted to the current parent aliases', async () => {
+  const { buildStudentParentReleaseFilter } = await import('./parentAccess.ts');
+  assert.deepEqual(
+    buildStudentParentReleaseFilter('student-mongo-id', 'parent-record-id', 'parent-mongo-id'),
+    { _id: 'student-mongo-id', parent_user_id: { $in: ['parent-record-id', 'parent-mongo-id'] } }
+  );
+  assert.deepEqual(buildStudentParentReleaseFilter('', '', ''), { _id: null });
+});
