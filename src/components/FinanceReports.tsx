@@ -74,7 +74,19 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
       setError(err?.message || 'Reports could not be loaded from the school database.');
     } finally {
       setLoading(false);
-      se  const filteredFees = useMemo(() => fees.filter(f => {
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => { void load(); }, []);
+
+  const classes = useMemo(() => Array.from(new Set([
+    ...fees.map(f => f.class_name),
+    ...students.map(student => student.class_name),
+    ...attendance.map(a => a.class_name),
+  ].filter(Boolean))).sort(), [fees, students, attendance]);
+
+  const filteredFees = useMemo(() => fees.filter(f => {
     if (classFilter !== 'all' && f.class_name !== classFilter) return false;
     if (!monthFilter) return true;
     const [year, month] = monthFilter.split('-').map(Number);
@@ -234,7 +246,7 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
         <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white"><div className="flex items-center justify-between border-b border-neutral-200 p-4"><h3 className="font-bold text-neutral-900">Staff payroll</h3><button onClick={()=>downloadCsv('staff-payroll.csv',filteredPayroll.map(p=>({Staff:p.staff_name,Designation:p.designation,Period:`${p.salary_month}/${p.salary_year}`,Net:p.net_salary,Paid:p.paid_amount,Balance:Number(p.net_salary)-Number(p.paid_amount),Status:p.status})))} className="rounded-lg bg-neutral-950 px-3 py-2 text-xs font-semibold text-white">Export CSV</button></div><div className="divide-y divide-neutral-100">{filteredPayroll.map(p=><div key={p.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><p className="text-sm font-semibold text-neutral-900">{p.staff_name} · {p.designation}</p><p className="mt-1 text-xs text-neutral-500">{p.salary_month}/{p.salary_year} · Net {money(p.net_salary)} · Paid {money(p.paid_amount)} · {p.status}</p></div><button disabled={p.status==='Paid'} onClick={()=>void paySalary(p)} className="min-h-9 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-900 disabled:opacity-40">Record payment</button></div>)}{filteredPayroll.length===0&&<p className="p-8 text-center text-sm text-neutral-500">No payroll records for this month.</p>}</div></div>
       </div>}
 
-      <p className="text-[11px] leading-relaxed text-neutral-400">Reports reflect records currently saved in the connected database. Expense and payroll reports are not shown until dedicated expense and salary records are implemented; no estimated values are substituted.</p>
+      <p className="text-[11px] leading-relaxed text-neutral-400">Reports reflect records saved in the connected database. Payroll is tracked separately from the expense ledger to prevent double counting. Add only verified real transactions; no sample values are inserted.</p>
     </section>
   );
 };
