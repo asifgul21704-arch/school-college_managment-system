@@ -88,3 +88,13 @@ test('public parent registration uses the same verified atomic student claim as 
   assert.match(route, /buildStudentParentReleaseFilter\(verifiedChild\._id, canonicalParentId, createdUser\._id\.toString\(\)\)/);
   assert.doesNotMatch(route, /verifiedChild\.parent_user_id\s*=|verifiedChild\.save\(\)/);
 });
+
+
+test('parent child discovery does not disclose student details already claimed by another parent', () => {
+  const start = routes.indexOf("router.post('/parents/find-child'");
+  const end = routes.indexOf("router.post('/parents/confirm-link-child'", start);
+  assert.ok(start >= 0 && end > start);
+  const route = routes.slice(start, end);
+  assert.match(route, /isStudentClaimedByAnotherParent\(rawDoc\.parent_user_id, currentParentIdentifiers\)/);
+  assert.match(route, /const currentParentIdentifiers = \[canonicalUserId, userDoc\._id\.toString\(\)\]/);
+});
