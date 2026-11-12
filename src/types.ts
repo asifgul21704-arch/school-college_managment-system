@@ -501,3 +501,17 @@ export interface PayrollRecord {
   created_at: string;
   updated_at: string;
 }
+
+export interface VerifiedFeeCollectionRecord {
+  id: string;
+  date: string;
+  amount: number;
+  method: string;
+  receipt_no: string;
+  student_id: string;
+  student_name: string;
+  class_name: string;
+  fee_month: string;
+  year: number | null;
+  verification_status: 'Verified';
+}
