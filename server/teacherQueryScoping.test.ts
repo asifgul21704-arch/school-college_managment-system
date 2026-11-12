@@ -36,6 +36,6 @@ test('teacher roster and attendance history are database-scoped before DTO mappi
 });
 
 test('teacher results query is database-scoped to assigned classes', () => {
-  const route = routeBetween("router.get('/teacher/results'", "// 20.7");
+  const route = routeBetween("router.get('/teacher/results'", "router.post('/teacher/results'");
   assert.match(route, /ResultModel\.find\(buildTeacherClassFilter\(assignedClasses\)\)/);
 });
