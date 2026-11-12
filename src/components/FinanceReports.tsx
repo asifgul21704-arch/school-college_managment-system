@@ -3,7 +3,7 @@ import { Activity, AlertTriangle, ArrowDownToLine, CalendarDays, ChartNoAxesComb
 import { api } from '../services/api';
 import type { AttendanceRecord, FeeRecord, Student } from '../types';
 
-type ReportTab = 'overview' | 'fees' | 'defaulters' | 'attendance';
+type ReportTab = 'overview' | 'fees' | 'defaulters' | 'attendance' | 'expenses' | 'payroll';
 
 interface FinanceReportsProps {
   onAskAI: (prompt: string) => void;
@@ -44,6 +44,10 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
   const [fees, setFees] = useState<FeeRecord[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
+  const [expenses, setExpenses] = useState<any[]>([]);
+  const [payroll, setPayroll] = useState<any[]>([]);
+  const [expenseDraft, setExpenseDraft] = useState({ title: '', category: 'Utilities', amount: '', expense_date: new Date().toISOString().slice(0, 10), payment_method: 'Cash' });
+  const [payrollDraft, setPayrollDraft] = useState({ staff_id: '', staff_name: '', designation: 'Teacher', salary_month: new Date().getMonth() + 1, salary_year: new Date().getFullYear(), basic_salary: '', allowances: '0', deductions: '0' });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -54,14 +58,18 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
     if (quiet) setRefreshing(true); else setLoading(true);
     setError('');
     try {
-      const [feeRows, studentRows, attendanceRows] = await Promise.all([
+      const [feeRows, studentRows, attendanceRows, expenseRows, payrollRows] = await Promise.all([
         api.getFees(),
         api.getStudents(),
         api.getAttendance(),
+        api.getFinanceExpenses(),
+        api.getFinancePayroll(),
       ]);
       setFees(Array.isArray(feeRows) ? feeRows : []);
       setStudents(Array.isArray(studentRows) ? studentRows : []);
       setAttendance(Array.isArray(attendanceRows) ? attendanceRows : []);
+      setExpenses(Array.isArray(expenseRows) ? expenseRows : []);
+      setPayroll(Array.isArray(payrollRows) ? payrollRows : []);
     } catch (err: any) {
       setError(err?.message || 'Reports could not be loaded from the school database.');
     } finally {
@@ -113,11 +121,41 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
     Date: a.date, Student: a.student_name, Class: a.class_name, Section: a.section, Status: a.status,
   }));
 
+  const filteredExpenses = expenses.filter(e => !monthFilter || String(e.expense_date || '').startsWith(monthFilter));
+  const filteredPayroll = payroll.filter(p => !monthFilter || (Number(p.salary_year) === Number(monthFilter.slice(0, 4)) && Number(p.salary_month) === Number(monthFilter.slice(5, 7))));
+  const saveExpense = async (event: React.FormEvent) => {
+    event.preventDefault();
+    try {
+      await api.createFinanceExpense({ ...expenseDraft, amount: Number(expenseDraft.amount) });
+      setExpenseDraft({ title: '', category: 'Utilities', amount: '', expense_date: new Date().toISOString().slice(0, 10), payment_method: 'Cash' });
+      await load(true);
+    } catch (err: any) { setError(err?.message || 'Unable to save expense.'); }
+  };
+  const savePayroll = async (event: React.FormEvent) => {
+    event.preventDefault();
+    try {
+      await api.createFinancePayroll({ ...payrollDraft, basic_salary: Number(payrollDraft.basic_salary), allowances: Number(payrollDraft.allowances), deductions: Number(payrollDraft.deductions) });
+      setPayrollDraft(v => ({ ...v, staff_id: '', staff_name: '', basic_salary: '', allowances: '0', deductions: '0' }));
+      await load(true);
+    } catch (err: any) { setError(err?.message || 'Unable to create salary record.'); }
+  };
+  const paySalary = async (row: any) => {
+    const remaining = Number(row.net_salary || 0) - Number(row.paid_amount || 0);
+    const raw = window.prompt(`Remaining salary: PKR ${remaining.toLocaleString()}. Enter payment amount:`);
+    if (raw === null) return;
+    const amount = Number(raw);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > remaining) { setError('Enter a valid payment amount within the remaining balance.'); return; }
+    try { await api.recordFinanceSalaryPayment(row.id, { amount, payment_date: new Date().toISOString().slice(0, 10), payment_method: 'Cash' }); await load(true); }
+    catch (err: any) { setError(err?.message || 'Unable to record salary payment.'); }
+  };
+
   const tabs: Array<{ id: ReportTab; label: string; icon: React.ElementType }> = [
     { id: 'overview', label: 'Overview', icon: ChartNoAxesCombined },
     { id: 'fees', label: 'Fee collection', icon: Wallet },
     { id: 'defaulters', label: 'Defaulters', icon: AlertTriangle },
     { id: 'attendance', label: 'Attendance', icon: Activity },
+    { id: 'expenses', label: 'Expenses', icon: ArrowDownToLine },
+    { id: 'payroll', label: 'Payroll', icon: Wallet },
   ];
 
   if (loading) return <div className="rounded-2xl border border-neutral-200 bg-white p-10 text-center"><RefreshCw className="mx-auto mb-3 h-6 w-6 animate-spin text-emerald-800" /><p className="text-sm font-semibold text-neutral-800">Loading live reports…</p><p className="mt-1 text-xs text-neutral-500">Reading fee and attendance records from the school database.</p></div>;
@@ -172,6 +210,33 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
       {tab === 'defaulters' && <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white"><div className="flex items-center justify-between border-b border-neutral-200 p-4"><div><h3 className="font-bold text-neutral-900">Fee defaulters</h3><p className="mt-1 text-xs text-neutral-500">Students with a positive outstanding voucher balance.</p></div><button onClick={() => downloadCsv('fee-defaulters.csv', defaulters.map(f => ({ Student: f.student_name, Class: f.class_name, Month: f.fee_month, Year: f.year, Outstanding: f.pending_amount, DueDate: f.due_date })))} className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-neutral-950 px-3 text-xs font-semibold text-white"><FileSpreadsheet className="h-4 w-4" /> Export CSV</button></div><div className="divide-y divide-neutral-100">{defaulters.map(f => <div key={f.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><p className="text-sm font-semibold text-neutral-900">{f.student_name}</p><p className="mt-1 text-xs text-neutral-500">{f.class_name} · {f.fee_month} {f.year} · Due {f.due_date || 'date not recorded'}</p></div><p className="text-sm font-bold text-rose-700">{money(f.pending_amount)}</p></div>)}{defaulters.length === 0 && <p className="p-8 text-center text-sm text-neutral-500">No outstanding fee vouchers found for this filter.</p>}</div><div className="border-t border-neutral-200 p-4"><button onClick={() => onAskAI('Analyze the current fee defaulters report. Group dues by class and identify high outstanding balances using live records only. Do not send reminders.')} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-900"><Sparkles className="h-4 w-4" /> Ask AI to analyze defaulters</button></div></div>}
 
       {tab === 'attendance' && <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-200 p-4"><div><h3 className="font-bold text-neutral-900">Attendance report</h3><p className="mt-1 text-xs text-neutral-500">Recorded attendance for the selected month and class.</p></div><button onClick={() => downloadCsv('attendance-report.csv', attendanceRows)} className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-neutral-950 px-3 text-xs font-semibold text-white"><FileSpreadsheet className="h-4 w-4" /> Export CSV</button></div><div className="overflow-x-auto"><table className="w-full min-w-[640px] text-left text-xs"><thead className="bg-neutral-50 text-neutral-500"><tr>{['Date','Student','Class','Section','Status'].map(h => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}</tr></thead><tbody className="divide-y divide-neutral-100">{filteredAttendance.map((a,i) => <tr key={a.id || `${a.student_id}-${a.date}-${i}`}><td className="px-4 py-3">{a.date}</td><td className="px-4 py-3 font-semibold text-neutral-900">{a.student_name}</td><td className="px-4 py-3">{a.class_name}</td><td className="px-4 py-3">{a.section}</td><td className="px-4 py-3">{a.status}</td></tr>)}</tbody></table>{filteredAttendance.length === 0 && <p className="p-8 text-center text-sm text-neutral-500">No attendance records found for this filter.</p>}</div></div>}
+
+
+      {tab === 'expenses' && <div className="space-y-4">
+        <form onSubmit={saveExpense} className="grid gap-3 rounded-2xl border border-neutral-200 bg-white p-4 sm:grid-cols-2 xl:grid-cols-5">
+          <input required maxLength={160} placeholder="Expense title" value={expenseDraft.title} onChange={e => setExpenseDraft(v => ({...v,title:e.target.value}))} className="min-h-10 rounded-lg border border-neutral-200 px-3 text-sm xl:col-span-2" />
+          <select value={expenseDraft.category} onChange={e => setExpenseDraft(v => ({...v,category:e.target.value}))} className="min-h-10 rounded-lg border border-neutral-200 px-3 text-sm">{['Utilities','Salaries','Maintenance','Supplies','Transport','Events','Other'].map(x=><option key={x}>{x}</option>)}</select>
+          <input required type="number" min="0.01" step="0.01" placeholder="Amount PKR" value={expenseDraft.amount} onChange={e => setExpenseDraft(v => ({...v,amount:e.target.value}))} className="min-h-10 rounded-lg border border-neutral-200 px-3 text-sm" />
+          <input required type="date" value={expenseDraft.expense_date} onChange={e => setExpenseDraft(v => ({...v,expense_date:e.target.value}))} className="min-h-10 rounded-lg border border-neutral-200 px-3 text-sm" />
+          <select value={expenseDraft.payment_method} onChange={e => setExpenseDraft(v => ({...v,payment_method:e.target.value}))} className="min-h-10 rounded-lg border border-neutral-200 px-3 text-sm">{['Cash','Bank Transfer','Cheque','JazzCash','Easypaisa','Other'].map(x=><option key={x}>{x}</option>)}</select>
+          <button type="submit" className="min-h-10 rounded-lg bg-neutral-950 px-4 text-xs font-bold text-white">Save expense</button>
+        </form>
+        <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white"><div className="flex items-center justify-between border-b border-neutral-200 p-4"><h3 className="font-bold text-neutral-900">Expense ledger · {money(filteredExpenses.reduce((n,e)=>n+Number(e.amount||0),0))}</h3><button onClick={()=>downloadCsv('expense-ledger.csv',filteredExpenses.map(e=>({Date:e.expense_date,Title:e.title,Category:e.category,Amount:e.amount,Method:e.payment_method})))} className="rounded-lg bg-neutral-950 px-3 py-2 text-xs font-semibold text-white">Export CSV</button></div><div className="divide-y divide-neutral-100">{filteredExpenses.map(e=><div key={e.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><p className="text-sm font-semibold text-neutral-900">{e.title}</p><p className="mt-1 text-xs text-neutral-500">{e.category} · {e.expense_date} · {e.payment_method}</p></div><p className="font-bold text-neutral-900">{money(e.amount)}</p></div>)}{filteredExpenses.length===0&&<p className="p-8 text-center text-sm text-neutral-500">No expense records for this month.</p>}</div></div>
+      </div>}
+      {tab === 'payroll' && <div className="space-y-4">
+        <form onSubmit={savePayroll} className="grid gap-3 rounded-2xl border border-neutral-200 bg-white p-4 sm:grid-cols-2 xl:grid-cols-4">
+          <input required placeholder="Staff ID" value={payrollDraft.staff_id} onChange={e=>setPayrollDraft(v=>({...v,staff_id:e.target.value}))} className="min-h-10 rounded-lg border border-neutral-200 px-3 text-sm" />
+          <input required placeholder="Staff name" value={payrollDraft.staff_name} onChange={e=>setPayrollDraft(v=>({...v,staff_name:e.target.value}))} className="min-h-10 rounded-lg border border-neutral-200 px-3 text-sm" />
+          <input required placeholder="Designation" value={payrollDraft.designation} onChange={e=>setPayrollDraft(v=>({...v,designation:e.target.value}))} className="min-h-10 rounded-lg border border-neutral-200 px-3 text-sm" />
+          <input required type="number" min="0" step="0.01" placeholder="Basic salary PKR" value={payrollDraft.basic_salary} onChange={e=>setPayrollDraft(v=>({...v,basic_salary:e.target.value}))} className="min-h-10 rounded-lg border border-neutral-200 px-3 text-sm" />
+          <input type="number" min="0" step="0.01" placeholder="Allowances" value={payrollDraft.allowances} onChange={e=>setPayrollDraft(v=>({...v,allowances:e.target.value}))} className="min-h-10 rounded-lg border border-neutral-200 px-3 text-sm" />
+          <input type="number" min="0" step="0.01" placeholder="Deductions" value={payrollDraft.deductions} onChange={e=>setPayrollDraft(v=>({...v,deductions:e.target.value}))} className="min-h-10 rounded-lg border border-neutral-200 px-3 text-sm" />
+          <select value={payrollDraft.salary_month} onChange={e=>setPayrollDraft(v=>({...v,salary_month:Number(e.target.value)}))} className="min-h-10 rounded-lg border border-neutral-200 px-3 text-sm">{Array.from({length:12},(_,i)=><option key={i+1} value={i+1}>{new Date(2020,i,1).toLocaleString('en',{month:'long'})}</option>)}</select>
+          <input type="number" min="2020" max="2100" value={payrollDraft.salary_year} onChange={e=>setPayrollDraft(v=>({...v,salary_year:Number(e.target.value)}))} className="min-h-10 rounded-lg border border-neutral-200 px-3 text-sm" />
+          <button type="submit" className="min-h-10 rounded-lg bg-neutral-950 px-4 text-xs font-bold text-white xl:col-span-4">Create salary record</button>
+        </form>
+        <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white"><div className="flex items-center justify-between border-b border-neutral-200 p-4"><h3 className="font-bold text-neutral-900">Staff payroll</h3><button onClick={()=>downloadCsv('staff-payroll.csv',filteredPayroll.map(p=>({Staff:p.staff_name,Designation:p.designation,Period:`${p.salary_month}/${p.salary_year}`,Net:p.net_salary,Paid:p.paid_amount,Balance:Number(p.net_salary)-Number(p.paid_amount),Status:p.status})))} className="rounded-lg bg-neutral-950 px-3 py-2 text-xs font-semibold text-white">Export CSV</button></div><div className="divide-y divide-neutral-100">{filteredPayroll.map(p=><div key={p.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><p className="text-sm font-semibold text-neutral-900">{p.staff_name} · {p.designation}</p><p className="mt-1 text-xs text-neutral-500">{p.salary_month}/{p.salary_year} · Net {money(p.net_salary)} · Paid {money(p.paid_amount)} · {p.status}</p></div><button disabled={p.status==='Paid'} onClick={()=>void paySalary(p)} className="min-h-9 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-900 disabled:opacity-40">Record payment</button></div>)}{filteredPayroll.length===0&&<p className="p-8 text-center text-sm text-neutral-500">No payroll records for this month.</p>}</div></div>
+      </div>}
 
       <p className="text-[11px] leading-relaxed text-neutral-400">Reports reflect records currently saved in the connected database. Expense and payroll reports are not shown until dedicated expense and salary records are implemented; no estimated values are substituted.</p>
     </section>
