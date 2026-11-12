@@ -47,12 +47,14 @@ import {
   Send,
   RefreshCw,
   MessageSquare,
+  ChartNoAxesCombined,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { AdminAiAssistant } from './AdminAiAssistant';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { PaymentReceiptModal } from './ui/PaymentReceiptModal';
+import { FinanceReports } from './FinanceReports';
 import {
   Student,
   Teacher,
@@ -1489,6 +1491,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const allNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Users, teacherAllowed: true },
     { id: 'ai-assistant', label: 'Admin AI Assistant', icon: Sparkles, badge: 'AI', teacherAllowed: false },
+    { id: 'reports', label: 'Reports & Analytics', icon: ChartNoAxesCombined, badge: 'Live', teacherAllowed: false },
     { id: 'mongodb', label: 'MongoDB Atlas', icon: Database, badge: 'Live', teacherAllowed: false },
     { id: 'students', label: 'Students', icon: GraduationCap, teacherAllowed: true },
     { id: 'parent-links', label: 'Parent-Child Links', icon: UserCheck, teacherAllowed: false },
@@ -2005,6 +2008,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* ==================================================== */}
         {/* 1.25. ADMIN-ONLY AI ASSISTANT (RESTRICTED) */}
         {/* ==================================================== */}
+        {activeSection === 'reports' && (
+          <FinanceReports onAskAI={() => setActiveSection('ai-assistant')} />
+        )}
+
         {activeSection === 'ai-assistant' && (
           <div className="space-y-4">
             <AdminAiAssistant />
