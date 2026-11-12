@@ -3,7 +3,7 @@ import { financeRouter } from './financeRoutes.ts';
 import { buildNotificationVisibilityFilter, canMarkNotificationRead } from './notificationAccess.ts';
 import { buildParentPaymentHistoryFilter, collectParentStudentReferences, isParentLinkedToStudent, isExactGuardianNameMatch, areSameStudentIdentity } from './parentAccess.ts';
 import { isClassAssignedToTeacher } from './classAccess.ts';
-import { getParentPaymentMethodMode } from './paymentUtils.ts';
+import { getParentPaymentMethodMode, collectStudentPaymentIdentifiers } from './paymentUtils.ts';
 import { isExactTeacherName, isExactTeacherSubject, areAllResultSubjectsAssignedToTeacher, isExactSectionMatch } from './teacherAccess.ts';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
@@ -487,10 +487,9 @@ async function getLinkedStudentIdsForParent(user: {
         { admission_no: { $in: idArr } },
         ...(objIds.length > 0 ? [{ _id: { $in: objIds } }] : []),
       ],
-    }).select('record_id _id').lean();
+    }).select('record_id _id admission_no').lean();
     for (const st of matchedStudents) {
-      if (st.record_id) ids.add(st.record_id);
-      if (st._id) ids.add(st._id.toString());
+      for (const identifier of collectStudentPaymentIdentifiers(st)) ids.add(identifier);
     }
   }
 
@@ -6965,7 +6964,7 @@ router.get('/parent/fees/summary', authenticateToken, requireRole(['parent', 'st
         $or: [{ user_id: user.id }, { email: user.email.toLowerCase() }],
       }).lean();
       if (studentDoc) {
-        studentIds = [studentDoc.record_id || studentDoc._id.toString()];
+        studentIds = collectStudentPaymentIdentifiers(studentDoc);
       }
     } else if (req.query.student_id) {
       studentIds = [String(req.query.student_id).trim()];
@@ -7409,8 +7408,8 @@ router.get('/parent/payments/history', authenticateToken, requireRole(['parent',
       if (!studentDoc) {
         return res.json([]);
       }
-      const myId = studentDoc.record_id || studentDoc._id.toString();
-      query = { student_id: myId };
+      const studentIds = collectStudentPaymentIdentifiers(studentDoc);
+      query = { student_id: { $in: studentIds } };
     } else {
       query = {};
     }
