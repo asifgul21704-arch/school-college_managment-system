@@ -139,6 +139,19 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
     'Due date': f.due_date,
   }));
 
+  const dayWiseCollections = useMemo(() => {
+    const grouped = new Map<string, { amount: number; transactions: number }>();
+    filteredFees.forEach(f => (f.payment_history || []).forEach(payment => {
+      const date = dateKey(payment.date);
+      if (!date || (monthFilter && !date.startsWith(monthFilter))) return;
+      const current = grouped.get(date) || { amount: 0, transactions: 0 };
+      current.amount += Number(payment.amount || 0);
+      current.transactions += 1;
+      grouped.set(date, current);
+    }));
+    return Array.from(grouped.entries()).map(([date, values]) => ({ date, ...values })).sort((a,b) => b.date.localeCompare(a.date));
+  }, [filteredFees, monthFilter]);
+
   const attendanceRows = filteredAttendance.map(a => ({
     Date: a.date, Student: a.student_name, Class: a.class_name, Section: a.section, Status: a.status,
   }));
@@ -232,6 +245,11 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
       </>}
 
       {tab === 'fees' && <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-200 p-4"><div><h3 className="font-bold text-neutral-900">Fee collection report</h3><p className="mt-1 text-xs text-neutral-500">Voucher-level billed, collected and remaining balances.</p></div><button onClick={() => downloadCsv('fee-collection-report.csv', feeRows)} className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-neutral-950 px-3 text-xs font-semibold text-white"><FileSpreadsheet className="h-4 w-4" /> Export CSV</button></div><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="bg-neutral-50 text-neutral-500"><tr>{['Student','Class','Month','Billed','Collected','Outstanding','Status'].map(h => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}</tr></thead><tbody className="divide-y divide-neutral-100">{filteredFees.map(f => <tr key={f.id}><td className="px-4 py-3 font-semibold text-neutral-900">{f.student_name}</td><td className="px-4 py-3">{f.class_name}</td><td className="px-4 py-3">{f.fee_month} {f.year}</td><td className="px-4 py-3">{money(f.total_amount)}</td><td className="px-4 py-3 text-emerald-800">{money(f.paid_amount)}</td><td className="px-4 py-3 text-rose-700">{money(f.pending_amount)}</td><td className="px-4 py-3">{f.status}</td></tr>)}</tbody></table>{filteredFees.length === 0 && <p className="p-8 text-center text-sm text-neutral-500">No fee vouchers found for this filter.</p>}</div></div>}
+
+      {tab === 'fees' && <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-200 p-4"><div><h3 className="font-bold text-neutral-900">Day-wise collection</h3><p className="mt-1 text-xs text-neutral-500">Daily sums from saved fee payment history entries.</p></div><button onClick={() => downloadCsv('day-wise-fee-collection.csv', dayWiseCollections.map(row => ({ Date: row.date, Collected: row.amount, Transactions: row.transactions })))} className="rounded-lg bg-neutral-950 px-3 py-2 text-xs font-semibold text-white">Export CSV</button></div>
+        <div className="divide-y divide-neutral-100">{dayWiseCollections.map(row => <div key={row.date} className="flex items-center justify-between gap-3 px-4 py-3"><span className="text-xs font-semibold text-neutral-700">{row.date}</span><div className="text-right"><p className="text-sm font-bold text-emerald-800">{money(row.amount)}</p><p className="text-[11px] text-neutral-500">{row.transactions} payment(s)</p></div></div>)}{dayWiseCollections.length === 0 && <p className="p-6 text-center text-sm text-neutral-500">No dated payment history is available for this period.</p>}</div>
+      </div>}
 
       {tab === 'defaulters' && <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white"><div className="flex items-center justify-between border-b border-neutral-200 p-4"><div><h3 className="font-bold text-neutral-900">Fee defaulters</h3><p className="mt-1 text-xs text-neutral-500">Students with a positive outstanding voucher balance.</p></div><button onClick={() => downloadCsv('fee-defaulters.csv', defaulters.map(f => ({ Student: f.student_name, Class: f.class_name, Month: f.fee_month, Year: f.year, Outstanding: f.pending_amount, DueDate: f.due_date })))} className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-neutral-950 px-3 text-xs font-semibold text-white"><FileSpreadsheet className="h-4 w-4" /> Export CSV</button></div><div className="divide-y divide-neutral-100">{defaulters.map(f => <div key={f.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><p className="text-sm font-semibold text-neutral-900">{f.student_name}</p><p className="mt-1 text-xs text-neutral-500">{f.class_name} · {f.fee_month} {f.year} · Due {f.due_date || 'date not recorded'}</p></div><p className="text-sm font-bold text-rose-700">{money(f.pending_amount)}</p></div>)}{defaulters.length === 0 && <p className="p-8 text-center text-sm text-neutral-500">No outstanding fee vouchers found for this filter.</p>}</div><div className="border-t border-neutral-200 p-4"><button onClick={() => onAskAI('Analyze the current fee defaulters report. Group dues by class and identify high outstanding balances using live records only. Do not send reminders.')} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-900"><Sparkles className="h-4 w-4" /> Ask AI to analyze defaulters</button></div></div>}
 
