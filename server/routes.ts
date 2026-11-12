@@ -2402,7 +2402,7 @@ router.post('/parents/unlink-child', authenticateToken, requireRole(['parent']),
     // Release denormalized ownership only while this parent still owns the student.
     // A concurrent relink by another parent cannot be overwritten by this stale request.
     await StudentModel.updateOne(
-      buildStudentParentReleaseFilter(studentDoc._id, canonicalUserId),
+      buildStudentParentReleaseFilter(studentDoc._id, canonicalUserId, userDoc._id.toString()),
       { $set: { parent_user_id: '' } }
     );
 
