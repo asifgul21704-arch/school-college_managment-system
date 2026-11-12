@@ -1,6 +1,7 @@
 import express, { type Request, type Response } from 'express';
 import { financeRouter } from './financeRoutes.ts';
 import { buildNotificationVisibilityFilter, canMarkNotificationRead } from './notificationAccess.ts';
+import { collectParentStudentReferences } from './parentAccess.ts';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jsonwebtoken from 'jsonwebtoken';
@@ -464,39 +465,25 @@ async function findParentByAnyId(rawId: string): Promise<any | null> {
 async function getLinkedStudentIdsForParent(user: {
   id: string;
   email?: string;
-  linked_id?: string;
-  linked_student_ids?: string[];
 }): Promise<Set<string>> {
-  const ids = new Set<string>();
-  if (user.linked_id) ids.add(String(user.linked_id).trim());
-  if (Array.isArray(user.linked_student_ids)) {
-    for (const s of user.linked_student_ids) {
-      if (s && String(s).trim()) ids.add(String(s).trim());
-    }
-  }
-
+  // Authorization is resolved from current MongoDB records only. JWT link claims are
+  // deliberately ignored so an old session cannot restore access after a child is unlinked.
   const parentQueryClauses: Record<string, any>[] = [{ user_id: user.id }];
-  if (user.email) {
-    parentQueryClauses.push({ email: user.email.toLowerCase() });
-  }
-  const [parentDoc, childDocs] = await Promise.all([
+  if (user.email) parentQueryClauses.push({ email: user.email.toLowerCase() });
+
+  const [userDoc, parentDoc, childDocs] = await Promise.all([
+    findUserByAnyId(user.id),
     ParentModel.findOne({ $or: parentQueryClauses }).lean(),
-    StudentModel.find({ parent_user_id: user.id }).select('record_id _id').lean(),
+    StudentModel.find({ parent_user_id: user.id }).select('record_id _id admission_no').lean(),
   ]);
 
-  if (parentDoc && Array.isArray(parentDoc.linked_students)) {
-    for (const rawLinked of parentDoc.linked_students) {
-      const clean = String(rawLinked || '').trim();
-      if (clean) ids.add(clean);
-    }
-  }
+  const ids = collectParentStudentReferences({
+    userRecord: userDoc,
+    parentRecord: parentDoc,
+    childRecords: childDocs,
+  });
 
-  for (const child of childDocs) {
-    const cid = child.record_id || (child._id ? child._id.toString() : '');
-    if (cid) ids.add(cid);
-  }
-
-  // Normalize any ObjectId or admission_no references in ids to include canonical student DTO IDs
+  // Normalize ObjectId/admission number aliases to canonical student identifiers.
   if (ids.size > 0) {
     const idArr = Array.from(ids);
     const objIds = idArr
@@ -508,9 +495,7 @@ async function getLinkedStudentIdsForParent(user: {
         { admission_no: { $in: idArr } },
         ...(objIds.length > 0 ? [{ _id: { $in: objIds } }] : []),
       ],
-    })
-      .select('record_id _id')
-      .lean();
+    }).select('record_id _id').lean();
     for (const st of matchedStudents) {
       if (st.record_id) ids.add(st.record_id);
       if (st._id) ids.add(st._id.toString());
@@ -2077,13 +2062,7 @@ function isFatherNameMatch(studentFather: string, inputFather: string): boolean 
 }
 
 async function fetchLinkedStudentsForParentUser(userId: string, email?: string): Promise<StudentDto[]> {
-  const userDoc = await findUserByAnyId(userId);
-  const ids = await getLinkedStudentIdsForParent({
-    id: userId,
-    email: email || userDoc?.email,
-    linked_id: userDoc?.linked_id,
-    linked_student_ids: userDoc?.linked_student_ids,
-  });
+  const ids = await getLinkedStudentIdsForParent({ id: userId, email });
   if (ids.size === 0) return [];
   const idArr = Array.from(ids);
   const objIds = idArr
@@ -2353,8 +2332,6 @@ router.post('/parents/unlink-child', authenticateToken, requireRole(['parent']),
     const linkedSet = await getLinkedStudentIdsForParent({
       id: canonicalUserId,
       email: userDoc.email,
-      linked_id: userDoc.linked_id,
-      linked_student_ids: userDoc.linked_student_ids,
     });
 
     if (!linkedSet.has(canonicalStudentId) && !linkedSet.has(String(student_id))) {
