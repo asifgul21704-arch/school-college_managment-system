@@ -23,3 +23,12 @@ export function collectParentStudentReferences(userRecord: ParentAccountLinks | 
   }
   return ids;
 }
+
+/** Checks a requested student's known aliases against current parent account links. */
+export function isParentLinkedToStudent(linkedStudentIds: ReadonlySet<string>, studentIdentifiers: unknown[]): boolean {
+  return studentIdentifiers.some(identifier => {
+    if (identifier === null || identifier === undefined) return false;
+    const normalized = String(identifier).trim();
+    return normalized.length > 0 && linkedStudentIds.has(normalized);
+  });
+}
