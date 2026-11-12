@@ -1,6 +1,8 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
+import fs from 'node:fs';
+import path from 'node:path';
 import bcrypt from 'bcryptjs';
 import { UserModel } from './models/User.ts';
 import { StudentModel } from './models/Student.ts';
@@ -10,6 +12,7 @@ import { AttendanceModel } from './models/Attendance.ts';
 import { ExamModel } from './models/Exam.ts';
 import { ResultModel } from './models/Result.ts';
 import { NotificationModel } from './models/Notification.ts';
+import { StoredDocumentModel } from './models/StoredDocument.ts';
 
 const API = process.env.E2E_API_BASE_URL || 'http://127.0.0.1:3000/api';
 const PASSWORD = 'E2eStrongPass!2026';
@@ -110,6 +113,7 @@ async function submitBankPayment(token: string, feeId: string, studentId: string
 }
 
 let adminToken = '';
+let privateDocumentFilename = '';
 
 before(async () => {
   assertIsolatedTarget();
@@ -125,6 +129,7 @@ before(async () => {
     ExamModel.init(),
     ResultModel.init(),
     NotificationModel.init(),
+    StoredDocumentModel.init(),
   ]);
 
   const adminPasswordHash = await bcrypt.hash(PASSWORD, 10);
@@ -146,6 +151,14 @@ before(async () => {
 });
 
 after(async () => {
+  if (privateDocumentFilename) {
+    await StoredDocumentModel.deleteOne({ filename: privateDocumentFilename });
+    const uploadsDir = process.env.UPLOAD_STORAGE_DIR
+      ? path.resolve(process.env.UPLOAD_STORAGE_DIR)
+      : path.resolve(process.cwd(), 'data', 'uploads');
+    const storedPath = path.resolve(uploadsDir, 'private', privateDocumentFilename);
+    if (fs.existsSync(storedPath)) fs.unlinkSync(storedPath);
+  }
   await mongoose.disconnect();
 });
 
@@ -221,6 +234,24 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   const parentB = await registerParent('B', studentB.admissionNo);
   assert.equal(parentB.status, 201, JSON.stringify(parentB.data));
   const parentBToken = parentB.data.token as string;
+
+  // Private student documents are visible only through current ownership/linkage,
+  // not merely because an old parent session originally uploaded the file.
+  const privateDocumentUpload = await api('POST', '/upload', {
+    dataUrl: 'data:application/pdf;base64,JVBERi0xLjQKJUVPRgo=',
+    filename: 'E2E-Student-A-Private.pdf',
+    category: 'student_document',
+    student_id: studentA.id,
+  }, parentAToken);
+  assert.equal(privateDocumentUpload.status, 201, JSON.stringify(privateDocumentUpload.data));
+  privateDocumentFilename = privateDocumentUpload.data.filename as string;
+  assert.ok(privateDocumentFilename);
+  const parentAReadsOwnChildDocument = await api('GET', `/documents/${encodeURIComponent(privateDocumentFilename)}`, undefined, parentAToken);
+  assert.equal(parentAReadsOwnChildDocument.status, 200);
+  const studentAReadsOwnDocument = await api('GET', `/documents/${encodeURIComponent(privateDocumentFilename)}`, undefined, studentA.token);
+  assert.equal(studentAReadsOwnDocument.status, 200);
+  const parentBReadsOtherChildDocument = await api('GET', `/documents/${encodeURIComponent(privateDocumentFilename)}`, undefined, parentBToken);
+  assert.equal(parentBReadsOtherChildDocument.status, 403);
 
   const parentD = await registerParent('D', studentD.admissionNo);
   assert.equal(parentD.status, 201, JSON.stringify(parentD.data));
@@ -361,6 +392,8 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   assert.equal(unlinkA.status, 200, JSON.stringify(unlinkA.data));
   const oldSessionReadsA = await api('GET', `/students/${encodeURIComponent(studentA.id)}`, undefined, parentAToken);
   assert.equal(oldSessionReadsA.status, 403);
+  const oldSessionPrivateDocument = await api('GET', `/documents/${encodeURIComponent(privateDocumentFilename)}`, undefined, parentAToken);
+  assert.equal(oldSessionPrivateDocument.status, 403);
   const oldSessionAttendance = await api('GET', `/attendance?student_id=${encodeURIComponent(studentA.id)}`, undefined, parentAToken);
   assert.equal(oldSessionAttendance.status, 403);
   const oldSessionResults = await api('GET', `/results?student_id=${encodeURIComponent(studentA.id)}`, undefined, parentAToken);
@@ -397,6 +430,8 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   assert.equal(parentCHistory.status, 200);
   assert.equal(parentCHistory.data.length, 1);
   assert.equal(parentCHistory.data[0].student_id, studentA.id);
+  const newParentReadsLinkedDocument = await api('GET', `/documents/${encodeURIComponent(privateDocumentFilename)}`, undefined, parentCToken);
+  assert.equal(newParentReadsLinkedDocument.status, 200);
 
   // Admin routes must not bypass ownership or unlink a relationship belonging to another parent.
   const adminCannotStealB = await api('POST', '/admin/parent-links/link', {
@@ -423,6 +458,8 @@ test('parent/student permissions, unlink invalidation, and payment history work 
 
   const parentCAfterAdminUnlink = await api('GET', `/students/${encodeURIComponent(studentA.id)}`, undefined, parentCToken);
   assert.equal(parentCAfterAdminUnlink.status, 403);
+  const parentCDocumentAfterAdminUnlink = await api('GET', `/documents/${encodeURIComponent(privateDocumentFilename)}`, undefined, parentCToken);
+  assert.equal(parentCDocumentAfterAdminUnlink.status, 403);
   const parentCHistoryAfterAdminUnlink = await api('GET', '/parent/payments/history', undefined, parentCToken);
   assert.deepEqual(parentCHistoryAfterAdminUnlink.data, []);
   const parentCAiAfterAdminUnlink = await api('POST', '/portal/ai/query', { prompt: 'show my child attendance' }, parentCToken);
@@ -592,6 +629,8 @@ test('parent/student permissions, unlink invalidation, and payment history work 
     createStudentRecord: true,
   }, teacherToken);
   assert.equal(teacherCannotApproveAdmission.status, 403);
+  const teacherReadsAssignedDocument = await api('GET', `/documents/${encodeURIComponent(privateDocumentFilename)}`, undefined, teacherToken);
+  assert.equal(teacherReadsAssignedDocument.status, 200);
   const teacherRoster = await api('GET', '/students', undefined, teacherToken);
   assert.equal(teacherRoster.status, 200);
   assert.ok(teacherRoster.data.some((student: any) => student.id === studentA.id));
