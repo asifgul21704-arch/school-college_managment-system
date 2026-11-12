@@ -535,6 +535,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
       parentChildrenLoadVersionRef.current += 1;
       setUnlinkSuccess(res.message || `Successfully unlinked ${childToUnlink.full_name}.`);
       setLinkedStudents(res.linked_students);
+      // Invalidate in-flight child requests immediately after the server confirms unlink.
+      clearStudentScopedData();
       await refreshUser();
 
       if (res.linked_students.length > 0) {
