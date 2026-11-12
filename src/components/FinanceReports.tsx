@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Activity, AlertTriangle, ArrowDownToLine, CalendarDays, ChartNoAxesCombined, FileSpreadsheet, Printer, RefreshCw, Sparkles, Wallet } from 'lucide-react';
 import { api } from '../services/api';
-import type { AttendanceRecord, ExpenseRecord, FeeRecord, PayrollRecord, Student } from '../types';
+import type { AttendanceRecord, ExpenseRecord, FeeRecord, PayrollRecord, Student, Teacher, VerifiedFeeCollectionRecord } from '../types';
 
-type ReportTab = 'overview' | 'fees' | 'defaulters' | 'attendance' | 'expenses' | 'payroll';
+type ReportTab = 'overview' | 'fees' | 'defaulters' | 'attendance' | 'sessions' | 'expenses' | 'payroll';
 
 interface FinanceReportsProps {
   onAskAI: (prompt: string) => void;
@@ -46,6 +46,9 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
   const [payroll, setPayroll] = useState<PayrollRecord[]>([]);
+  const [collections, setCollections] = useState<VerifiedFeeCollectionRecord[]>([]);
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [enrollments, setEnrollments] = useState<any[]>([]);
   const [expenseDraft, setExpenseDraft] = useState({ title: '', category: 'Utilities', amount: '', expense_date: new Date().toISOString().slice(0, 10), payment_method: 'Cash' });
   const [payrollDraft, setPayrollDraft] = useState({ staff_id: '', staff_name: '', designation: 'Teacher', salary_month: new Date().getMonth() + 1, salary_year: new Date().getFullYear(), basic_salary: '', allowances: '0', deductions: '0' });
   const [loading, setLoading] = useState(true);
@@ -58,18 +61,24 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
     if (quiet) setRefreshing(true); else setLoading(true);
     setError('');
     try {
-      const [feeRows, studentRows, attendanceRows, expenseRows, payrollRows] = await Promise.all([
+      const [feeRows, studentRows, attendanceRows, expenseRows, payrollRows, collectionRows, teacherRows, enrollmentRows] = await Promise.all([
         api.getFees(),
         api.getStudents(),
         api.getAttendance(),
         api.getFinanceExpenses(),
         api.getFinancePayroll(),
+        api.getFinanceCollections(),
+        api.getTeachers(),
+        api.getEnrollments(),
       ]);
       setFees(Array.isArray(feeRows) ? feeRows : []);
       setStudents(Array.isArray(studentRows) ? studentRows : []);
       setAttendance(Array.isArray(attendanceRows) ? attendanceRows : []);
       setExpenses(Array.isArray(expenseRows) ? expenseRows : []);
       setPayroll(Array.isArray(payrollRows) ? payrollRows : []);
+      setCollections(Array.isArray(collectionRows) ? collectionRows : []);
+      setTeachers(Array.isArray(teacherRows) ? teacherRows : []);
+      setEnrollments(Array.isArray(enrollmentRows) ? enrollmentRows : []);
     } catch (err: any) {
       setError(err?.message || 'Reports could not be loaded from the school database.');
     } finally {
@@ -84,7 +93,8 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
     ...fees.map(f => f.class_name),
     ...students.map(student => student.class_name),
     ...attendance.map(a => a.class_name),
-  ].filter(Boolean))).sort(), [fees, students, attendance]);
+    ...enrollments.map(e => e.class_name),
+  ].filter(Boolean))).sort(), [fees, students, attendance, enrollments]);
 
   const filteredFees = useMemo(() => fees.filter(f => {
     if (classFilter !== 'all' && f.class_name !== classFilter) return false;
@@ -141,16 +151,42 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
 
   const dayWiseCollections = useMemo(() => {
     const grouped = new Map<string, { amount: number; transactions: number }>();
-    filteredFees.forEach(f => (f.payment_history || []).forEach(payment => {
-      const date = dateKey(payment.date);
-      if (!date || (monthFilter && !date.startsWith(monthFilter))) return;
-      const current = grouped.get(date) || { amount: 0, transactions: 0 };
+    collections.filter(payment =>
+      (!monthFilter || payment.date.startsWith(monthFilter)) &&
+      (classFilter === 'all' || payment.class_name === classFilter)
+    ).forEach(payment => {
+      const current = grouped.get(payment.date) || { amount: 0, transactions: 0 };
       current.amount += Number(payment.amount || 0);
       current.transactions += 1;
-      grouped.set(date, current);
-    }));
+      grouped.set(payment.date, current);
+    });
     return Array.from(grouped.entries()).map(([date, values]) => ({ date, ...values })).sort((a,b) => b.date.localeCompare(a.date));
-  }, [filteredFees, monthFilter]);
+  }, [collections, monthFilter, classFilter]);
+
+  const filteredEnrollments = enrollments.filter(e =>
+    (classFilter === 'all' || e.class_name === classFilter) &&
+    (!monthFilter || String(e.academic_year || '').includes(monthFilter.slice(0, 4)))
+  );
+  const sessionSummary = useMemo(() => {
+    const grouped = new Map<string, { students: Set<string>; classes: Map<string, number>; active: number; completed: number; transferred: number; dropped: number }>();
+    filteredEnrollments.forEach(e => {
+      const year = String(e.academic_year || 'Session not recorded');
+      const row = grouped.get(year) || { students: new Set<string>(), classes: new Map<string, number>(), active: 0, completed: 0, transferred: 0, dropped: 0 };
+      if (e.student_id) row.students.add(String(e.student_id));
+      row.classes.set(String(e.class_name || 'Unassigned'), (row.classes.get(String(e.class_name || 'Unassigned')) || 0) + 1);
+      const status = String(e.status || '').toLowerCase();
+      if (status === 'active') row.active += 1;
+      else if (status === 'completed') row.completed += 1;
+      else if (status === 'transferred') row.transferred += 1;
+      else if (status === 'dropped') row.dropped += 1;
+      grouped.set(year, row);
+    });
+    return Array.from(grouped.entries()).map(([academicYear, row]) => ({
+      academicYear, uniqueStudents: row.students.size, enrollments: Array.from(row.classes.values()).reduce((a,b)=>a+b,0),
+      active: row.active, completed: row.completed, transferred: row.transferred, dropped: row.dropped,
+      classes: Array.from(row.classes.entries()).map(([name,count])=>`${name}: ${count}`).join('; '),
+    })).sort((a,b)=>b.academicYear.localeCompare(a.academicYear));
+  }, [filteredEnrollments]);
 
   const attendanceRows = filteredAttendance.map(a => ({
     Date: a.date, Student: a.student_name, Class: a.class_name, Section: a.section, Status: a.status,
@@ -174,13 +210,32 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
       await load(true);
     } catch (err: any) { setError(err?.message || 'Unable to create salary record.'); }
   };
+  const editExpense = async (row: ExpenseRecord) => {
+    const title = window.prompt('Expense title', row.title);
+    if (title === null) return;
+    const amountRaw = window.prompt('Amount in PKR', String(row.amount));
+    if (amountRaw === null) return;
+    const amount = Number(amountRaw);
+    if (!title.trim() || !Number.isFinite(amount) || amount <= 0) { setError('Enter a valid title and positive amount.'); return; }
+    try { await api.updateFinanceExpense(row.id, { title: title.trim(), amount }); await load(true); }
+    catch (err: any) { setError(err?.message || 'Unable to update expense.'); }
+  };
+  const deleteExpense = async (row: ExpenseRecord) => {
+    if (!window.confirm(`Delete expense "${row.title}" for ${money(row.amount)}? This action will be recorded in the audit log.`)) return;
+    try { await api.deleteFinanceExpense(row.id); await load(true); }
+    catch (err: any) { setError(err?.message || 'Unable to delete expense.'); }
+  };
   const paySalary = async (row: PayrollRecord) => {
     const remaining = Number(row.net_salary || 0) - Number(row.paid_amount || 0);
     const raw = window.prompt(`Remaining salary: PKR ${remaining.toLocaleString()}. Enter payment amount:`);
     if (raw === null) return;
     const amount = Number(raw);
     if (!Number.isFinite(amount) || amount <= 0 || amount > remaining) { setError('Enter a valid payment amount within the remaining balance.'); return; }
-    try { await api.recordFinanceSalaryPayment(row.id, { amount, payment_date: new Date().toISOString().slice(0, 10), payment_method: 'Cash' }); await load(true); }
+    const method = window.prompt('Payment method: Cash, Bank Transfer, Cheque, JazzCash, Easypaisa, Other', 'Cash');
+    if (method === null) return;
+    const allowed = ['Cash','Bank Transfer','Cheque','JazzCash','Easypaisa','Other'];
+    if (!allowed.includes(method)) { setError('Choose a supported payment method.'); return; }
+    try { await api.recordFinanceSalaryPayment(row.id, { amount, payment_date: new Date().toISOString().slice(0, 10), payment_method: method }); await load(true); }
     catch (err: any) { setError(err?.message || 'Unable to record salary payment.'); }
   };
 
@@ -189,6 +244,7 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
     { id: 'fees', label: 'Fee collection', icon: Wallet },
     { id: 'defaulters', label: 'Defaulters', icon: AlertTriangle },
     { id: 'attendance', label: 'Attendance', icon: Activity },
+    { id: 'sessions', label: 'Sessions', icon: CalendarDays },
     { id: 'expenses', label: 'Expenses', icon: ArrowDownToLine },
     { id: 'payroll', label: 'Payroll', icon: Wallet },
   ];
@@ -256,6 +312,11 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
       {tab === 'attendance' && <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-200 p-4"><div><h3 className="font-bold text-neutral-900">Attendance report</h3><p className="mt-1 text-xs text-neutral-500">Recorded attendance for the selected month and class.</p></div><button onClick={() => downloadCsv('attendance-report.csv', attendanceRows)} className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-neutral-950 px-3 text-xs font-semibold text-white"><FileSpreadsheet className="h-4 w-4" /> Export CSV</button></div><div className="overflow-x-auto"><table className="w-full min-w-[640px] text-left text-xs"><thead className="bg-neutral-50 text-neutral-500"><tr>{['Date','Student','Class','Section','Status'].map(h => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}</tr></thead><tbody className="divide-y divide-neutral-100">{filteredAttendance.map((a,i) => <tr key={a.id || `${a.student_id}-${a.date}-${i}`}><td className="px-4 py-3">{a.date}</td><td className="px-4 py-3 font-semibold text-neutral-900">{a.student_name}</td><td className="px-4 py-3">{a.class_name}</td><td className="px-4 py-3">{a.section}</td><td className="px-4 py-3">{a.status}</td></tr>)}</tbody></table>{filteredAttendance.length === 0 && <p className="p-8 text-center text-sm text-neutral-500">No attendance records found for this filter.</p>}</div></div>}
 
 
+      {tab === 'sessions' && <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-200 p-4"><div><h3 className="font-bold text-neutral-900">Session-wise student report</h3><p className="mt-1 text-xs text-neutral-500">Based on saved enrollment history, not estimated from admission dates.</p></div><button onClick={()=>downloadCsv('session-wise-students.csv',sessionSummary.map(row=>({Session:row.academicYear,UniqueStudents:row.uniqueStudents,Enrollments:row.enrollments,Active:row.active,Completed:row.completed,Transferred:row.transferred,Dropped:row.dropped,Classes:row.classes})))} className="rounded-lg bg-neutral-950 px-3 py-2 text-xs font-semibold text-white">Export CSV</button></div>
+        <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="bg-neutral-50 text-neutral-500"><tr>{['Academic session','Unique students','Enrollments','Active','Completed','Transferred','Dropped'].map(h=><th key={h} className="px-4 py-3 font-semibold">{h}</th>)}</tr></thead><tbody className="divide-y divide-neutral-100">{sessionSummary.map(row=><tr key={row.academicYear}><td className="px-4 py-3 font-semibold text-neutral-900">{row.academicYear}</td><td className="px-4 py-3">{row.uniqueStudents}</td><td className="px-4 py-3">{row.enrollments}</td><td className="px-4 py-3">{row.active}</td><td className="px-4 py-3">{row.completed}</td><td className="px-4 py-3">{row.transferred}</td><td className="px-4 py-3">{row.dropped}</td></tr>)}</tbody></table>{sessionSummary.length===0&&<p className="p-8 text-center text-sm text-neutral-500">No enrollment history found for this period.</p>}</div>
+      </div>}
+
       {tab === 'expenses' && <div className="space-y-4">
         <form onSubmit={saveExpense} className="grid gap-3 rounded-2xl border border-neutral-200 bg-white p-4 sm:grid-cols-2 xl:grid-cols-5">
           <input required maxLength={160} placeholder="Expense title" value={expenseDraft.title} onChange={e => setExpenseDraft(v => ({...v,title:e.target.value}))} className="min-h-10 rounded-lg border border-neutral-200 px-3 text-sm xl:col-span-2" />
@@ -266,13 +327,13 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
           <button type="submit" className="min-h-10 rounded-lg bg-neutral-950 px-4 text-xs font-bold text-white">Save expense</button>
         </form>
         <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-neutral-500">Record verified operating expenses here. Staff salaries belong in Payroll to avoid duplicate reporting.</p><button onClick={() => onAskAI('Analyze this month’s recorded operating expenses by category and identify the largest cost areas. Use only saved expense records.')} className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-900"><Sparkles className="h-4 w-4" /> Ask AI to analyze expenses</button></div>
-        <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white"><div className="flex items-center justify-between border-b border-neutral-200 p-4"><h3 className="font-bold text-neutral-900">Expense ledger · {money(filteredExpenses.reduce((n,e)=>n+Number(e.amount||0),0))}</h3><button onClick={()=>downloadCsv('expense-ledger.csv',filteredExpenses.map(e=>({Date:e.expense_date,Title:e.title,Category:e.category,Amount:e.amount,Method:e.payment_method})))} className="rounded-lg bg-neutral-950 px-3 py-2 text-xs font-semibold text-white">Export CSV</button></div><div className="divide-y divide-neutral-100">{filteredExpenses.map(e=><div key={e.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><p className="text-sm font-semibold text-neutral-900">{e.title}</p><p className="mt-1 text-xs text-neutral-500">{e.category} · {e.expense_date} · {e.payment_method}</p></div><p className="font-bold text-neutral-900">{money(e.amount)}</p></div>)}{filteredExpenses.length===0&&<p className="p-8 text-center text-sm text-neutral-500">No expense records for this month.</p>}</div></div>
+        <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white"><div className="flex items-center justify-between border-b border-neutral-200 p-4"><h3 className="font-bold text-neutral-900">Expense ledger · {money(filteredExpenses.reduce((n,e)=>n+Number(e.amount||0),0))}</h3><button onClick={()=>downloadCsv('expense-ledger.csv',filteredExpenses.map(e=>({Date:e.expense_date,Title:e.title,Category:e.category,Amount:e.amount,Method:e.payment_method})))} className="rounded-lg bg-neutral-950 px-3 py-2 text-xs font-semibold text-white">Export CSV</button></div><div className="divide-y divide-neutral-100">{filteredExpenses.map(e=><div key={e.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><p className="text-sm font-semibold text-neutral-900">{e.title}</p><p className="mt-1 text-xs text-neutral-500">{e.category} · {e.expense_date} · {e.payment_method}</p></div><div className="flex items-center gap-3"><p className="font-bold text-neutral-900">{money(e.amount)}</p><button type="button" onClick={()=>void editExpense(e)} className="rounded-lg border px-3 py-2 text-xs font-semibold">Edit</button><button type="button" onClick={()=>void deleteExpense(e)} className="rounded-lg border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700">Delete</button></div></div>)}{filteredExpenses.length===0&&<p className="p-8 text-center text-sm text-neutral-500">No expense records for this month.</p>}</div></div>
       </div>}
       {tab === 'payroll' && <div className="space-y-4">
         <form onSubmit={savePayroll} className="grid gap-3 rounded-2xl border border-neutral-200 bg-white p-4 sm:grid-cols-2 xl:grid-cols-4">
-          <input required placeholder="Staff ID" value={payrollDraft.staff_id} onChange={e=>setPayrollDraft(v=>({...v,staff_id:e.target.value}))} className="min-h-10 rounded-lg border border-neutral-200 px-3 text-sm" />
-          <input required placeholder="Staff name" value={payrollDraft.staff_name} onChange={e=>setPayrollDraft(v=>({...v,staff_name:e.target.value}))} className="min-h-10 rounded-lg border border-neutral-200 px-3 text-sm" />
-          <input required placeholder="Designation" value={payrollDraft.designation} onChange={e=>setPayrollDraft(v=>({...v,designation:e.target.value}))} className="min-h-10 rounded-lg border border-neutral-200 px-3 text-sm" />
+          <select required value={payrollDraft.staff_id} onChange={e=>{const staff=teachers.find(t=>t.id===e.target.value);setPayrollDraft(v=>({...v,staff_id:e.target.value,staff_name:staff?.name||'',designation:staff?.subject||'Teacher'}));}} className="min-h-10 rounded-lg border border-neutral-200 px-3 text-sm"><option value="">Select staff member</option>{teachers.filter(t=>t.status==='Active').map(t=><option key={t.id} value={t.id}>{t.name} · {t.subject || 'Teacher'}</option>)}</select>
+          <input required readOnly placeholder="Staff name" value={payrollDraft.staff_name} className="min-h-10 rounded-lg border border-neutral-200 bg-neutral-50 px-3 text-sm" />
+          <input required readOnly placeholder="Designation" value={payrollDraft.designation} className="min-h-10 rounded-lg border border-neutral-200 bg-neutral-50 px-3 text-sm" />
           <input required type="number" min="0" step="0.01" placeholder="Basic salary PKR" value={payrollDraft.basic_salary} onChange={e=>setPayrollDraft(v=>({...v,basic_salary:e.target.value}))} className="min-h-10 rounded-lg border border-neutral-200 px-3 text-sm" />
           <input type="number" min="0" step="0.01" placeholder="Allowances" value={payrollDraft.allowances} onChange={e=>setPayrollDraft(v=>({...v,allowances:e.target.value}))} className="min-h-10 rounded-lg border border-neutral-200 px-3 text-sm" />
           <input type="number" min="0" step="0.01" placeholder="Deductions" value={payrollDraft.deductions} onChange={e=>setPayrollDraft(v=>({...v,deductions:e.target.value}))} className="min-h-10 rounded-lg border border-neutral-200 px-3 text-sm" />
@@ -281,7 +342,7 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
           <button type="submit" className="min-h-10 rounded-lg bg-neutral-950 px-4 text-xs font-bold text-white xl:col-span-4">Create salary record</button>
         </form>
         <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-neutral-500">Salary records and disbursements are visible only to administrators.</p><button onClick={() => onAskAI('Analyze this month’s payroll records, total net salary, paid salary and remaining balances. Use live payroll records only.')} className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-900"><Sparkles className="h-4 w-4" /> Ask AI to analyze payroll</button></div>
-        <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white"><div className="flex items-center justify-between border-b border-neutral-200 p-4"><h3 className="font-bold text-neutral-900">Staff payroll</h3><button onClick={()=>downloadCsv('staff-payroll.csv',filteredPayroll.map(p=>({Staff:p.staff_name,Designation:p.designation,Period:`${p.salary_month}/${p.salary_year}`,Net:p.net_salary,Paid:p.paid_amount,Balance:Number(p.net_salary)-Number(p.paid_amount),Status:p.status})))} className="rounded-lg bg-neutral-950 px-3 py-2 text-xs font-semibold text-white">Export CSV</button></div><div className="divide-y divide-neutral-100">{filteredPayroll.map(p=><div key={p.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><p className="text-sm font-semibold text-neutral-900">{p.staff_name} · {p.designation}</p><p className="mt-1 text-xs text-neutral-500">{p.salary_month}/{p.salary_year} · Net {money(p.net_salary)} · Paid {money(p.paid_amount)} · {p.status}</p></div><button disabled={p.status==='Paid'} onClick={()=>void paySalary(p)} className="min-h-9 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-900 disabled:opacity-40">Record payment</button></div>)}{filteredPayroll.length===0&&<p className="p-8 text-center text-sm text-neutral-500">No payroll records for this month.</p>}</div></div>
+        <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white"><div className="flex items-center justify-between border-b border-neutral-200 p-4"><h3 className="font-bold text-neutral-900">Staff payroll</h3><button onClick={()=>downloadCsv('staff-payroll.csv',filteredPayroll.map(p=>({Staff:p.staff_name,Designation:p.designation,Period:`${p.salary_month}/${p.salary_year}`,Net:p.net_salary,Paid:p.paid_amount,Balance:Number(p.net_salary)-Number(p.paid_amount),Status:p.status})))} className="rounded-lg bg-neutral-950 px-3 py-2 text-xs font-semibold text-white">Export CSV</button></div><div className="divide-y divide-neutral-100">{filteredPayroll.map(p=><div key={p.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><p className="text-sm font-semibold text-neutral-900">{p.staff_name} · {p.designation}</p><p className="mt-1 text-xs text-neutral-500">{p.salary_month}/{p.salary_year} · Net {money(p.net_salary)} · Paid {money(p.paid_amount)} · Balance {money(Number(p.net_salary)-Number(p.paid_amount))} · {p.status}</p>{(p.payment_history || []).length>0 && <div className="mt-2 space-y-1">{p.payment_history.map((payment,i)=><p key={i} className="text-[11px] text-neutral-500">Payment {i+1}: {money(payment.amount)} · {payment.payment_date} · {payment.payment_method}</p>)}</div>}</div><button disabled={p.status==='Paid'} onClick={()=>void paySalary(p)} className="min-h-9 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-900 disabled:opacity-40">Record payment</button></div>)}{filteredPayroll.length===0&&<p className="p-8 text-center text-sm text-neutral-500">No payroll records for this month.</p>}</div></div>
       </div>}
 
       <p className="text-[11px] leading-relaxed text-neutral-400">Reports reflect records saved in the connected database. Payroll is tracked separately from the expense ledger to prevent double counting. Add only verified real transactions; no sample values are inserted.</p>
