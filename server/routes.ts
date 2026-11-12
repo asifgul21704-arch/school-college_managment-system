@@ -7490,6 +7490,7 @@ router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['supe
     let feeDoc: any = null;
     let updatedFee: any = null;
     let receiptNo = '';
+    let idempotentReplay = false;
     const session = await mongoose.startSession();
     try {
       await session.withTransaction(async () => {
@@ -7502,6 +7503,16 @@ router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['supe
           const existing = await FeePaymentModel.findById(paymentId).session(session);
           if (!existing) {
             throw Object.assign(new Error('Payment record not found'), { statusCode: 404 });
+          }
+          if (existing.status === 'Paid' && existing.verification_status === 'Verified' && existing.receipt_no) {
+            paymentDoc = existing;
+            receiptNo = existing.receipt_no;
+            feeDoc = await FeeModel.findOne(buildFeeLookupFilter(existing.fee_id)).session(session).lean();
+            if (!feeDoc) {
+              throw Object.assign(new Error('Associated fee voucher not found in database'), { statusCode: 404 });
+            }
+            idempotentReplay = true;
+            return;
           }
           throw Object.assign(new Error('This payment is no longer pending verification. It may already have been approved or rejected.'), { statusCode: 409 });
         }
@@ -7571,6 +7582,9 @@ router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['supe
       await session.endSession();
     }
 
+    // On an exact replay, retry only the idempotent in-app notification.
+    // Do not repeat SMS side effects or audit entries.
+    if (!idempotentReplay) {
     // Send SMS Confirmation to parent
     const smsResult = await sendPaymentApprovalSms({
       payment_reference: paymentDoc.payment_reference,
@@ -7605,6 +7619,7 @@ router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['supe
       });
     }
 
+    }
     await recordMongoAudit(
       req.user!,
       'Approved Fee Payment',
@@ -7658,14 +7673,23 @@ router.post('/admin/payments/:id/reject', authenticateToken, requireRole(['super
       { new: true }
     );
 
+    let idempotentReplay = false;
     if (!paymentDoc) {
       const existing = await FeePaymentModel.findById(paymentId).lean();
       if (!existing) {
         return res.status(404).json({ error: 'Payment record not found' });
       }
-      return res.status(409).json({ error: 'This payment is no longer pending verification. It may already have been approved or rejected.' });
+      if (existing.status === 'Rejected' && existing.verification_status === 'Rejected') {
+        paymentDoc = existing;
+        idempotentReplay = true;
+      } else {
+        return res.status(409).json({ error: 'This payment is no longer pending verification. It may already have been approved or rejected.' });
+      }
     }
 
+    // On an exact replay, retry only the idempotent in-app notification.
+    // Do not repeat SMS side effects or audit entries.
+    if (!idempotentReplay) {
     // Send Rejection SMS to Parent
     const smsResult = await sendPaymentRejectionSms(
       {
@@ -7701,6 +7725,7 @@ router.post('/admin/payments/:id/reject', authenticateToken, requireRole(['super
       });
     }
 
+    }
     await recordMongoAudit(
       req.user!,
       'Rejected Fee Payment',
