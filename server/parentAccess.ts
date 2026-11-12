@@ -56,3 +56,14 @@ export function areSameStudentIdentity(leftIdentifiers: unknown[], rightIdentifi
   const left = new Set(leftIdentifiers.map(normalize).filter(Boolean));
   return rightIdentifiers.map(normalize).some(value => Boolean(value) && left.has(value));
 }
+
+/** Prevent a parent from taking over a student record already assigned to another parent account. */
+export function isStudentClaimedByAnotherParent(
+  existingParentUserId: unknown,
+  currentParentIdentifiers: readonly string[]
+): boolean {
+  if (existingParentUserId === null || existingParentUserId === undefined) return false;
+  const existing = String(existingParentUserId).trim();
+  if (!existing) return false;
+  return !currentParentIdentifiers.some(identifier => String(identifier).trim() === existing);
+}
