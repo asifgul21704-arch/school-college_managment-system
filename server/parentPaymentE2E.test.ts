@@ -495,6 +495,7 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   assert.equal(approvedD.data.payment.verification_status, 'Verified');
   assert.ok(approvedD.data.payment.receipt_no);
   const approvedReceipt = approvedD.data.payment.receipt_no as string;
+  const approvalSmsTimestamp = (await FeePaymentModel.findById(paymentDId).lean())?.sms_sent_at;
 
   const approvedFeeD = await FeeModel.findOne({ voucher_id: feeD }).lean();
   assert.equal(approvedFeeD?.paid_amount, 5000);
@@ -506,6 +507,8 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   const approvalReplay = await api('POST', `/admin/payments/${encodeURIComponent(paymentDId)}/approve`, {}, adminToken);
   assert.equal(approvalReplay.status, 200, JSON.stringify(approvalReplay.data));
   assert.equal(approvalReplay.data.payment.receipt_no, approvedReceipt);
+  assert.equal(await NotificationModel.countDocuments({ action_id: `fee-approve:${paymentDId}` }), 1);
+  assert.equal((await FeePaymentModel.findById(paymentDId).lean())?.sms_sent_at, approvalSmsTimestamp);
   const approvedFeeAfterReplay = await FeeModel.findOne({ voucher_id: feeD }).lean();
   assert.equal(approvedFeeAfterReplay?.payment_history.length, 1);
   assert.equal(approvedFeeAfterReplay?.paid_amount, 5000);
@@ -532,6 +535,7 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   assert.equal(rejectedE.data.payment.status, 'Rejected');
   assert.equal(rejectedE.data.payment.verification_status, 'Rejected');
   assert.equal(rejectedE.data.payment.rejection_reason, 'Deposit slip is unreadable');
+  const rejectionSmsTimestamp = (await FeePaymentModel.findById(paymentEId).lean())?.sms_sent_at;
 
   const rejectedFeeE = await FeeModel.findOne({ voucher_id: feeE }).lean();
   assert.equal(rejectedFeeE?.paid_amount, 0);
@@ -541,6 +545,8 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   const rejectionReplay = await api('POST', `/admin/payments/${encodeURIComponent(paymentEId)}/reject`, { reason: 'Changed reason must not overwrite' }, adminToken);
   assert.equal(rejectionReplay.status, 200, JSON.stringify(rejectionReplay.data));
   assert.equal(rejectionReplay.data.payment.rejection_reason, 'Deposit slip is unreadable');
+  assert.equal(await NotificationModel.countDocuments({ action_id: `fee-reject:${paymentEId}` }), 1);
+  assert.equal((await FeePaymentModel.findById(paymentEId).lean())?.sms_sent_at, rejectionSmsTimestamp);
   const rejectedFeeAfterReplay = await FeeModel.findOne({ voucher_id: feeE }).lean();
   assert.equal(rejectedFeeAfterReplay?.paid_amount, 0);
   assert.equal(rejectedFeeAfterReplay?.pending_amount, 5000);
@@ -571,6 +577,7 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   assert.equal(installmentOneApproval.status, 200, JSON.stringify(installmentOneApproval.data));
   assert.equal(installmentOneApproval.data.payment.status, 'Paid');
   const installmentOneReceipt = installmentOneApproval.data.payment.receipt_no;
+  assert.equal(await NotificationModel.countDocuments({ action_id: `fee-approve:${installmentOneId}` }), 1);
 
   const partialFeeF = await FeeModel.findOne({ voucher_id: feeF }).lean();
   assert.equal(partialFeeF?.paid_amount, 2500);
@@ -585,6 +592,7 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   assert.equal(installmentTwoApproval.status, 200, JSON.stringify(installmentTwoApproval.data));
   const installmentTwoReceipt = installmentTwoApproval.data.payment.receipt_no;
   assert.notEqual(installmentTwoReceipt, installmentOneReceipt);
+  assert.equal(await NotificationModel.countDocuments({ action_id: `fee-approve:${installmentTwoId}` }), 1);
 
   const fullyPaidFeeF = await FeeModel.findOne({ voucher_id: feeF }).lean();
   assert.equal(fullyPaidFeeF?.paid_amount, 5000);
