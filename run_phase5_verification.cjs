@@ -554,8 +554,9 @@ async function runTests() {
   // 34. MongoDB connectivity
   const mongoStatus = await getRequest('/mongodb/status');
   assert(
-    mongoStatus.status === 200 && mongoStatus.data?.connected === true && mongoStatus.data?.isAtlas === true,
-    '34. MongoDB connectivity: Real MongoDB Atlas cluster connected and responsive',
+    mongoStatus.status === 200 && mongoStatus.data?.connected === true && mongoStatus.data?.isAtlas === false &&
+      mongoStatus.data?.databaseName === E2E_EXPECTED_DATABASE_NAME,
+    '34. MongoDB connectivity: Isolated local E2E database connected and responsive',
     `Status: ${mongoStatus.status}, isAtlas: ${mongoStatus.data?.isAtlas}`
   );
 
