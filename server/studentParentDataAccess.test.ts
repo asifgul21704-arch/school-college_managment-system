@@ -54,6 +54,7 @@ test('parent unlink clears child-specific payment and academic data from the cur
     'setUnreadCount(0)',
     'setViewingReceiptPayment(null)',
     'setPayingFee(null)',
+    'setPayModalSubmitting(false)',
     'setShowPayModal(false)',
   ]) {
     assert.ok(studentPortal.includes(setter), `Missing stale-data reset: ${setter}`);
@@ -103,4 +104,16 @@ test('late Portal AI responses cannot restore unlinked child records into the br
   assert.match(handler, /const requestVersion = portalLoadVersionRef\.current/);
   assert.match(handler, /await api\.queryPortalAi\(queryText\)[\s\S]*?requestVersion !== portalLoadVersionRef\.current/);
   assert.match(handler, /finally \{\s*if \(requestVersion === portalLoadVersionRef\.current\) setPortalAiLoading\(false\)/);
+});
+
+
+test('late payment responses cannot reopen a receipt or repopulate another child after unlink', () => {
+  const start = studentPortal.indexOf('const handleSubmitPayment = async');
+  const end = studentPortal.indexOf('// Send query to Portal AI', start);
+  assert.ok(start >= 0 && end > start);
+  const handler = studentPortal.slice(start, end);
+  assert.match(handler, /const requestVersion = portalLoadVersionRef\.current/);
+  assert.match(handler, /await api\.initiateFeePayment\([\s\S]*?requestVersion !== portalLoadVersionRef\.current/);
+  assert.match(handler, /requestVersion === portalLoadVersionRef\.current\) setViewingReceiptPayment/);
+  assert.match(handler, /finally \{\s*if \(requestVersion === portalLoadVersionRef\.current\) setPayModalSubmitting\(false\)/);
 });
