@@ -89,6 +89,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 }) => {
   const { user, login } = useAuth();
   const [activeSection, setActiveSection] = useState<string>('dashboard');
+  const [aiInitialPrompt, setAiInitialPrompt] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
 
@@ -2009,12 +2010,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* 1.25. ADMIN-ONLY AI ASSISTANT (RESTRICTED) */}
         {/* ==================================================== */}
         {activeSection === 'reports' && (
-          <FinanceReports onAskAI={() => setActiveSection('ai-assistant')} />
+          <FinanceReports onAskAI={(prompt) => { setAiInitialPrompt(prompt); setActiveSection('ai-assistant'); }} />
         )}
 
         {activeSection === 'ai-assistant' && (
           <div className="space-y-4">
-            <AdminAiAssistant />
+            <AdminAiAssistant initialPrompt={aiInitialPrompt} onPromptConsumed={() => setAiInitialPrompt('')} />
           </div>
         )}
 
