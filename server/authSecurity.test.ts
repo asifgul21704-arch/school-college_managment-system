@@ -55,3 +55,32 @@ test('request token extraction rejects malformed and empty credentials', () => {
   assert.equal(extractTokenFromRequest({ headers: { authorization: 'Basic abc' } } as any), null);
   assert.equal(extractTokenFromRequest({ headers: { cookie: 'theme=dark' } } as any), null);
 });
+
+async function runAuthentication(headers: Record<string, string>) {
+  let statusCode = 200;
+  let body: unknown;
+  let nextCalled = false;
+  const response = {
+    status(code: number) { statusCode = code; return this; },
+    json(value: unknown) { body = value; return this; },
+  };
+  const { authenticateToken } = await import('./auth.ts');
+  await authenticateToken(
+    { headers, ip: '127.0.0.1', socket: { remoteAddress: '127.0.0.1' } } as any,
+    response as any,
+    () => { nextCalled = true; }
+  );
+  return { statusCode, body, nextCalled };
+}
+
+test('authentication middleware rejects a missing token before database access', async () => {
+  const result = await runAuthentication({});
+  assert.equal(result.statusCode, 401);
+  assert.equal(result.nextCalled, false);
+});
+
+test('authentication middleware rejects an invalid bearer token before database access', async () => {
+  const result = await runAuthentication({ authorization: 'Bearer definitely-not-a-jwt' });
+  assert.equal(result.statusCode, 401);
+  assert.equal(result.nextCalled, false);
+});
