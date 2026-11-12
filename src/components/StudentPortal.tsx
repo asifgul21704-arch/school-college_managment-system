@@ -198,6 +198,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
   // Version counters also prevent an older in-flight request from restoring stale records.
   const clearStudentScopedData = () => {
     portalLoadVersionRef.current += 1;
+    setPortalError(null);
     setStudent(null);
     setAttendanceData(null);
     setFees([]);
