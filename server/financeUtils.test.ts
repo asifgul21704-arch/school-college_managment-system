@@ -49,3 +49,26 @@ test('cash position uses actual salary paid and avoids counting unpaid payroll a
     payrollPaid: 0,
   }), RangeError);
 });
+
+
+test('cash payroll reporting follows actual payment dates rather than salary periods', () => {
+  const records = [
+    {
+      paid_amount: 30000,
+      payment_history: [
+        { amount: 10000, payment_date: '2026-10-31' },
+        { amount: 20000, payment_date: '2026-11-02' },
+      ],
+    },
+    {
+      paid_amount: 5000,
+      payment_date: '2026-11-12',
+      payment_history: [],
+    },
+  ];
+
+  assert.equal(sumPayrollPayments(records, '2026-10'), 10000);
+  assert.equal(sumPayrollPayments(records, '2026-11'), 25000);
+  assert.equal(sumPayrollPayments(records), 35000);
+  assert.throws(() => sumPayrollPayments(records, '2026-13'), RangeError);
+});
