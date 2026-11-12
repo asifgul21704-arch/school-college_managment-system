@@ -92,11 +92,11 @@ async function createFee(student: { id: string }, label: string) {
   return voucherId;
 }
 
-async function submitBankPayment(token: string, feeId: string, studentId: string, slipRef: string) {
+async function submitBankPayment(token: string, feeId: string, studentId: string, slipRef: string, amount = 5000) {
   return api('POST', '/parent/payments/initiate', {
     fee_id: feeId,
     student_id: studentId,
-    amount: 5000,
+    amount,
     method: 'Bank Deposit',
     bank_name: 'E2E Test Bank',
     account_number: 'TEST-ACCOUNT',
@@ -144,6 +144,7 @@ after(async () => {
 test('parent/student permissions, unlink invalidation, and payment history work end to end', async () => {
   const studentA = await registerStudent('A', 'E2E Parent A');
   const studentB = await registerStudent('B', 'E2E Parent B');
+  const studentD = await registerStudent('D', 'E2E Parent D');
 
   const parentA = await registerParent('A', studentA.admissionNo);
   assert.equal(parentA.status, 201, JSON.stringify(parentA.data));
@@ -152,6 +153,10 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   const parentB = await registerParent('B', studentB.admissionNo);
   assert.equal(parentB.status, 201, JSON.stringify(parentB.data));
   const parentBToken = parentB.data.token as string;
+
+  const parentD = await registerParent('D', studentD.admissionNo);
+  assert.equal(parentD.status, 201, JSON.stringify(parentD.data));
+  const parentDToken = parentD.data.token as string;
 
   const parentIntruder = await registerParent('Intruder', '');
   assert.equal(parentIntruder.status, 201, JSON.stringify(parentIntruder.data));
@@ -331,4 +336,79 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   assert.equal(parentBStillOwnsChild.status, 200);
   const parentBHistoryAfterUnlinks = await api('GET', '/parent/payments/history', undefined, parentBToken);
   assert.equal(parentBHistoryAfterUnlinks.data.length, 1);
+
+  // Manual payment approval is restricted to administrators and atomically updates
+  // the voucher, receipt history, payment status, and parent history.
+  const feeD = await createFee(studentD, 'D');
+  const paymentD = await submitBankPayment(parentDToken, feeD, studentD.id, `E2E-SLIP-D-APPROVE-${RUN_ID}`);
+  assert.equal(paymentD.status, 201, JSON.stringify(paymentD.data));
+  const paymentDId = paymentD.data.payment.id;
+  const parentCannotApprove = await api('POST', `/admin/payments/${encodeURIComponent(paymentDId)}/approve`, {}, parentDToken);
+  assert.equal(parentCannotApprove.status, 403);
+  const pendingFeeD = await FeeModel.findOne({ voucher_id: feeD }).lean();
+  assert.equal(pendingFeeD?.pending_amount, 5000);
+  assert.equal(pendingFeeD?.paid_amount, 0);
+
+  const approvedD = await api('POST', `/admin/payments/${encodeURIComponent(paymentDId)}/approve`, {}, adminToken);
+  assert.equal(approvedD.status, 200, JSON.stringify(approvedD.data));
+  assert.equal(approvedD.data.payment.status, 'Paid');
+  assert.equal(approvedD.data.payment.verification_status, 'Verified');
+  assert.ok(approvedD.data.payment.receipt_no);
+  const approvedReceipt = approvedD.data.payment.receipt_no as string;
+
+  const approvedFeeD = await FeeModel.findOne({ voucher_id: feeD }).lean();
+  assert.equal(approvedFeeD?.paid_amount, 5000);
+  assert.equal(approvedFeeD?.pending_amount, 0);
+  assert.equal(approvedFeeD?.status, 'Paid');
+  assert.equal(approvedFeeD?.payment_history.length, 1);
+  assert.equal(approvedFeeD?.payment_history[0].receipt_no, approvedReceipt);
+
+  const approvalReplay = await api('POST', `/admin/payments/${encodeURIComponent(paymentDId)}/approve`, {}, adminToken);
+  assert.equal(approvalReplay.status, 200, JSON.stringify(approvalReplay.data));
+  assert.equal(approvalReplay.data.payment.receipt_no, approvedReceipt);
+  const approvedFeeAfterReplay = await FeeModel.findOne({ voucher_id: feeD }).lean();
+  assert.equal(approvedFeeAfterReplay?.payment_history.length, 1);
+  assert.equal(approvedFeeAfterReplay?.paid_amount, 5000);
+
+  const parentDHistory = await api('GET', '/parent/payments/history', undefined, parentDToken);
+  assert.equal(parentDHistory.status, 200);
+  assert.equal(parentDHistory.data.length, 1);
+  assert.equal(parentDHistory.data[0].receipt_no, approvedReceipt);
+
+  // Rejection must preserve the outstanding balance and the original reason on retries.
+  const studentE = await registerStudent('E', 'E2E Parent E');
+  const parentE = await registerParent('E', studentE.admissionNo);
+  assert.equal(parentE.status, 201, JSON.stringify(parentE.data));
+  const parentEToken = parentE.data.token as string;
+  const feeE = await createFee(studentE, 'E');
+  const paymentE = await submitBankPayment(parentEToken, feeE, studentE.id, `E2E-SLIP-E-REJECT-${RUN_ID}`);
+  assert.equal(paymentE.status, 201, JSON.stringify(paymentE.data));
+  const paymentEId = paymentE.data.payment.id;
+
+  const parentCannotReject = await api('POST', `/admin/payments/${encodeURIComponent(paymentEId)}/reject`, { reason: 'Not admin' }, parentEToken);
+  assert.equal(parentCannotReject.status, 403);
+  const rejectedE = await api('POST', `/admin/payments/${encodeURIComponent(paymentEId)}/reject`, { reason: 'Deposit slip is unreadable' }, adminToken);
+  assert.equal(rejectedE.status, 200, JSON.stringify(rejectedE.data));
+  assert.equal(rejectedE.data.payment.status, 'Rejected');
+  assert.equal(rejectedE.data.payment.verification_status, 'Rejected');
+  assert.equal(rejectedE.data.payment.rejection_reason, 'Deposit slip is unreadable');
+
+  const rejectedFeeE = await FeeModel.findOne({ voucher_id: feeE }).lean();
+  assert.equal(rejectedFeeE?.paid_amount, 0);
+  assert.equal(rejectedFeeE?.pending_amount, 5000);
+  assert.equal(rejectedFeeE?.payment_history.length, 0);
+
+  const rejectionReplay = await api('POST', `/admin/payments/${encodeURIComponent(paymentEId)}/reject`, { reason: 'Changed reason must not overwrite' }, adminToken);
+  assert.equal(rejectionReplay.status, 200, JSON.stringify(rejectionReplay.data));
+  assert.equal(rejectionReplay.data.payment.rejection_reason, 'Deposit slip is unreadable');
+  const rejectedFeeAfterReplay = await FeeModel.findOne({ voucher_id: feeE }).lean();
+  assert.equal(rejectedFeeAfterReplay?.paid_amount, 0);
+  assert.equal(rejectedFeeAfterReplay?.pending_amount, 5000);
+  assert.equal(rejectedFeeAfterReplay?.payment_history.length, 0);
+
+  const parentEHistory = await api('GET', '/parent/payments/history', undefined, parentEToken);
+  assert.equal(parentEHistory.status, 200);
+  assert.equal(parentEHistory.data.length, 1);
+  assert.equal(parentEHistory.data[0].status, 'Rejected');
+  assert.equal(parentEHistory.data[0].rejection_reason, 'Deposit slip is unreadable');
 });
