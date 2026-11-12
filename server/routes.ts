@@ -2484,7 +2484,8 @@ router.post('/parents/unlink-child', authenticateToken, requireRole(['parent']),
             ],
           },
         },
-      }]
+      }],
+      { updatePipeline: true }
     );
     if (unlinkResult.matchedCount !== 1) {
       return res.status(409).json({ error: 'Parent account changed during unlink. Refresh and try again.' });
