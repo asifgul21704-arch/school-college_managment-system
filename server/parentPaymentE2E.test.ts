@@ -659,4 +659,141 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   assert.equal(teacherAssignedResults.status, 200);
   assert.equal(teacherAssignedResults.data.length, 2);
   assert.ok(teacherAssignedResults.data.some((result: any) => result.published === false));
+
+  // Finance module is administrator-only and validates currency precision.
+  const teacherCannotReadFinanceExpenses = await api('GET', '/finance/expenses', undefined, teacherToken);
+  assert.equal(teacherCannotReadFinanceExpenses.status, 403);
+  const teacherCannotReadFinancePayroll = await api('GET', '/finance/payroll', undefined, teacherToken);
+  assert.equal(teacherCannotReadFinancePayroll.status, 403);
+
+  const tinyExpense = await api('POST', '/finance/expenses', {
+    title: 'E2E Tiny Expense',
+    category: 'Supplies',
+    amount: 0.001,
+    expense_date: '2026-11-12',
+    payment_method: 'Cash',
+  }, adminToken);
+  assert.equal(tinyExpense.status, 400);
+  const invalidDateExpense = await api('POST', '/finance/expenses', {
+    title: 'E2E Invalid Date Expense',
+    category: 'Supplies',
+    amount: 100,
+    expense_date: '2026-02-30',
+    payment_method: 'Cash',
+  }, adminToken);
+  assert.equal(invalidDateExpense.status, 400);
+
+  const expenseCreated = await api('POST', '/finance/expenses', {
+    title: 'E2E Classroom Supplies',
+    category: 'Supplies',
+    amount: 1500.25,
+    expense_date: '2026-11-12',
+    payment_method: 'Cash',
+    reference: `E2E-EXP-${RUN_ID}`,
+  }, adminToken);
+  assert.equal(expenseCreated.status, 201, JSON.stringify(expenseCreated.data));
+  assert.equal(expenseCreated.data.amount, 1500.25);
+  const expenseId = expenseCreated.data.id;
+  const expenseUpdated = await api('PUT', `/finance/expenses/${encodeURIComponent(expenseId)}`, { amount: 1750.75 }, adminToken);
+  assert.equal(expenseUpdated.status, 200, JSON.stringify(expenseUpdated.data));
+  assert.equal(expenseUpdated.data.amount, 1750.75);
+  const expenseList = await api('GET', '/finance/expenses?from=2026-11-01&to=2026-11-30', undefined, adminToken);
+  assert.equal(expenseList.status, 200);
+  assert.ok(expenseList.data.some((expense: any) => expense.id === expenseId));
+  const expenseDeleted = await api('DELETE', `/finance/expenses/${encodeURIComponent(expenseId)}`, undefined, adminToken);
+  assert.equal(expenseDeleted.status, 200);
+  const deletedExpenseLookup = await api('GET', '/finance/expenses?category=Supplies', undefined, adminToken);
+  assert.ok(!deletedExpenseLookup.data.some((expense: any) => expense.id === expenseId));
+
+  const teacherRecordId = teacherCreated.data.teacher.id as string;
+  const payrollCreated = await api('POST', '/finance/payroll', {
+    staff_id: teacherRecordId,
+    staff_name: 'Untrusted Supplied Name',
+    designation: 'Untrusted Supplied Designation',
+    salary_month: 11,
+    salary_year: 2026,
+    basic_salary: 50000,
+    allowances: 5000,
+    deductions: 5000,
+  }, adminToken);
+  assert.equal(payrollCreated.status, 201, JSON.stringify(payrollCreated.data));
+  assert.equal(payrollCreated.data.staff_name, 'E2E Class Teacher');
+  assert.equal(payrollCreated.data.designation, 'Computer Science');
+  assert.equal(payrollCreated.data.net_salary, 50000);
+  const payrollId = payrollCreated.data.id as string;
+  const duplicatePayroll = await api('POST', '/finance/payroll', {
+    staff_id: teacherRecordId,
+    staff_name: 'E2E Class Teacher',
+    designation: 'Computer Science',
+    salary_month: 11,
+    salary_year: 2026,
+    basic_salary: 50000,
+    allowances: 5000,
+    deductions: 5000,
+  }, adminToken);
+  assert.equal(duplicatePayroll.status, 409);
+
+  const tinyPayrollPayment = await api('POST', `/finance/payroll/${encodeURIComponent(payrollId)}/payment`, {
+    amount: 0.001,
+    payment_date: '2026-11-12',
+    payment_method: 'Bank Transfer',
+  }, adminToken);
+  assert.equal(tinyPayrollPayment.status, 400);
+  const payrollPartial = await api('POST', `/finance/payroll/${encodeURIComponent(payrollId)}/payment`, {
+    amount: 20000,
+    payment_date: '2026-11-12',
+    payment_method: 'Bank Transfer',
+  }, adminToken);
+  assert.equal(payrollPartial.status, 200, JSON.stringify(payrollPartial.data));
+  assert.equal(payrollPartial.data.paid_amount, 20000);
+  assert.equal(payrollPartial.data.status, 'Partially Paid');
+  const payrollFinal = await api('POST', `/finance/payroll/${encodeURIComponent(payrollId)}/payment`, {
+    amount: 30000,
+    payment_date: '2026-11-12',
+    payment_method: 'Bank Transfer',
+  }, adminToken);
+  assert.equal(payrollFinal.status, 200, JSON.stringify(payrollFinal.data));
+  assert.equal(payrollFinal.data.paid_amount, 50000);
+  assert.equal(payrollFinal.data.status, 'Paid');
+  assert.equal(payrollFinal.data.payment_history.length, 2);
+  const payrollOverpayment = await api('POST', `/finance/payroll/${encodeURIComponent(payrollId)}/payment`, {
+    amount: 0.01,
+    payment_date: '2026-11-12',
+    payment_method: 'Bank Transfer',
+  }, adminToken);
+  assert.equal(payrollOverpayment.status, 400);
+
+  const concurrentPayroll = await api('POST', '/finance/payroll', {
+    staff_id: teacherRecordId,
+    staff_name: 'E2E Class Teacher',
+    designation: 'Computer Science',
+    salary_month: 12,
+    salary_year: 2026,
+    basic_salary: 10000,
+    allowances: 0,
+    deductions: 0,
+  }, adminToken);
+  assert.equal(concurrentPayroll.status, 201, JSON.stringify(concurrentPayroll.data));
+  const concurrentPayrollId = concurrentPayroll.data.id as string;
+  const competingPayrollPayments = await Promise.all([
+    api('POST', `/finance/payroll/${encodeURIComponent(concurrentPayrollId)}/payment`, {
+      amount: 6000, payment_date: '2026-12-12', payment_method: 'Cash',
+    }, adminToken),
+    api('POST', `/finance/payroll/${encodeURIComponent(concurrentPayrollId)}/payment`, {
+      amount: 6000, payment_date: '2026-12-12', payment_method: 'Cash',
+    }, adminToken),
+  ]);
+  assert.equal(competingPayrollPayments.filter(result => result.status === 200).length, 1);
+  assert.ok(competingPayrollPayments.every(result => [200, 400, 409].includes(result.status)));
+  const concurrentPayrollAfter = await api('GET', '/finance/payroll?year=2026&month=12', undefined, adminToken);
+  const concurrentPayrollRecord = concurrentPayrollAfter.data.find((row: any) => row.id === concurrentPayrollId);
+  assert.equal(concurrentPayrollRecord?.paid_amount, 6000);
+  assert.equal(concurrentPayrollRecord?.payment_history.length, 1);
+
+  const verifiedCollections = await api('GET', '/finance/collections?month=2026-11', undefined, adminToken);
+  assert.equal(verifiedCollections.status, 200);
+  assert.ok(verifiedCollections.data.some((row: any) => row.id === paymentDId));
+  assert.ok(!verifiedCollections.data.some((row: any) => row.id === paymentEId));
+  const teacherCannotReadCollections = await api('GET', '/finance/collections', undefined, teacherToken);
+  assert.equal(teacherCannotReadCollections.status, 403);
 });
