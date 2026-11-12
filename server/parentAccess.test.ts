@@ -60,3 +60,13 @@ test('guardian link confirmation requires an exact father name match', async () 
   assert.equal(isExactGuardianNameMatch('', 'Muhammad Asif Khan'), false);
   assert.equal(isExactGuardianNameMatch('Muhammad Asif Khan', ''), false);
 });
+
+test('fee voucher student identity must match the requested student across known aliases', async () => {
+  const { areSameStudentIdentity } = await import('./parentAccess.ts');
+  const studentA = ['stu_a', '65aa00000000000000000001', 'ADM-001'];
+  const studentB = ['stu_b', '65aa00000000000000000002', 'ADM-002'];
+  assert.equal(areSameStudentIdentity(studentA, ['ADM-001']), true);
+  assert.equal(areSameStudentIdentity(studentA, ['65aa00000000000000000001']), true);
+  assert.equal(areSameStudentIdentity(studentA, studentB), false);
+  assert.equal(areSameStudentIdentity([], ['ADM-001']), false);
+});
