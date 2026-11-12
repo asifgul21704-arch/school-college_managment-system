@@ -27,8 +27,8 @@ test('teacher database filter is restricted to exact assigned class names', asyn
   const { buildTeacherClassFilter } = await import('./classAccess.ts');
   assert.deepEqual(buildTeacherClassFilter(['Class 1', '  CLASS   2  ']), {
     $or: [
-      { class_name: { $regex: '^class\\\\s+1$', $options: 'i' } },
-      { class_name: { $regex: '^class\\\\s+2$', $options: 'i' } },
+      { class_name: { $regex: '^class\\s+1$', $options: 'i' } },
+      { class_name: { $regex: '^class\\s+2$', $options: 'i' } },
     ],
   });
   assert.deepEqual(buildTeacherClassFilter([]), { $or: [] });
