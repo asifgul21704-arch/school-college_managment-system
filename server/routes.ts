@@ -1,7 +1,7 @@
 import express, { type Request, type Response } from 'express';
 import { financeRouter } from './financeRoutes.ts';
 import { buildNotificationVisibilityFilter, canMarkNotificationRead } from './notificationAccess.ts';
-import { collectParentStudentReferences } from './parentAccess.ts';
+import { collectParentStudentReferences, isParentLinkedToStudent } from './parentAccess.ts';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jsonwebtoken from 'jsonwebtoken';
@@ -3308,11 +3308,11 @@ router.get('/students/:id', authenticateToken, async (req: AuthenticatedRequest,
     // OBJECT-LEVEL SECURITY CHECK: PARENT (explicitly linked child only — NO phone-number matching)
     if (req.user?.role === 'parent') {
       const linkedSet = await getLinkedStudentIdsForParent(req.user);
-      const isLinked =
-        student.parent_user_id === req.user.id ||
-        linkedSet.has(student.id) ||
-        linkedSet.has(studentDoc._id.toString()) ||
-        linkedSet.has(student.admission_no);
+      const isLinked = isParentLinkedToStudent(linkedSet, [
+        student.id,
+        studentDoc._id.toString(),
+        student.admission_no,
+      ]);
       if (!isLinked) {
         return res.status(403).json({ error: 'Access denied: You may only view records for your linked child.' });
       }
