@@ -54,6 +54,11 @@ test('parent unlink clears child-specific payment and academic data from the cur
     'setUnreadCount(0)',
     'setViewingReceiptPayment(null)',
     'setPayingFee(null)',
+    "setPayAmount('')",
+    "setPayDepositSlipRef('')",
+    "setPaySlipAttachmentUrl('')",
+    "setPayNotes('')",
+    "setPayParentPhone(user?.phone || '')",
     'setPayModalSubmitting(false)',
     'setShowPayModal(false)',
   ]) {
@@ -116,4 +121,15 @@ test('late payment responses cannot reopen a receipt or repopulate another child
   assert.match(handler, /await api\.initiateFeePayment\([\s\S]*?requestVersion !== portalLoadVersionRef\.current/);
   assert.match(handler, /requestVersion === portalLoadVersionRef\.current\) setViewingReceiptPayment/);
   assert.match(handler, /finally \{\s*if \(requestVersion === portalLoadVersionRef\.current\) setPayModalSubmitting\(false\)/);
+});
+
+
+test('opening a payment modal clears the previous child bank slip and attachment details', () => {
+  const start = studentPortal.indexOf('const handleOpenPayModal');
+  const end = studentPortal.indexOf('const handleSubmitPayment', start);
+  assert.ok(start >= 0 && end > start);
+  const handler = studentPortal.slice(start, end);
+  assert.match(handler, /setPayDepositSlipRef\(''\)/);
+  assert.match(handler, /setPaySlipAttachmentUrl\(''\)/);
+  assert.match(handler, /setPayNotes\(''\)/);
 });
