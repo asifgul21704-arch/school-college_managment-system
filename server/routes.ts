@@ -3051,7 +3051,7 @@ router.get('/auth/me', authenticateToken, async (req: AuthenticatedRequest, res:
 // 2. DASHBOARD METRICS
 // ==========================================
 
-router.get('/dashboard/stats', authenticateToken, requireRole(['super_admin', 'admin', 'teacher']), async (req: AuthenticatedRequest, res: Response) => {
+router.get('/dashboard/stats', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   try {
     const isTeacher = req.user?.role === 'teacher';
