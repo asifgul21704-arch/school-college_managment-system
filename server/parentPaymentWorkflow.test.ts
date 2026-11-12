@@ -20,6 +20,7 @@ test('parent unlink removes authoritative links atomically and cannot clear a ne
   assert.ok(route.includes('buildStudentParentReleaseFilter(studentDoc._id, canonicalUserId, userDoc._id.toString())'));
   assert.ok(route.includes("{ $unset: { parent_user_id: '' } }"));
   assert.ok(route.includes('unlinkResult.matchedCount !== 1'));
+  assert.ok(route.includes('updatePipeline: true'));
   assert.match(route, /finalUserDoc\?\.linked_id/);
 });
 
