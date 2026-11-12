@@ -124,3 +124,13 @@ test('end-to-end confirmation workflow refuses unlinked recipients', async () =>
     /No verified linked parent accounts/
   );
 });
+
+test('MongoDB notification schema has the unique action-and-recipient index used for replay protection', async () => {
+  const { NotificationModel } = await import('./models/Notification.ts');
+  const index = NotificationModel.schema.indexes().find(([keys]) =>
+    keys.action_id === 1 && keys.user_id === 1
+  );
+  assert.ok(index, 'notification action/recipient index must exist');
+  assert.equal(index?.[1]?.unique, true);
+  assert.deepEqual(index?.[1]?.partialFilterExpression, { action_id: { $type: 'string' } });
+});
