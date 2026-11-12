@@ -79,7 +79,7 @@ test('administrator unlink clears current links and releases only the selected p
 
 test('public parent registration uses the same verified atomic student claim as portal linking', () => {
   const start = routes.indexOf("router.post('/auth/register-parent'");
-  const end = routes.indexOf("router.post('/auth/login'", start);
+  const end = routes.indexOf("router.post('/auth/register-teacher'", start);
   assert.ok(start >= 0 && end > start);
   const route = routes.slice(start, end);
   assert.match(route, /claimStudentForParent\([\s\S]*?canonicalParentId[\s\S]*?createdUser\._id\.toString\(\)/);
