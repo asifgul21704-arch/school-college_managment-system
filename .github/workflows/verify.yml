@@ -35,3 +35,54 @@ jobs:
         run: npm run build
       - name: TypeScript check
         run: npm run lint
+
+  parent-payment-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand(\"ping\").ok'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: development
+      PORT: 3000
+      MONGODB_URI: mongodb://127.0.0.1:27017/e2e_parent_payment
+      JWT_SECRET: ci-only-e2e-jwt-secret-never-use-in-production-2026
+      DISABLE_AUTO_SEED: "true"
+      E2E_ALLOW_MUTATIONS: "true"
+      E2E_EXPECTED_DATABASE_NAME: e2e_parent_payment
+      E2E_API_BASE_URL: http://127.0.0.1:3000/api
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Start API against disposable MongoDB
+        run: |
+          npm run dev > /tmp/shawan-parent-e2e-server.log 2>&1 &
+          echo $! > /tmp/shawan-parent-e2e-server.pid
+          for attempt in {1..60}; do
+            if curl -fsS http://127.0.0.1:3000/api/health | grep -q '"connected":true'; then
+              echo "API connected to the disposable E2E database."
+              exit 0
+            fi
+            sleep 2
+          done
+          cat /tmp/shawan-parent-e2e-server.log
+          exit 1
+      - name: Run parent/student permissions and payment-history E2E
+        run: node --import tsx --test server/parentPaymentE2E.test.ts
+      - name: Show API logs on failure
+        if: failure()
+        run: cat /tmp/shawan-parent-e2e-server.log
