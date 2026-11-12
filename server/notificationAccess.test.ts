@@ -9,14 +9,16 @@ test('private parent notification is visible only to its exact parent account', 
   assert.equal(canMarkNotificationRead('parent', ['parent-b', 'student-2'], privateRecord), false);
   assert.deepEqual(filterA.$or, [
     { user_id: { $in: ['parent-a', 'student-1'] } },
-    { role: 'parent' },
-    { role: 'all' },
+    { role: 'parent', user_id: { $in: ['', null] } },
+    { role: 'all', user_id: { $in: ['', null] } },
   ]);
+  assert.equal(canMarkNotificationRead('parent', ['parent-b'], { user_id: 'parent-a', role: 'parent' }), false);
+  assert.equal(canMarkNotificationRead('parent', ['parent-a'], { user_id: 'parent-a', role: 'parent' }), true);
 });
 
 test('role-wide and all-role notifications retain intended visibility', () => {
-  assert.equal(canMarkNotificationRead('teacher', ['teacher-1'], { role: 'teacher' }), true);
-  assert.equal(canMarkNotificationRead('student', ['student-1'], { role: 'all' }), true);
+  assert.equal(canMarkNotificationRead('teacher', ['teacher-1'], { user_id: '', role: 'teacher' }), true);
+  assert.equal(canMarkNotificationRead('student', ['student-1'], { user_id: '', role: 'all' }), true);
 });
 
 test('non-admin cannot mark another account private notification as read', () => {
