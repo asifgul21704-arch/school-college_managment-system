@@ -181,8 +181,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
   const [showPayModal, setShowPayModal] = useState<boolean>(false);
   const [payingFee, setPayingFee] = useState<FeeRecord | null>(null);
   const [payAmount, setPayAmount] = useState<number | string>('');
-  const [payMethod, setPayMethod] = useState<'Online Gateway' | 'Bank Deposit'>('Online Gateway');
-  const [payGatewayProvider, setPayGatewayProvider] = useState<'JazzCash' | 'Easypaisa' | 'Raast'>('JazzCash');
+  const [payMethod, setPayMethod] = useState<'Online Gateway' | 'Bank Deposit'>('Bank Deposit');
   const [payBankName, setPayBankName] = useState<string>('Askari Bank Limited');
   const [payDepositDate, setPayDepositDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [payDepositSlipRef, setPayDepositSlipRef] = useState<string>('');
@@ -563,7 +562,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
         student_id: payingFee.student_id,
         amount: amt,
         method: payMethod,
-        gateway_provider: payMethod === 'Online Gateway' ? payGatewayProvider : undefined,
         bank_name: payMethod === 'Bank Deposit' ? payBankName : undefined,
         deposit_date: payMethod === 'Bank Deposit' ? payDepositDate : undefined,
         deposit_slip_ref: payMethod === 'Bank Deposit' ? payDepositSlipRef : undefined,
@@ -3110,15 +3108,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={() => setPayMethod('Online Gateway')}
-                    className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
-                      payMethod === 'Online Gateway'
-                        ? 'bg-emerald-900 text-white border-emerald-900 shadow-xs'
-                        : 'bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-50'
-                    }`}
+                    disabled
+                    title="Online payment gateway is not connected yet"
+                    className="py-2 px-3 rounded-xl border border-neutral-200 text-xs font-semibold flex items-center justify-center gap-1.5 bg-neutral-100 text-neutral-400 cursor-not-allowed"
                   >
                     <DollarSign className="w-3.5 h-3.5" />
-                    <span>Online Gateway (Instant)</span>
+                    <span>Online Gateway (Coming Soon)</span>
                   </button>
                   <button
                     type="button"
@@ -3135,46 +3130,9 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
                 </div>
               </div>
 
-              {/* Option A: Online Gateway Mode */}
-              {payMethod === 'Online Gateway' && (
-                <div className="space-y-3 p-3.5 bg-emerald-50/50 rounded-xl border border-emerald-200 text-xs">
-                  <span className="font-bold text-emerald-950 block">Select Mobile Wallet / FinTech Provider:</span>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(['JazzCash', 'Easypaisa', 'Raast'] as const).map(gw => (
-                      <button
-                        key={gw}
-                        type="button"
-                        onClick={() => setPayGatewayProvider(gw)}
-                        className={`py-2 px-2 text-center rounded-lg border text-xs font-bold transition-colors cursor-pointer ${
-                          payGatewayProvider === gw
-                            ? 'bg-emerald-800 text-white border-emerald-800'
-                            : 'bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-50'
-                        }`}
-                      >
-                        {gw}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="space-y-1 pt-1">
-                    <label className="text-[11px] font-semibold text-neutral-700 block">
-                      {payGatewayProvider} Mobile Account Number:
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. 0300 1234567"
-                      defaultValue={user?.phone || '03001234567'}
-                      className="w-full py-2 px-3 rounded-lg border border-neutral-300 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-emerald-700 bg-white"
-                      required
-                    />
-                  </div>
-
-                  <div className="flex items-center gap-1.5 text-[11px] text-emerald-900 pt-1">
-                    <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0" />
-                    <span>Instant sandbox verification active &middot; Automated official receipt issued</span>
-                  </div>
-                </div>
-              )}
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                Online payments through JazzCash, Easypaisa and Raast are not connected yet. No online charge or instant receipt will be simulated. Please submit a bank deposit/transfer for school verification.
+              </div>
 
               {/* Option B: Bank Deposit Mode */}
               {payMethod === 'Bank Deposit' && (
