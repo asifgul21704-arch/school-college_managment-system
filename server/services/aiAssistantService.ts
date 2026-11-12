@@ -2176,8 +2176,8 @@ export async function processAdminAiQuery(
     const smsPrep = await ControlledSchoolTools.prepareSmsAction(isFee ? 'FEE_REMINDER' : 'ABSENT_ALERT');
     const auditId = await recordAuditLog(
       context,
-      'AI_PREPARE_SMS_ACTION',
-      'SMS_ALERT',
+      'AI_PREPARE_IN_APP_NOTIFICATION',
+      'IN_APP_NOTIFICATION',
       `Admin initiated sensitive notification for ${isFee ? 'fee reminder' : 'absent alert'}. Confirmation required.`
     );
     return {
@@ -2206,7 +2206,7 @@ export async function processAdminAiQuery(
       `Admin generated fee reminder draft for ${draftRes.unpaidStudentCount} unpaid students.`
     );
     return {
-      text: `### 📋 Prepared Fee Reminder Notification Draft\n\n**Recipients on Record:** ${draftRes.unpaidStudentCount} students with unpaid fees\n**Total Outstanding Dues:** PKR ${draftRes.totalOutstanding.toLocaleString()}\n\n---\n#### 📱 Urdu Template (SMS / WhatsApp):\n\`\`\`\n${draftRes.draftUrdu}\n\`\`\`\n\n#### 🌐 English Template:\n\`\`\`\n${draftRes.draftEnglish}\n\`\`\`\n\n*Action Ready: Say "Send fee reminder SMS alert" to trigger the verified broadcast confirmation dialog.*`,
+      text: `### 📋 Prepared Fee Reminder Notification Draft\n\n**Recipients on Record:** ${draftRes.unpaidStudentCount} students with unpaid fees\n**Total Outstanding Dues:** PKR ${draftRes.totalOutstanding.toLocaleString()}\n\n---\n#### 📱 Urdu Notification Template:\n\`\`\`\n${draftRes.draftUrdu}\n\`\`\`\n\n#### 🌐 English Template:\n\`\`\`\n${draftRes.draftEnglish}\n\`\`\`\n\n*Next Step: Review the draft and use the in-app parent notification workflow when ready.*`,
       toolUsed: 'draftFeeReminders',
       data: draftRes,
       auditLogId: auditId,
