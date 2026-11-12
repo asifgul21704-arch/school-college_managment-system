@@ -70,3 +70,11 @@ test('fee voucher student identity must match the requested student across known
   assert.equal(areSameStudentIdentity(studentA, studentB), false);
   assert.equal(areSameStudentIdentity([], ['ADM-001']), false);
 });
+
+test('a student already assigned to another parent cannot be claimed by this parent', async () => {
+  const { isStudentClaimedByAnotherParent } = await import('./parentAccess.ts');
+  assert.equal(isStudentClaimedByAnotherParent('parent-a', ['parent-b']), true);
+  assert.equal(isStudentClaimedByAnotherParent('parent-a', ['parent-a']), false);
+  assert.equal(isStudentClaimedByAnotherParent('', ['parent-b']), false);
+  assert.equal(isStudentClaimedByAnotherParent(null, ['parent-b']), false);
+});
