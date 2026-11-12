@@ -2034,7 +2034,8 @@ export const ControlledSchoolTools = {
     for (const userId of uniqueParentIds) {
       await NotificationModel.create({
         user_id: userId,
-        role: 'parent',
+        // Private recipient scope: role-wide `parent` notifications are visible to every parent account.
+        role: 'private',
         title: actionType === 'SEND_SMS_ABSENT' ? 'Student Absence Alert' : 'Fee Reminder',
         message,
         link: '/student-portal',
