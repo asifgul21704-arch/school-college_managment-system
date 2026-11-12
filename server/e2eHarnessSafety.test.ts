@@ -24,3 +24,17 @@ test('E2E test identity and password are supplied only by environment', () => {
   assert.match(harness, /process\.env\.E2E_TEACHER_PASSWORD/);
   assert.equal(harness.includes('teacher@shawanschool.edu.pk'), false);
 });
+
+const envLoader = readFileSync(new URL('./config/env.ts', import.meta.url), 'utf8');
+
+test('environment loader never reads secrets from unrelated processes', () => {
+  assert.equal(envLoader.includes('/proc'), false);
+  assert.equal(envLoader.includes('/environ'), false);
+  assert.equal(envLoader.includes('process.env.JWT_SECRET ='), false);
+  assert.equal(envLoader.includes('process.env.MONGODB_URI ='), false);
+});
+
+test('local dotenv defaults do not overwrite explicitly injected environment variables', () => {
+  assert.match(envLoader, /override: false/);
+  assert.doesNotMatch(envLoader, /override: true/);
+});
