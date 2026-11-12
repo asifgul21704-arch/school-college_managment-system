@@ -197,6 +197,7 @@ financeRouter.post('/payroll/:id/payment', async (req: AuthenticatedRequest, res
     if (!row) return res.status(404).json({ error: 'Payroll record not found.' });
     if (amount > row.net_salary - row.paid_amount) return res.status(400).json({ error: 'Payment exceeds the remaining salary balance.' });
     row.paid_amount = Number((row.paid_amount + amount).toFixed(2));
+    row.payment_history = [...(row.payment_history || []), { amount: Number(amount.toFixed(2)), payment_date: paymentDate, payment_method: method, recorded_by: req.user?.id || 'unknown', recorded_at: new Date().toISOString() }];
     row.payment_date = paymentDate;
     row.payment_method = method;
     row.status = row.paid_amount >= row.net_salary ? 'Paid' : 'Partially Paid';
