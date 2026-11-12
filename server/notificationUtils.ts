@@ -28,8 +28,8 @@ export function validateParentNotificationAction(
 
   const data = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {};
   const actionId = typeof data.actionId === 'string' ? data.actionId.trim() : '';
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(actionId)) {
-    throw new Error('A valid server-issued action confirmation token is required.');
+  if (!/^[0-9a-f]{64}$/i.test(actionId)) {
+    throw new Error('A valid notification batch idempotency key is required.');
   }
 
   const message = typeof data.message === 'string' ? data.message.trim() : '';
