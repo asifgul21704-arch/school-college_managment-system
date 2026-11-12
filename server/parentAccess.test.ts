@@ -41,3 +41,12 @@ test('parent can access only student identifiers in the current account link set
   assert.equal(isParentLinkedToStudent(linked, ['student-b', 'ADM-002']), false);
   assert.equal(isParentLinkedToStudent(linked, [null, '', undefined]), false);
 });
+
+test('parent payment history is restricted to currently linked student IDs only', async () => {
+  const { buildParentPaymentHistoryFilter } = await import('./parentAccess.ts');
+  assert.deepEqual(buildParentPaymentHistoryFilter(new Set(['student-a', 'student-b'])), {
+    student_id: { $in: ['student-a', 'student-b'] },
+  });
+  assert.deepEqual(buildParentPaymentHistoryFilter(new Set()), { student_id: { $in: [] } });
+  assert.equal('parent_user_id' in buildParentPaymentHistoryFilter(new Set(['student-a'])), false);
+});
