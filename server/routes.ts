@@ -7273,18 +7273,16 @@ router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent
         class_name: feeDoc.class_name,
       });
 
-      if (smsResult.sent) {
-        await FeePaymentModel.updateOne(
-          { _id: paymentDoc._id },
-          {
-            $set: {
-              sms_status: smsResult.status,
-              sms_message: smsResult.message,
-              sms_sent_at: smsResult.timestamp,
-            },
-          }
-        );
+      await FeePaymentModel.updateOne(
+      { _id: paymentDoc._id },
+      {
+        $set: {
+          sms_status: smsResult.status,
+          sms_message: smsResult.message,
+          sms_sent_at: smsResult.timestamp,
+        },
       }
+    );
 
       // Notify Admin and parent exactly once for this persisted payment action.
       const notificationActionId = `fee-submit:${paymentDoc._id.toString()}`;
@@ -7531,18 +7529,16 @@ router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['supe
       class_name: paymentDoc.class_name || feeDoc.class_name,
     });
 
-    if (smsResult.sent) {
-      await FeePaymentModel.updateOne(
-        { _id: paymentDoc._id },
-        {
-          $set: {
-            sms_status: smsResult.status,
-            sms_message: smsResult.message,
-            sms_sent_at: smsResult.timestamp,
-          },
-        }
-      );
-    }
+    await FeePaymentModel.updateOne(
+      { _id: paymentDoc._id },
+      {
+        $set: {
+          sms_status: smsResult.status,
+          sms_message: smsResult.message,
+          sms_sent_at: smsResult.timestamp,
+        },
+      }
+    );
 
     // Notify Parent in-app exactly once for this approved payment action.
     if (paymentDoc.parent_user_id) {
@@ -7630,18 +7626,16 @@ router.post('/admin/payments/:id/reject', authenticateToken, requireRole(['super
       cleanReason
     );
 
-    if (smsResult.sent) {
-      await FeePaymentModel.updateOne(
-        { _id: paymentDoc._id },
-        {
-          $set: {
-            sms_status: smsResult.status,
-            sms_message: smsResult.message,
-            sms_sent_at: smsResult.timestamp,
-          },
-        }
-      );
-    }
+    await FeePaymentModel.updateOne(
+      { _id: paymentDoc._id },
+      {
+        $set: {
+          sms_status: smsResult.status,
+          sms_message: smsResult.message,
+          sms_sent_at: smsResult.timestamp,
+        },
+      }
+    );
 
     if (paymentDoc.parent_user_id) {
       await createNotificationOnce({
