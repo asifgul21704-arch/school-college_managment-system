@@ -188,6 +188,23 @@ export async function establishAuthenticatedSession(fallbackToken?: string): Pro
   }
 }
 
+async function fetchAllPages<T>(endpoint: string): Promise<T[]> {
+  const all: T[] = [];
+  let page = 1;
+  const maxPages = 200;
+  while (page <= maxPages) {
+    const params = new URLSearchParams({ paginate: 'true', limit: '500', page: String(page) });
+    const response = await request<{ data: T[]; pagination?: { hasNext?: boolean } }>(`${endpoint}${endpoint.includes('?') ? '&' : '?'}${params.toString()}`);
+    if (!response || !Array.isArray(response.data)) {
+      throw new Error('The server returned an invalid paginated report response.');
+    }
+    all.push(...response.data);
+    if (!response.pagination?.hasNext) return all;
+    page += 1;
+  }
+  throw new Error('The report contains too many records to load safely in one request.');
+}
+
 export const api = {
   // Auth
   login: (email: string, password: string) =>
@@ -400,6 +417,7 @@ export const api = {
     }),
 
   // Students
+  getAllStudents: () => fetchAllPages<Student>('/students'),
   getStudents: (params?: { search?: string; class_name?: string; section?: string; status?: string }) => {
     const query = new URLSearchParams(params as Record<string, string>).toString();
     return request<Student[]>(`/students${query ? `?${query}` : ''}`);
@@ -420,6 +438,7 @@ export const api = {
     request<{ message: string; student: Student }>(`/students/${id}`, { method: 'DELETE' }),
 
   // Teachers
+  getAllTeachers: () => fetchAllPages<Teacher>('/teachers'),
   getTeachers: () => request<Teacher[]>('/teachers'),
   createTeacher: (teacher: Partial<Teacher> & { password?: string }) =>
     request<{ teacher: Teacher; account_created?: boolean; temporary_password?: string }>('/teachers', {
@@ -470,6 +489,7 @@ export const api = {
     request<{ message: string; assignment: any }>(`/admin/teacher-assignments/${id}`, { method: 'DELETE' }),
 
   // Enrollment Management
+  getAllEnrollments: () => fetchAllPages<any>('/admin/enrollments'),
   getEnrollments: (params?: { student_id?: string; class_name?: string; section?: string; academic_year?: string; status?: string }) => {
     const query = new URLSearchParams(params as Record<string, string>).toString();
     return request<any[]>(`/admin/enrollments${query ? `?${query}` : ''}`);
@@ -502,6 +522,7 @@ export const api = {
     request<{ message: string; application: AdmissionApplication }>(`/admissions/${id}`, { method: 'DELETE' }),
 
   // Attendance
+  getAllAttendance: () => fetchAllPages<AttendanceRecord>('/attendance'),
   getAttendance: (params?: { date?: string; class_name?: string; section?: string; student_id?: string }) => {
     const query = new URLSearchParams(params as Record<string, string>).toString();
     return request<AttendanceRecord[]>(`/attendance${query ? `?${query}` : ''}`);
@@ -518,6 +539,7 @@ export const api = {
     }>(`/attendance/student/${studentId}`),
 
   // Fees
+  getAllFees: () => fetchAllPages<FeeRecord>('/fees'),
   getFees: (params?: { student_id?: string; class_name?: string; status?: string; month?: string }) => {
     const query = new URLSearchParams(params as Record<string, string>).toString();
     return request<FeeRecord[]>(`/fees${query ? `?${query}` : ''}`);
