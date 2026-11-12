@@ -1998,6 +1998,8 @@ export const ControlledSchoolTools = {
     confirmed: boolean,
     context: AdminAiQueryContext
   ) {
+    // Ensure MongoDB has built the unique replay-protection index before any writes.
+    await NotificationModel.init();
     // Resolve recipients again on the server at execution time; never trust client-supplied parent user IDs.
     const batchResult = await executeParentNotificationWorkflow(
       actionType,
