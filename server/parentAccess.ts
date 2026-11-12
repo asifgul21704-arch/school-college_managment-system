@@ -71,6 +71,20 @@ export function areSameStudentIdentity(leftIdentifiers: unknown[], rightIdentifi
   return rightIdentifiers.map(normalize).some(value => Boolean(value) && left.has(value));
 }
 
+/** Atomic ownership-claim filter: only an unclaimed student or the same parent may be updated. */
+export function buildStudentParentClaimFilter(
+  studentMongoId: unknown,
+  canonicalUserId: string,
+  mongoUserId: string
+): Record<string, unknown> {
+  const ownerIds = Array.from(new Set([canonicalUserId, mongoUserId].map(value => String(value || '').trim()).filter(Boolean)));
+  if (!studentMongoId || ownerIds.length === 0) return { _id: null };
+  return {
+    _id: studentMongoId,
+    parent_user_id: { $in: [null, '', ...ownerIds] },
+  };
+}
+
 /** Prevent a parent from taking over a student record already assigned to another parent account. */
 export function isStudentClaimedByAnotherParent(
   existingParentUserId: unknown,
