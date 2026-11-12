@@ -20,6 +20,8 @@ const API = process.env.E2E_API_BASE_URL || 'http://127.0.0.1:3000/api';
 const PASSWORD = 'E2eStrongPass!2026';
 const DOB = '2011-02-03';
 const RUN_ID = Date.now().toString(36);
+const RUN_DATE = new Date().toISOString().split('T')[0];
+const RUN_MONTH = RUN_DATE.slice(0, 7);
 
 function assertIsolatedTarget() {
   const expected = String(process.env.E2E_EXPECTED_DATABASE_NAME || '');
@@ -252,6 +254,10 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   assert.ok(privateDocumentFilename);
   const parentAReadsOwnChildDocument = await api('GET', `/documents/${encodeURIComponent(privateDocumentFilename)}`, undefined, parentAToken);
   assert.equal(parentAReadsOwnChildDocument.status, 200);
+  const publicPrivateDocumentAttempt = await fetch(
+    `${API.replace(/\/api\/?$/, '')}/uploads/private/${encodeURIComponent(privateDocumentFilename)}`
+  );
+  assert.equal(publicPrivateDocumentAttempt.status, 403);
   const studentAReadsOwnDocument = await api('GET', `/documents/${encodeURIComponent(privateDocumentFilename)}`, undefined, studentA.token);
   assert.equal(studentAReadsOwnDocument.status, 200);
   const parentBReadsOtherChildDocument = await api('GET', `/documents/${encodeURIComponent(privateDocumentFilename)}`, undefined, parentBToken);
@@ -802,7 +808,7 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   assert.equal(concurrentPayrollRecord?.paid_amount, 6000);
   assert.equal(concurrentPayrollRecord?.payment_history.length, 1);
 
-  const verifiedCollections = await api('GET', '/finance/collections?month=2026-11', undefined, adminToken);
+  const verifiedCollections = await api('GET', `/finance/collections?month=${RUN_MONTH}`, undefined, adminToken);
   assert.equal(verifiedCollections.status, 200);
   assert.ok(verifiedCollections.data.some((row: any) => row.id === paymentDId));
   assert.ok(!verifiedCollections.data.some((row: any) => row.id === paymentEId));
