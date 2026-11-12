@@ -39,6 +39,30 @@ function downloadCsv(filename: string, rows: Array<Record<string, string | numbe
   URL.revokeObjectURL(url);
 }
 
+function downloadExcel(filename: string, rows: Array<Record<string, string | number>>) {
+  if (!rows.length) return;
+  const headers = Object.keys(rows[0]);
+  const xmlEscape = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+  const cell = (value: unknown) => {
+    const numeric = typeof value === 'number' && Number.isFinite(value);
+    return `<Cell><Data ss:Type="${numeric ? 'Number' : 'String'}">${xmlEscape(value)}</Data></Cell>`;
+  };
+  const xml = `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="School Report"><Table><Row>${headers.map(cell).join('')}</Row>${rows.map(row => `<Row>${headers.map(key => cell(row[key])).join('')}</Row>`).join('')}</Table></Worksheet></Workbook>`;
+  const blob = new Blob([xml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename.replace(/\.xlsx?$/i, '') + '.xls';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+function htmlEscape(value: unknown): string {
+  return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
   const [tab, setTab] = useState<ReportTab>('overview');
   const [fees, setFees] = useState<FeeRecord[]>([]);
@@ -239,6 +263,16 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
     catch (err: any) { setError(err?.message || 'Unable to record salary payment.'); }
   };
 
+  const printSalarySlip = (row: PayrollRecord) => {
+    const popup = window.open('', '_blank', 'width=850,height=900');
+    if (!popup) { setError('Allow pop-ups to print the salary slip.'); return; }
+    const history = (row.payment_history || []).map((payment, index) => `<tr><td>Payment ${index + 1}</td><td>${htmlEscape(payment.payment_date)}</td><td>${htmlEscape(payment.payment_method)}</td><td>PKR ${Number(payment.amount).toLocaleString('en-PK')}</td></tr>`).join('');
+    popup.document.write(`<!doctype html><html><head><title>Salary Slip - ${htmlEscape(row.staff_name)}</title><style>body{font-family:Arial,sans-serif;padding:36px;color:#111}h1{margin:0 0 6px;font-size:24px}.muted{color:#666;font-size:12px}.panel{border:1px solid #ddd;border-radius:12px;padding:18px;margin:18px 0}table{width:100%;border-collapse:collapse;margin-top:12px}td,th{border-bottom:1px solid #ddd;padding:10px;text-align:left;font-size:13px}.total{font-size:20px;font-weight:bold;text-align:right;margin-top:18px}@media print{button{display:none}}</style></head><body><h1>Staff Salary Slip</h1><p class="muted">Academic Finance · Generated ${htmlEscape(new Date().toLocaleDateString())}</p><div class="panel"><b>${htmlEscape(row.staff_name)}</b><p>${htmlEscape(row.designation)} · Staff ID: ${htmlEscape(row.staff_id)}</p><p>Salary period: ${htmlEscape(row.salary_month)}/${htmlEscape(row.salary_year)}</p></div><table><tr><td>Basic salary</td><td>PKR ${Number(row.basic_salary).toLocaleString('en-PK')}</td></tr><tr><td>Allowances</td><td>PKR ${Number(row.allowances).toLocaleString('en-PK')}</td></tr><tr><td>Deductions</td><td>PKR ${Number(row.deductions).toLocaleString('en-PK')}</td></tr><tr><th>Net salary</th><th>PKR ${Number(row.net_salary).toLocaleString('en-PK')}</th></tr><tr><td>Total paid</td><td>PKR ${Number(row.paid_amount).toLocaleString('en-PK')}</td></tr><tr><td>Remaining balance</td><td>PKR ${(Number(row.net_salary)-Number(row.paid_amount)).toLocaleString('en-PK')}</td></tr></table><h2>Payment history</h2><table><tr><th>Transaction</th><th>Date</th><th>Method</th><th>Amount</th></tr>${history || '<tr><td colspan="4">No payments recorded</td></tr>'}</table><p class="muted">This document reflects salary and payment records currently saved in the school system.</p></body></html>`);
+    popup.document.close();
+    popup.focus();
+    popup.print();
+  };
+
   const tabs: Array<{ id: ReportTab; label: string; icon: React.ElementType }> = [
     { id: 'overview', label: 'Overview', icon: ChartNoAxesCombined },
     { id: 'fees', label: 'Fee collection', icon: Wallet },
@@ -261,6 +295,10 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
         </div>
         <div className="flex flex-wrap gap-2">
           <button onClick={() => void load(true)} disabled={refreshing} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} /> Refresh</button>
+          <button onClick={() => {
+            const rows = tab === 'fees' ? feeRows : tab === 'attendance' ? attendanceRows : tab === 'sessions' ? sessionSummary.map(row => ({ Session: row.academicYear, Students: row.uniqueStudents, Enrollments: row.enrollments, Active: row.active, Completed: row.completed, Transferred: row.transferred, Dropped: row.dropped })) : tab === 'expenses' ? filteredExpenses.map(e => ({ Date: e.expense_date, Title: e.title, Category: e.category, Amount: e.amount, Method: e.payment_method })) : tab === 'payroll' ? filteredPayroll.map(p => ({ Staff: p.staff_name, Designation: p.designation, Period: `${p.salary_month}/${p.salary_year}`, Net: p.net_salary, Paid: p.paid_amount, Balance: Number(p.net_salary)-Number(p.paid_amount), Status: p.status })) : classFeeSummary.map(row => ({ Class: row.className, Billed: row.billed, Collected: row.collected, Outstanding: row.outstanding, Vouchers: row.vouchers }));
+            downloadExcel(`school-${tab}-report.xls`, rows);
+          }} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 hover:bg-neutral-50"><FileSpreadsheet className="h-4 w-4" /> Export Excel</button>
           <button onClick={() => window.print()} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 hover:bg-neutral-50"><Printer className="h-4 w-4" /> Print / PDF</button>
           <button onClick={() => onAskAI('Analyze the current fee collection, outstanding dues and attendance reports. Use live records and explain trends without guessing missing data.')} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-950 px-3 text-xs font-semibold text-white hover:bg-emerald-900"><Sparkles className="h-4 w-4" /> Ask School AI</button>
         </div>
@@ -342,7 +380,7 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
           <button type="submit" className="min-h-10 rounded-lg bg-neutral-950 px-4 text-xs font-bold text-white xl:col-span-4">Create salary record</button>
         </form>
         <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-neutral-500">Salary records and disbursements are visible only to administrators.</p><button onClick={() => onAskAI('Analyze this month’s payroll records, total net salary, paid salary and remaining balances. Use live payroll records only.')} className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-900"><Sparkles className="h-4 w-4" /> Ask AI to analyze payroll</button></div>
-        <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white"><div className="flex items-center justify-between border-b border-neutral-200 p-4"><h3 className="font-bold text-neutral-900">Staff payroll</h3><button onClick={()=>downloadCsv('staff-payroll.csv',filteredPayroll.map(p=>({Staff:p.staff_name,Designation:p.designation,Period:`${p.salary_month}/${p.salary_year}`,Net:p.net_salary,Paid:p.paid_amount,Balance:Number(p.net_salary)-Number(p.paid_amount),Status:p.status})))} className="rounded-lg bg-neutral-950 px-3 py-2 text-xs font-semibold text-white">Export CSV</button></div><div className="divide-y divide-neutral-100">{filteredPayroll.map(p=><div key={p.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><p className="text-sm font-semibold text-neutral-900">{p.staff_name} · {p.designation}</p><p className="mt-1 text-xs text-neutral-500">{p.salary_month}/{p.salary_year} · Net {money(p.net_salary)} · Paid {money(p.paid_amount)} · Balance {money(Number(p.net_salary)-Number(p.paid_amount))} · {p.status}</p>{(p.payment_history || []).length>0 && <div className="mt-2 space-y-1">{p.payment_history.map((payment,i)=><p key={i} className="text-[11px] text-neutral-500">Payment {i+1}: {money(payment.amount)} · {payment.payment_date} · {payment.payment_method}</p>)}</div>}</div><button disabled={p.status==='Paid'} onClick={()=>void paySalary(p)} className="min-h-9 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-900 disabled:opacity-40">Record payment</button></div>)}{filteredPayroll.length===0&&<p className="p-8 text-center text-sm text-neutral-500">No payroll records for this month.</p>}</div></div>
+        <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white"><div className="flex items-center justify-between border-b border-neutral-200 p-4"><h3 className="font-bold text-neutral-900">Staff payroll</h3><button onClick={()=>downloadCsv('staff-payroll.csv',filteredPayroll.map(p=>({Staff:p.staff_name,Designation:p.designation,Period:`${p.salary_month}/${p.salary_year}`,Net:p.net_salary,Paid:p.paid_amount,Balance:Number(p.net_salary)-Number(p.paid_amount),Status:p.status})))} className="rounded-lg bg-neutral-950 px-3 py-2 text-xs font-semibold text-white">Export CSV</button></div><div className="divide-y divide-neutral-100">{filteredPayroll.map(p=><div key={p.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><p className="text-sm font-semibold text-neutral-900">{p.staff_name} · {p.designation}</p><p className="mt-1 text-xs text-neutral-500">{p.salary_month}/{p.salary_year} · Net {money(p.net_salary)} · Paid {money(p.paid_amount)} · Balance {money(Number(p.net_salary)-Number(p.paid_amount))} · {p.status}</p>{(p.payment_history || []).length>0 && <div className="mt-2 space-y-1">{p.payment_history.map((payment,i)=><p key={i} className="text-[11px] text-neutral-500">Payment {i+1}: {money(payment.amount)} · {payment.payment_date} · {payment.payment_method}</p>)}</div>}</div><div className="flex gap-2"><button type="button" onClick={()=>printSalarySlip(p)} className="min-h-9 rounded-lg border px-3 text-xs font-semibold">Print slip</button><button disabled={p.status==='Paid'} onClick={()=>void paySalary(p)} className="min-h-9 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-900 disabled:opacity-40">Record payment</button></div></div>)}{filteredPayroll.length===0&&<p className="p-8 text-center text-sm text-neutral-500">No payroll records for this month.</p>}</div></div>
       </div>}
 
       <p className="text-[11px] leading-relaxed text-neutral-400">Reports reflect records saved in the connected database. Payroll is tracked separately from the expense ledger to prevent double counting. Add only verified real transactions; no sample values are inserted.</p>
