@@ -46,14 +46,15 @@ jobs:
         ports:
           - 27017:27017
         options: >-
-          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ ping: 1 }).ok'"
+          --replSet rs0
+          --health-cmd "mongosh --quiet --eval 'try { rs.status().ok } catch (e) { rs.initiate().ok }'"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
     env:
       NODE_ENV: development
       PORT: 3000
-      MONGODB_URI: mongodb://127.0.0.1:27017/e2e_parent_payment
+      MONGODB_URI: mongodb://127.0.0.1:27017/e2e_parent_payment?replicaSet=rs0
       JWT_SECRET: ci-only-e2e-jwt-secret-never-use-in-production-2026
       DISABLE_AUTO_SEED: "true"
       E2E_ALLOW_MUTATIONS: "true"
