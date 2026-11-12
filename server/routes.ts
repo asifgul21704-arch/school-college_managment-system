@@ -2096,6 +2096,19 @@ async function fetchLinkedStudentsForParentUser(userId: string, email?: string):
   return docs.map(toStudentDto);
 }
 
+async function claimStudentForParent(studentDoc: any, canonicalUserId: string, mongoUserId: string): Promise<any | null> {
+  if (!studentDoc?._id || !canonicalUserId || !mongoUserId) return null;
+  // One atomic conditional write decides ownership. Concurrent parent requests cannot both claim an unowned student.
+  return StudentModel.findOneAndUpdate(
+    {
+      _id: studentDoc._id,
+      parent_user_id: { $in: [null, '', canonicalUserId, mongoUserId] },
+    },
+    { $set: { parent_user_id: canonicalUserId } },
+    { new: true }
+  );
+}
+
 // Parent link student endpoint (secure verification by Admission No and Date of Birth)
 router.post('/parents/link-student', sensitiveActionRateLimiter, authenticateToken, requireRole(['parent']), async (req: AuthenticatedRequest, res: Response) => {
   const { admission_no, dob } = req.body || {};
@@ -2126,7 +2139,8 @@ router.post('/parents/link-student', sensitiveActionRateLimiter, authenticateTok
 
     const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
     const canonicalUserId = userDoc.record_id || userDoc._id.toString();
-    if (isStudentClaimedByAnotherParent(studentDoc.parent_user_id, [canonicalUserId, userDoc._id.toString()])) {
+    const claimedStudent = await claimStudentForParent(studentDoc, canonicalUserId, userDoc._id.toString());
+    if (!claimedStudent) {
       return res.status(409).json({ error: 'This student is already linked to another parent account. Please contact school administration if this is incorrect.' });
     }
 
@@ -2136,10 +2150,16 @@ router.post('/parents/link-student', sensitiveActionRateLimiter, authenticateTok
     }
     userDoc.linked_student_ids = nextLinked;
     userDoc.linked_id = canonicalStudentId;
-    await userDoc.save();
-
-    studentDoc.parent_user_id = canonicalUserId;
-    await studentDoc.save();
+    try {
+      await userDoc.save();
+    } catch (saveError) {
+      await StudentModel.updateOne(
+        { _id: claimedStudent._id, parent_user_id: canonicalUserId },
+        { $set: { parent_user_id: '' } }
+      );
+      throw saveError;
+    }
+    Object.assign(studentDoc, claimedStudent.toObject ? claimedStudent.toObject() : claimedStudent);
 
     await ParentModel.findOneAndUpdate(
       { $or: [{ user_id: canonicalUserId }, { email: userDoc.email.toLowerCase() }] },
@@ -2277,7 +2297,8 @@ router.post('/parents/confirm-link-child', sensitiveActionRateLimiter, authentic
 
     const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
     const canonicalUserId = userDoc.record_id || userDoc._id.toString();
-    if (isStudentClaimedByAnotherParent(studentDoc.parent_user_id, [canonicalUserId, userDoc._id.toString()])) {
+    const claimedStudent = await claimStudentForParent(studentDoc, canonicalUserId, userDoc._id.toString());
+    if (!claimedStudent) {
       return res.status(409).json({ error: 'This student is already linked to another parent account. Please contact school administration if this is incorrect.' });
     }
 
@@ -2287,10 +2308,16 @@ router.post('/parents/confirm-link-child', sensitiveActionRateLimiter, authentic
     }
     userDoc.linked_student_ids = nextLinked;
     userDoc.linked_id = canonicalStudentId;
-    await userDoc.save();
-
-    studentDoc.parent_user_id = canonicalUserId;
-    await studentDoc.save();
+    try {
+      await userDoc.save();
+    } catch (saveError) {
+      await StudentModel.updateOne(
+        { _id: claimedStudent._id, parent_user_id: canonicalUserId },
+        { $set: { parent_user_id: '' } }
+      );
+      throw saveError;
+    }
+    Object.assign(studentDoc, claimedStudent.toObject ? claimedStudent.toObject() : claimedStudent);
 
     await ParentModel.findOneAndUpdate(
       { $or: [{ user_id: canonicalUserId }, { email: userDoc.email.toLowerCase() }] },
