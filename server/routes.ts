@@ -2909,8 +2909,40 @@ router.get('/dashboard/stats', authenticateToken, requireRole(['super_admin', 'a
         : FeeModel.find().sort({ created_at: -1, _id: -1 }).lean(),
     ]);
 
+    // Teachers receive dashboard aggregates only for their currently assigned classes.
+    // Never expose school-wide student or attendance totals through a teacher dashboard.
+    if (isTeacher) {
+      const teacher = await getAuthenticatedTeacherMongo(req);
+      const assignedClasses = (teacher?.classes || []).filter(Boolean);
+      if (assignedClasses.length > 0) {
+        const assignedStudentDocs = await StudentModel.find({
+          class_name: { $in: assignedClasses },
+        }).select('record_id admission_no _id').lean();
+        const studentIdentifiers = Array.from(new Set(
+          assignedStudentDocs.flatMap((student: any) => [
+            student.record_id,
+            student.admission_no,
+            student._id?.toString(),
+          ]).filter((value: unknown): value is string => typeof value === 'string' && value.length > 0)
+        ));
+        const scopedAttendance = studentIdentifiers.length > 0
+          ? await AttendanceModel.find({ date: today, student_id: { $in: studentIdentifiers } }).lean()
+          : [];
+        (totalStudents as any) = assignedStudentDocs.length;
+        (todayAttendanceDocs as any) = scopedAttendance;
+      } else {
+        (totalStudents as any) = 0;
+        (todayAttendanceDocs as any) = [];
+      }
+    }
+
     const recentAdmissions = recentDocs.map(toAdmissionDto);
-    const totalAnnouncements = publishedAnnCount;
+    const totalAnnouncements = isTeacher
+      ? await AnnouncementModel.countDocuments({
+          published: { $ne: false },
+          audience: { $in: ['All', 'Teachers', 'Public'] },
+        })
+      : publishedAnnCount;
     const activeAnnouncements = publishedAnnCount;
     const recentAnnouncements = recentAnnDocs.map(toAnnouncementDto);
 
