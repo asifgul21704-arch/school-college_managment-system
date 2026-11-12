@@ -6,6 +6,7 @@ import {
   getPayrollStatus,
   isValidIsoDate,
 } from './financeUtils.ts';
+import { sumPayrollPayments } from '../src/utils/finance.ts';
 
 test('accepts valid ISO calendar dates including leap days', () => {
   assert.equal(isValidIsoDate('2024-02-29'), true);
