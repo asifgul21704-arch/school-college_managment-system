@@ -466,22 +466,11 @@ async function getLinkedStudentIdsForParent(user: {
   id: string;
   email?: string;
 }): Promise<Set<string>> {
-  // Authorization is resolved from current MongoDB records only. JWT link claims are
-  // deliberately ignored so an old session cannot restore access after a child is unlinked.
-  const parentQueryClauses: Record<string, any>[] = [{ user_id: user.id }];
-  if (user.email) parentQueryClauses.push({ email: user.email.toLowerCase() });
-
-  const [userDoc, parentDoc, childDocs] = await Promise.all([
-    findUserByAnyId(user.id),
-    ParentModel.findOne({ $or: parentQueryClauses }).lean(),
-    StudentModel.find({ parent_user_id: user.id }).select('record_id _id admission_no').lean(),
-  ]);
-
-  const ids = collectParentStudentReferences({
-    userRecord: userDoc,
-    parentRecord: parentDoc,
-    childRecords: childDocs,
-  });
+  // The authenticated user's current MongoDB link fields are the sole source of truth.
+  // JWT claims and denormalized parent/student links are intentionally excluded: a stale
+  // session or partially completed unlink must not restore access to a former child.
+  const userDoc = await findUserByAnyId(user.id);
+  const ids = collectParentStudentReferences(userDoc);
 
   // Normalize ObjectId/admission number aliases to canonical student identifiers.
   if (ids.size > 0) {
@@ -2072,7 +2061,6 @@ async function fetchLinkedStudentsForParentUser(userId: string, email?: string):
     $or: [
       { record_id: { $in: idArr } },
       { admission_no: { $in: idArr } },
-      { parent_user_id: userId },
       ...(objIds.length > 0 ? [{ _id: { $in: objIds } }] : []),
     ],
   })
