@@ -1129,6 +1129,26 @@ export const api = {
       method: 'DELETE',
     }),
 
+  // Finance operations (admin-only API)
+  getFinanceExpenses: (params?: { from?: string; to?: string; category?: string }) => {
+    const query = new URLSearchParams(params as any).toString();
+    return request<any[]>(`/finance/expenses${query ? `?${query}` : ''}`);
+  },
+  createFinanceExpense: (data: { title: string; category: string; amount: number; expense_date: string; payment_method: string; reference?: string; notes?: string }) =>
+    request<any>('/finance/expenses', { method: 'POST', body: JSON.stringify(data) }),
+  updateFinanceExpense: (id: string, data: Record<string, any>) =>
+    request<any>(`/finance/expenses/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteFinanceExpense: (id: string) =>
+    request<{ success: boolean; message: string }>(`/finance/expenses/${id}`, { method: 'DELETE' }),
+  getFinancePayroll: (params?: { year?: number; month?: number; status?: string }) => {
+    const query = new URLSearchParams(params as any).toString();
+    return request<any[]>(`/finance/payroll${query ? `?${query}` : ''}`);
+  },
+  createFinancePayroll: (data: { staff_id: string; staff_name: string; designation: string; salary_month: number; salary_year: number; basic_salary: number; allowances?: number; deductions?: number; notes?: string }) =>
+    request<any>('/finance/payroll', { method: 'POST', body: JSON.stringify(data) }),
+  recordFinanceSalaryPayment: (id: string, data: { amount: number; payment_date: string; payment_method: string }) =>
+    request<any>(`/finance/payroll/${id}/payment`, { method: 'POST', body: JSON.stringify(data) }),
+
   getPublicHomework: (params?: { class_name?: string; section?: string }) => {
     const query = new URLSearchParams(params as any).toString();
     return request<{ homework: HomeworkItem[] }>(`/homework${query ? `?${query}` : ''}`);
