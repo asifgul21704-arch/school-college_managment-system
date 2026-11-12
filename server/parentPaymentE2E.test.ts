@@ -585,6 +585,13 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   assert.equal(teacherCannotListFees.status, 403);
   const teacherCannotListAdminPayments = await api('GET', '/admin/payments', undefined, teacherToken);
   assert.equal(teacherCannotListAdminPayments.status, 403);
+  const teacherCannotReadAdmissions = await api('GET', '/admissions', undefined, teacherToken);
+  assert.equal(teacherCannotReadAdmissions.status, 403);
+  const teacherCannotApproveAdmission = await api('PUT', '/admissions/E2E-NONEXISTENT/status', {
+    status: 'Approved',
+    createStudentRecord: true,
+  }, teacherToken);
+  assert.equal(teacherCannotApproveAdmission.status, 403);
   const teacherRoster = await api('GET', '/students', undefined, teacherToken);
   assert.equal(teacherRoster.status, 200);
   assert.ok(teacherRoster.data.some((student: any) => student.id === studentA.id));
