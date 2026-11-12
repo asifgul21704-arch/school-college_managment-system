@@ -92,10 +92,17 @@ See [`.env.example`](.env.example) for the complete template. Important server-s
 - `JWT_SECRET`
 - `CORS_ORIGIN`
 - `UPLOAD_STORAGE_DIR`
-- Optional `GEMINI_API_KEY` and SMTP settings
+- Optional `GEMINI_API_KEY`
+- Password-reset email requires `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM`; `SMTP_SECURE` and `APP_PUBLIC_URL` are also supported.
 - Optional one-time bootstrap configuration
 
-Never commit `.env`, database credentials, JWT secrets, SMTP passwords, or API keys. Use your hosting provider's secret/environment-variable manager for production.
+Never commit `.env`, database credentials, JWT secrets, SMTP passwords, or API keys. Use your hosting provider's secret/environment-variable manager for production. Configure secret values directly in Railway; do not paste them into source control or chat.
+
+## Integration status and safe behavior
+
+- Password reset returns HTTP 503 until the complete SMTP configuration is present; it does not pretend to send an email.
+- SMS is currently a simulator. It can create a message preview for audit, but records the delivery status as `Skipped`; no real SMS is sent.
+- JazzCash, Easypaisa, and Raast gateway charging is not integrated. Those methods are rejected safely; bank deposit/transfer submissions require a unique slip or transaction reference and manual school verification.
 
 ## Deployment notes
 
