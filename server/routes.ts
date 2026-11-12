@@ -1,8 +1,8 @@
 import express, { type Request, type Response } from 'express';
 import { financeRouter } from './financeRoutes.ts';
 import { buildNotificationVisibilityFilter, canMarkNotificationRead } from './notificationAccess.ts';
-import { buildParentPaymentHistoryFilter, collectParentStudentReferences, isParentLinkedToStudent, isExactGuardianNameMatch, areSameStudentIdentity, isStudentClaimedByAnotherParent } from './parentAccess.ts';
-import { isClassAssignedToTeacher } from './classAccess.ts';
+import { buildParentPaymentHistoryFilter, buildParentLinkedStudentFilter, collectParentStudentReferences, isParentLinkedToStudent, isExactGuardianNameMatch, areSameStudentIdentity, isStudentClaimedByAnotherParent } from './parentAccess.ts';
+import { isClassAssignedToTeacher, buildTeacherClassFilter } from './classAccess.ts';
 import { getParentPaymentMethodMode, collectStudentPaymentIdentifiers } from './paymentUtils.ts';
 import { isExactTeacherName, isExactTeacherSubject, areAllResultSubjectsAssignedToTeacher, isExactSectionMatch } from './teacherAccess.ts';
 import crypto from 'crypto';
@@ -10662,9 +10662,6 @@ router.post('/portal/ai/query', aiRateLimiter, authenticateToken, requireRole(['
       return res.status(403).json({ error: 'Access denied: You may only query your own authorized academic records.' });
     }
 
-    const allStudentsDocs = await StudentModel.find().lean();
-    const allStudents: StudentDto[] = allStudentsDocs.map(toStudentDto);
-
     // ====================================================
     // STUDENT PORTAL AI
     // ====================================================
@@ -10679,16 +10676,6 @@ router.post('/portal/ai/query', aiRateLimiter, authenticateToken, requireRole(['
       const studentAliasIds = Array.from(
         new Set([student.id, studentDoc.record_id, studentDoc._id ? studentDoc._id.toString() : ''].filter(Boolean))
       );
-
-      // Prevent querying other students by name or roll number (using word boundary check)
-      const otherStudents = allStudents.filter(s => s.id !== student.id);
-      for (const other of otherStudents) {
-        const otherFirst = other.full_name.split(' ')[0].toLowerCase();
-        const otherWordRegex = new RegExp(`\\b${escapeRegexLiteral(otherFirst)}\\b`, 'i');
-        if (otherFirst.length > 2 && otherWordRegex.test(lower) && !student.full_name.toLowerCase().includes(otherFirst)) {
-          return res.status(403).json({ error: 'Access denied: You may only query your own student records.' });
-        }
-      }
 
       await recordMongoAudit(req.user!, 'Queried Student Portal AI', 'Student', student.id, `Query: "${prompt.substring(0, 60)}"`);
 
@@ -10828,28 +10815,16 @@ router.post('/portal/ai/query', aiRateLimiter, authenticateToken, requireRole(['
     // ====================================================
     if (userRole === 'parent') {
       const parentStudentIds = await getLinkedStudentIdsForParent(req.user!);
-      const linkedStudents = allStudents.filter(s => parentStudentIds.has(s.id));
+      const parentStudentDocs = await StudentModel.find(buildParentLinkedStudentFilter(parentStudentIds)).lean();
+      const linkedStudents = parentStudentDocs.map(toStudentDto);
       if (linkedStudents.length === 0) {
         return res.status(404).json({ error: 'No linked children found for this parent account.' });
-      }
-
-      // Check if user is inquiring about an unrelated student by name (word boundary check)
-      const unlinkedStudents = allStudents.filter(s => !parentStudentIds.has(s.id));
-      for (const unlinked of unlinkedStudents) {
-        const unlinkedFirst = unlinked.full_name.split(' ')[0].toLowerCase();
-        const unlinkedWordRegex = new RegExp(`\\b${escapeRegexLiteral(unlinkedFirst)}\\b`, 'i');
-        if (unlinkedFirst.length > 2 && unlinkedWordRegex.test(lower)) {
-          const isAlsoLinkedName = linkedStudents.some(ls => ls.full_name.toLowerCase().includes(unlinkedFirst));
-          if (!isAlsoLinkedName) {
-            return res.status(403).json({ error: 'Access denied: You may only query records for your linked child.' });
-          }
-        }
       }
 
       await recordMongoAudit(req.user!, 'Queried Parent Portal AI', 'Parent', req.user!.id, `Query: "${prompt.substring(0, 60)}"`);
 
       const getChildAliases = (childDto: StudentDto): Set<string> => {
-        const rawDoc = allStudentsDocs.find(
+        const rawDoc = parentStudentDocs.find(
           (d: any) => (d.record_id || d._id.toString()) === childDto.id || d._id.toString() === childDto.id
         );
         return new Set<string>(
@@ -12113,28 +12088,10 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
       });
     }
 
-    const allStudentDocs = await StudentModel.find().lean();
+    // Scope the database read itself to this teacher's current assigned classes.
+    const teacherClassFilter = buildTeacherClassFilter(assignedClasses);
+    const allStudentDocs = await StudentModel.find(teacherClassFilter).lean();
     const allStudents: StudentDto[] = allStudentDocs.map(toStudentDto);
-
-    const otherStudents = allStudents.filter(
-      s => !isClassAssignedToTeacher(assignedClasses, s.class_name)
-    );
-    for (const other of otherStudents) {
-      const otherFirst = other.full_name.split(' ')[0].toLowerCase();
-      const otherWordRegex = new RegExp(`\\b${escapeRegexLiteral(otherFirst)}\\b`, 'i');
-      if (otherFirst.length > 2 && otherWordRegex.test(lower)) {
-        const inTeacherClass = allStudents.some(
-          s =>
-            isClassAssignedToTeacher(assignedClasses, s.class_name) &&
-            s.full_name.toLowerCase().includes(otherFirst)
-        );
-        if (!inTeacherClass) {
-          return res.status(403).json({
-            error: 'Access denied: You may only query records for students enrolled in your assigned classes.',
-          });
-        }
-      }
-    }
 
     await recordMongoAudit(req.user!, 'Queried Teacher AI', 'TeacherAI', teacher.id, `Query: "${prompt.substring(0, 60)}"`);
 
@@ -12242,7 +12199,7 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
     }
 
     if (lower.includes('timetable') || lower.includes('schedule') || lower.includes('period') || lower.includes('next class')) {
-      const ttDocs = await TimetableModel.find().sort({ created_at: 1, _id: 1 }).lean();
+      const ttDocs = await TimetableModel.find(teacherClassFilter).sort({ created_at: 1, _id: 1 }).lean();
       const teacherTimetable = ttDocs.map(toTimetableDto).filter(t =>
         t.teacher_name.toLowerCase().includes(teacher.name.toLowerCase()) ||
         teacher.name.toLowerCase().includes(t.teacher_name.toLowerCase())
@@ -12271,7 +12228,7 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
     }
 
     if ((lower.includes('below') && lower.includes('75')) || lower.includes('low attendance') || lower.includes('warning attendance')) {
-      const allAttDocs = await AttendanceModel.find().select('student_id status class_name').lean();
+      const allAttDocs = await AttendanceModel.find(teacherClassFilter).select('student_id status class_name').lean();
       let reply = `### ⚠️ Low Attendance Warning in Your Classes (<75%)\n`;
       let lowCount = 0;
       for (const c of assignedClasses) {
@@ -12299,7 +12256,7 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
 
     if (lower.includes('absent') || lower.includes('attendance today') || lower.includes('attendance percentage')) {
       const today = new Date().toISOString().split('T')[0];
-      const todayAttDocs = await AttendanceModel.find({ date: today }).lean();
+      const todayAttDocs = await AttendanceModel.find({ date: today, ...teacherClassFilter }).lean();
       const todayAtt = todayAttDocs
         .map(toAttendanceDto)
         .filter(a => isClassAssignedToTeacher(assignedClasses, a.class_name));
@@ -12322,7 +12279,7 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
     }
 
     if (lower.includes('result') || lower.includes('mark') || lower.includes('score') || lower.includes('performance') || lower.includes('below 50')) {
-      const allResDocs = await ResultModel.find().sort({ created_at: -1, _id: -1 }).lean();
+      const allResDocs = await ResultModel.find(teacherClassFilter).sort({ created_at: -1, _id: -1 }).lean();
       const classResults = allResDocs
         .map(toResultDto)
         .filter(r => isClassAssignedToTeacher(assignedClasses, r.class_name));
@@ -12344,7 +12301,7 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
 
     if (lower.includes('pending') || lower.includes('task') || lower.includes('attendance task')) {
       const today = new Date().toISOString().split('T')[0];
-      const todayAttDocs = await AttendanceModel.find({ date: today }).select('class_name').lean();
+      const todayAttDocs = await AttendanceModel.find({ date: today, ...teacherClassFilter }).select('class_name').lean();
       const pending: string[] = [];
       const marked: string[] = [];
       for (const c of assignedClasses) {
