@@ -43,3 +43,11 @@ test('bank deposit references are required, trimmed, and bounded', () => {
   assert.equal(normalizeDepositReference('x'.repeat(129)), '');
   assert.equal(normalizeDepositReference('x'.repeat(128)), 'x'.repeat(128));
 });
+
+test('fee payment schema enforces globally unique non-empty bank transaction references', async () => {
+  const { FeePaymentModel } = await import('./models/FeePayment.ts');
+  const transactionIndex = FeePaymentModel.schema.indexes().find(([keys]) => keys.transaction_id === 1);
+  assert.ok(transactionIndex, 'transaction_id unique index must exist');
+  assert.equal(transactionIndex?.[1]?.unique, true);
+  assert.equal(transactionIndex?.[1]?.sparse, true);
+});
