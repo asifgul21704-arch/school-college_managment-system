@@ -10525,6 +10525,7 @@ router.post('/upload', sensitiveActionRateLimiter, authenticateToken, async (req
         [
           req.user.linked_id,
           ownDoc?.record_id,
+          ownDoc?.admission_no,
           ownDoc?._id ? ownDoc._id.toString() : '',
         ].filter(Boolean) as string[]
       );
@@ -10536,6 +10537,14 @@ router.post('/upload', sensitiveActionRateLimiter, authenticateToken, async (req
       if (!parentLinked.has(cleanStudentId)) {
         return res.status(403).json({ error: 'Parents may only upload documents for their linked children.' });
       }
+    } else if (req.user?.role === 'teacher') {
+      const teacher = await getAuthenticatedTeacherMongo(req);
+      const targetStudent = await findStudentByAnyId(cleanStudentId);
+      if (!teacher || !targetStudent || !isClassAssignedToTeacher(teacher.classes || [], targetStudent.class_name)) {
+        return res.status(403).json({ error: 'Teachers may only upload documents for students in their assigned classes.' });
+      }
+    } else {
+      return res.status(403).json({ error: 'This account cannot upload documents for a student profile.' });
     }
   }
 
@@ -10610,9 +10619,11 @@ router.get('/documents/:filename', sensitiveActionRateLimiter, authenticateToken
 
     const user = req.user!;
     const isAdmin = user.role === 'super_admin' || user.role === 'admin';
-    let authorized = isAdmin || docMeta.uploaded_by_user_id === user.id;
+    let authorized = isAdmin;
 
     if (!authorized && docMeta.student_id) {
+      // Student-scoped documents follow live ownership/link relationships.
+      // The original uploader does not retain access after a parent-child unlink.
       if (user.role === 'student') {
         const ownDoc = user.linked_id
           ? await findStudentByAnyId(user.linked_id)
@@ -10621,6 +10632,7 @@ router.get('/documents/:filename', sensitiveActionRateLimiter, authenticateToken
           [
             user.linked_id,
             ownDoc?.record_id,
+            ownDoc?.admission_no,
             ownDoc?._id ? ownDoc._id.toString() : '',
           ].filter(Boolean) as string[]
         );
@@ -10628,7 +10640,18 @@ router.get('/documents/:filename', sensitiveActionRateLimiter, authenticateToken
       } else if (user.role === 'parent') {
         const linkedSet = await getLinkedStudentIdsForParent(user);
         authorized = linkedSet.has(docMeta.student_id);
+      } else if (user.role === 'teacher') {
+        const teacher = await getAuthenticatedTeacherMongo(req);
+        const targetStudent = await findStudentByAnyId(docMeta.student_id);
+        authorized = Boolean(
+          teacher &&
+          targetStudent &&
+          isClassAssignedToTeacher(teacher.classes || [], targetStudent.class_name)
+        );
       }
+    } else if (!authorized && !docMeta.student_id) {
+      // Non-student-scoped private documents remain available only to their uploader.
+      authorized = docMeta.uploaded_by_user_id === user.id;
     }
 
     if (!authorized) {
