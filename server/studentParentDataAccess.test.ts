@@ -72,3 +72,16 @@ test('successful unlink invalidates stale child requests before refreshing accou
   const refreshed = handler.indexOf('await refreshUser()', confirmed);
   assert.ok(confirmed >= 0 && cleared > confirmed && refreshed > cleared);
 });
+
+
+const serverSource = readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
+
+test('private API responses disable browser and shared-proxy caching after permission changes', () => {
+  const apiCacheMiddleware = serverSource.slice(
+    serverSource.indexOf("app.use('/api', (_req, res, next)"),
+    serverSource.indexOf('// Mount API Router')
+  );
+  assert.match(apiCacheMiddleware, /Cache-Control', 'private, no-store, no-cache, max-age=0, must-revalidate'/);
+  assert.match(apiCacheMiddleware, /Pragma', 'no-cache'/);
+  assert.match(apiCacheMiddleware, /Expires', '0'/);
+});
