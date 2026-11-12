@@ -9,6 +9,7 @@ import { FeePaymentModel } from './models/FeePayment.ts';
 import { AttendanceModel } from './models/Attendance.ts';
 import { ExamModel } from './models/Exam.ts';
 import { ResultModel } from './models/Result.ts';
+import { NotificationModel } from './models/Notification.ts';
 
 const API = process.env.E2E_API_BASE_URL || 'http://127.0.0.1:3000/api';
 const PASSWORD = 'E2eStrongPass!2026';
@@ -123,6 +124,7 @@ before(async () => {
     AttendanceModel.init(),
     ExamModel.init(),
     ResultModel.init(),
+    NotificationModel.init(),
   ]);
 
   const adminPasswordHash = await bcrypt.hash(PASSWORD, 10);
@@ -302,12 +304,32 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   assert.equal(paymentARetry.status, 200, JSON.stringify(paymentARetry.data));
   assert.equal(paymentARetry.data.idempotent_replay, true);
   assert.equal(await FeePaymentModel.countDocuments({ transaction_id: `E2E-SLIP-A-${RUN_ID}` }), 1);
+  assert.equal(await NotificationModel.countDocuments({ action_id: `fee-submit:${paymentAId}` }), 2);
 
   const parentACrossPayment = await submitBankPayment(parentAToken, feeB, studentB.id,  `E2E-SLIP-A-CROSS-${RUN_ID}`);
   assert.equal(parentACrossPayment.status, 403);
 
   const paymentB = await submitBankPayment(parentBToken, feeB, studentB.id,  `E2E-SLIP-B-${RUN_ID}`);
   assert.equal(paymentB.status, 201, JSON.stringify(paymentB.data));
+  const paymentBId = paymentB.data.payment.id;
+
+  const submitAActionId = `fee-submit:${paymentAId}`;
+  const submitBActionId = `fee-submit:${paymentBId}`;
+  assert.equal(await NotificationModel.countDocuments({ action_id: submitAActionId }), 2);
+  const parentANotifications = await api('GET', '/notifications', undefined, parentAToken);
+  const parentBNotifications = await api('GET', '/notifications', undefined, parentBToken);
+  assert.ok(parentANotifications.data.some((notification: any) => notification.action_id === submitAActionId));
+  assert.ok(!parentANotifications.data.some((notification: any) => notification.action_id === submitBActionId));
+  assert.ok(parentBNotifications.data.some((notification: any) => notification.action_id === submitBActionId));
+  assert.ok(!parentBNotifications.data.some((notification: any) => notification.action_id === submitAActionId));
+  const parentBPrivateNotification = parentBNotifications.data.find((notification: any) => notification.action_id === submitBActionId);
+  assert.ok(parentBPrivateNotification);
+  const crossAccountMarkRead = await api('PUT', `/notifications/${encodeURIComponent(parentBPrivateNotification.id)}/read`, {}, parentAToken);
+  assert.equal(crossAccountMarkRead.status, 403);
+  const ownNotification = parentANotifications.data.find((notification: any) => notification.action_id === submitAActionId);
+  assert.ok(ownNotification);
+  const ownMarkRead = await api('PUT', `/notifications/${encodeURIComponent(ownNotification.id)}/read`, {}, parentAToken);
+  assert.equal(ownMarkRead.status, 200);
 
   const studentACrossPayment = await submitBankPayment(studentA.token, feeB, studentB.id,  `E2E-SLIP-STUDENT-CROSS-${RUN_ID}`);
   assert.equal(studentACrossPayment.status, 403);
