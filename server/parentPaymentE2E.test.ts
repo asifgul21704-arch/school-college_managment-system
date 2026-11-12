@@ -52,6 +52,7 @@ async function registerStudent(label: string, fatherName: string) {
   return {
     id: result.data.studentProfile.id as string,
     admissionNo: result.data.studentProfile.admission_no as string,
+    rollNo: result.data.studentProfile.roll_no as string,
     token: result.data.token as string,
     email: `student-${label.toLowerCase()}-${RUN_ID}@e2e.invalid`,
   };
@@ -151,6 +152,30 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   const parentB = await registerParent('B', studentB.admissionNo);
   assert.equal(parentB.status, 201, JSON.stringify(parentB.data));
   const parentBToken = parentB.data.token as string;
+
+  const parentIntruder = await registerParent('Intruder', '');
+  assert.equal(parentIntruder.status, 201, JSON.stringify(parentIntruder.data));
+  const parentIntruderToken = parentIntruder.data.token as string;
+
+  // Parent profile and child-discovery endpoints must enforce account ownership.
+  const parentAOwnProfile = await api('GET', `/parents/${encodeURIComponent(parentA.data.user.id)}`, undefined, parentAToken);
+  assert.equal(parentAOwnProfile.status, 200);
+  const parentACrossProfile = await api('GET', `/parents/${encodeURIComponent(parentB.data.user.id)}`, undefined, parentAToken);
+  assert.equal(parentACrossProfile.status, 403);
+  const parentACrossProfileUpdate = await api('PUT', `/parents/${encodeURIComponent(parentB.data.user.id)}`, { name: 'Unauthorized Edit' }, parentAToken);
+  assert.equal(parentACrossProfileUpdate.status, 403);
+  const parentACannotListAllParents = await api('GET', '/parents', undefined, parentAToken);
+  assert.equal(parentACannotListAllParents.status, 403);
+  const studentACannotUseParentDirectory = await api('GET', '/parents/my-students', undefined, studentA.token);
+  assert.equal(studentACannotUseParentDirectory.status, 403);
+  const intruderCannotDiscoverClaimedChild = await api('POST', '/parents/find-child', {
+    father_name: 'E2E Parent A',
+    student_name: 'E2E Student A',
+    class_name: 'E2E Class',
+    roll_no: studentA.rollNo,
+  }, parentIntruderToken);
+  assert.equal(intruderCannotDiscoverClaimedChild.status, 404);
+  assert.equal(intruderCannotDiscoverClaimedChild.data.matches, undefined);
 
   // Two simultaneous parent signups for one unclaimed child must have exactly one winner.
   const studentC = await registerStudent('C', 'E2E Parent Race');
