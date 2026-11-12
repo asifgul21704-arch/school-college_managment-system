@@ -3,6 +3,7 @@ import { financeRouter } from './financeRoutes.ts';
 import { buildNotificationVisibilityFilter, canMarkNotificationRead } from './notificationAccess.ts';
 import { buildParentPaymentHistoryFilter, collectParentStudentReferences, isParentLinkedToStudent } from './parentAccess.ts';
 import { isClassAssignedToTeacher } from './classAccess.ts';
+import { isExactTeacherName } from './teacherAccess.ts';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jsonwebtoken from 'jsonwebtoken';
@@ -11726,8 +11727,7 @@ router.get('/teacher/timetable', authenticateToken, requireExactRole(['teacher']
 
     const ttDocs = await TimetableModel.find().sort({ created_at: 1, _id: 1 }).lean();
     const timetable = ttDocs.map(toTimetableDto).filter(t =>
-      t.teacher_name.toLowerCase().includes(teacher.name.toLowerCase()) ||
-      teacher.name.toLowerCase().includes(t.teacher_name.toLowerCase())
+      isExactTeacherName(t.teacher_name, teacher.name)
     );
 
     const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
