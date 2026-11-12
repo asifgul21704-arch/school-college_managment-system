@@ -32,3 +32,8 @@ export function isParentLinkedToStudent(linkedStudentIds: ReadonlySet<string>, s
     return normalized.length > 0 && linkedStudentIds.has(normalized);
   });
 }
+
+/** Payment history must be scoped only to the parent's currently linked student IDs. */
+export function buildParentPaymentHistoryFilter(linkedStudentIds: ReadonlySet<string>): { student_id: { $in: string[] } } {
+  return { student_id: { $in: Array.from(linkedStudentIds) } };
+}
