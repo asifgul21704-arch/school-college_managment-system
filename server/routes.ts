@@ -11657,7 +11657,16 @@ router.post('/teacher/results', authenticateToken, requireExactRole(['teacher'])
     else if (pct >= 40) grade = 'D';
 
     const examDoc = await ExamModel.findOne(buildCmsRecordLookupFilter(cleanExamId)).lean();
-    const resolvedExamTitle = sanitizePlainText(exam_title || examDoc?.title || 'Term Assessment', 200) || 'Term Assessment';
+    if (!examDoc) {
+      return res.status(404).json({ error: 'Exam not found.' });
+    }
+    const exam = toExamDto(examDoc);
+    const examClasses = Array.isArray(exam.classes) ? exam.classes : [];
+    if (examClasses.length > 0 && !examClasses.includes('All Classes') &&
+        !examClasses.some((name: string) => isClassAssignedToTeacher([studentDoc.class_name], name))) {
+      return res.status(403).json({ error: 'Access denied: This exam is not assigned to the student class.' });
+    }
+    const resolvedExamTitle = sanitizePlainText(exam_title || exam.title || 'Term Assessment', 200) || 'Term Assessment';
 
     const studentIdAliases = Array.from(
       new Set([canonicalStudentId, studentDoc._id.toString(), String(student_id).trim()].filter(Boolean))
