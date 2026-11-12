@@ -31,7 +31,7 @@ async function api(method: string, path: string, body?: unknown, token?: string)
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const data = await response.json().catch(() => ({}));
-  return { status: response.status, data };
+  return { status: response.status, data, cacheControl: response.headers.get('cache-control') || '' };
 }
 
 async function registerStudent(label: string, fatherName: string) {
@@ -197,6 +197,7 @@ test('parent/student permissions, unlink invalidation, and payment history work 
 
   const parentAStudents = await api('GET', '/students', undefined, parentAToken);
   assert.equal(parentAStudents.status, 200);
+  assert.match(parentAStudents.cacheControl, /no-store/i);
   assert.deepEqual(parentAStudents.data.map((student: any) => student.id), [studentA.id]);
 
   const parentAReadsB = await api('GET', `/students/${encodeURIComponent(studentB.id)}`, undefined, parentAToken);
