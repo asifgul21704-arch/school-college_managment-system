@@ -2793,7 +2793,8 @@ export async function processAdminAiQuery(
     const expenseTotal = operationalExpenses.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0);
     const payrollTotal = payrollDocs.reduce((sum: number, row: any) => sum + Number(row.net_salary || 0), 0);
     const payrollPaid = payrollDocs.reduce((sum: number, row: any) => sum + Number(row.paid_amount || 0), 0);
-    const totalOutflow = expenseTotal + payrollTotal;
+    const totalOutflow = expenseTotal + payrollPaid;
+    const payrollRemaining = Math.max(0, payrollTotal - payrollPaid);
     const collected = paymentDocs.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0);
     const expenseByCategory = new Map<string, number>();
     operationalExpenses.forEach((row: any) => expenseByCategory.set(row.category, (expenseByCategory.get(row.category) || 0) + Number(row.amount || 0)));
@@ -2805,9 +2806,9 @@ export async function processAdminAiQuery(
       `Generated live finance report for ${periodPrefix}; ${expenseDocs.length} expense records and ${payrollDocs.length} payroll records.`
     );
     return {
-      text: `### Finance Intelligence Report — ${periodPrefix}\n\n* **Verified fee collections:** PKR ${collected.toLocaleString()}\n* **Operating expenses (${operationalExpenses.length} records):** PKR ${expenseTotal.toLocaleString()}\n* **Payroll net salary (${payrollDocs.length} records):** PKR ${payrollTotal.toLocaleString()} (paid PKR ${payrollPaid.toLocaleString()})\n* **Recorded total outflow for selected month:** PKR ${totalOutflow.toLocaleString()}\n* **Operating balance indicator:** PKR ${(collected - totalOutflow).toLocaleString()}\n\n#### Operating expense categories\n| Category | Amount |\n|---|---:|\n${categoryRows || '| No expense records | PKR 0 |'}\n\n*Expense and payroll figures are filtered to ${periodPrefix}. Fee collection total is the current fee-ledger aggregate and is not period-filtered. The operating balance indicator is therefore not a formal accounting profit/loss figure.*`,
+      text: `### Finance Intelligence Report — ${periodPrefix}\n\n* **Verified fee collections:** PKR ${collected.toLocaleString()}\n* **Operating expenses (${operationalExpenses.length} records):** PKR ${expenseTotal.toLocaleString()}\n* **Payroll net salary (${payrollDocs.length} records):** PKR ${payrollTotal.toLocaleString()} (paid PKR ${payrollPaid.toLocaleString()})\n* **Recorded cash outflow (operating expenses + salary paid):** PKR ${totalOutflow.toLocaleString()}\n* **Unpaid payroll balance:** PKR ${payrollRemaining.toLocaleString()}\n* **Operating balance indicator:** PKR ${(collected - totalOutflow).toLocaleString()}\n\n#### Operating expense categories\n| Category | Amount |\n|---|---:|\n${categoryRows || '| No expense records | PKR 0 |'}\n\n*All figures are filtered to ${periodPrefix}. Collections include only Paid + Verified fee transactions. Cash balance is an operational indicator, not an audited profit/loss statement.*`,
       toolUsed: 'getFinanceIntelligenceReport',
-      data: { period: periodPrefix, feeCollectionsAllTime: collected, operationalExpenses: expenseTotal, payrollNet: payrollTotal, payrollPaid, totalOutflow, expenseCount: expenseDocs.length, payrollCount: payrollDocs.length },
+      data: { period: periodPrefix, verifiedFeeCollections: collected, operationalExpenses: expenseTotal, payrollNet: payrollTotal, payrollPaid, payrollRemaining, totalOutflow, expenseCount: expenseDocs.length, payrollCount: payrollDocs.length },
       auditLogId: auditId,
       aiProviderStatus: getAiProviderStatus(),
     };
