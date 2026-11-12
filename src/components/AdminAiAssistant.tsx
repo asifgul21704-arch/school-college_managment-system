@@ -233,6 +233,9 @@ export const AdminAiAssistant: React.FC = () => {
   };
 
   const quickInquiries = [
+    { label: 'Income vs Expense', query: 'Generate the income vs expense report for this month.' },
+    { label: 'Expense Report', query: 'Generate the expense report for this month.' },
+    { label: 'Payroll Summary', query: 'Generate the payroll and salary report for this month.' },
     { label: 'New Admitted Students', query: 'Show new admitted students.' },
     { label: 'Admissions This Month', query: 'Show recent admissions this month.' },
     { label: 'Teacher Details & Classes', query: 'Show teacher details and assigned classes.' },
