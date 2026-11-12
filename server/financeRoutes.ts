@@ -1,7 +1,7 @@
 import express, { type Response } from 'express';
 import mongoose from 'mongoose';
 import { authenticateToken, requireRole, type AuthenticatedRequest } from './auth.ts';
-import { ExpenseModel, PayrollModel, AuditLogModel, FeePaymentModel } from './models/index.ts';
+import { ExpenseModel, PayrollModel, AuditLogModel, FeePaymentModel, TeacherModel } from './models/index.ts';
 
 export const financeRouter = express.Router();
 financeRouter.use(authenticateToken, requireRole(['super_admin', 'admin']));
@@ -23,6 +23,12 @@ function audit(req: AuthenticatedRequest, action: string, targetType: string, ta
     details,
     timestamp: new Date().toISOString(),
   });
+}
+
+function validIsoDate(value: string): boolean {
+  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
 function cleanText(value: unknown, max = 160): string {
@@ -167,15 +173,24 @@ financeRouter.post('/payroll', async (req: AuthenticatedRequest, res: Response) 
       ![basic, allowances, deductions].every(Number.isFinite) || basic < 0 || allowances < 0 || deductions < 0 || deductions > basic + allowances) {
       return res.status(400).json({ error: 'Provide valid staff details, salary period and non-negative salary amounts. Deductions cannot exceed gross salary.' });
     }
+    const staffClauses: Record<string, any>[] = [{ record_id: staffId }];
+    if (mongoose.Types.ObjectId.isValid(staffId) && /^[a-fA-F0-9]{24}$/.test(staffId)) {
+      staffClauses.push({ _id: new mongoose.Types.ObjectId(staffId) });
+    }
+    const staffDoc = await TeacherModel.findOne({ $or: staffClauses }).lean();
+    if (!staffDoc) return res.status(404).json({ error: 'Select an existing staff member from the staff directory.' });
+    if (staffDoc.status !== 'Active') return res.status(400).json({ error: 'Payroll can only be created for active staff members.' });
+    const authoritativeStaffName = String(staffDoc.name || staffName);
+    const authoritativeDesignation = String(staffDoc.subject || designation);
     const now = new Date().toISOString();
     const recordId = `pay_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const net = Number((basic + allowances - deductions).toFixed(2));
     const row = await PayrollModel.create({
-      record_id: recordId, staff_id: staffId, staff_name: staffName, designation, salary_month: month, salary_year: year,
+      record_id: recordId, staff_id: staffId, staff_name: authoritativeStaffName, designation: authoritativeDesignation, salary_month: month, salary_year: year,
       basic_salary: basic, allowances, deductions, net_salary: net, paid_amount: 0, status: 'Unpaid',
       notes: cleanText(req.body?.notes, 1000), created_by: req.user?.id || 'unknown', created_at: now, updated_at: now,
     });
-    await audit(req, 'PAYROLL_RECORD_CREATED', 'Payroll', recordId, `Created payroll for ${staffName}: PKR ${net}`);
+    await audit(req, 'PAYROLL_RECORD_CREATED', 'Payroll', recordId, `Created payroll for ${authoritativeStaffName}: PKR ${net}`);
     return res.status(201).json({ ...row.toObject(), id: recordId });
   } catch (err: any) {
     if (err?.code === 11000) return res.status(409).json({ error: 'A salary record already exists for this staff member and month.' });
