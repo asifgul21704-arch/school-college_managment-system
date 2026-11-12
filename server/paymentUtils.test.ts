@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getParentPaymentMethodMode, normalizeDepositReference } from './paymentUtils.ts';
+import { getParentPaymentMethodMode, normalizeDepositReference, isExactParentPaymentRetry } from './paymentUtils.ts';
 
 test('wallet and online gateway methods are unavailable until provider verification is integrated', () => {
   for (const method of ['Online Gateway', 'JazzCash', 'Easypaisa', 'Raast', 'Easypaisa / JazzCash']) {
@@ -50,4 +50,31 @@ test('fee payment schema enforces globally unique non-empty bank transaction ref
   assert.ok(transactionIndex, 'transaction_id unique index must exist');
   assert.equal(transactionIndex?.[1]?.unique, true);
   assert.equal(transactionIndex?.[1]?.sparse, true);
+});
+
+test('payment retry recovery requires the same parent, voucher, student, amount, method and pending state', () => {
+  const existing = {
+    fee_id: 'fee_123',
+    student_id: 'student_456',
+    amount: 2500,
+    method: 'Bank Deposit',
+    parent_user_id: 'parent_789',
+    verification_status: 'Pending',
+  };
+  const expected = {
+    feeId: 'fee_123',
+    studentId: 'student_456',
+    amount: 2500,
+    method: 'Bank Deposit',
+    parentUserId: 'parent_789',
+  };
+
+  assert.equal(isExactParentPaymentRetry(existing, expected), true);
+  assert.equal(isExactParentPaymentRetry(null, expected), false);
+  assert.equal(isExactParentPaymentRetry({ ...existing, parent_user_id: 'another-parent' }, expected), false);
+  assert.equal(isExactParentPaymentRetry({ ...existing, fee_id: 'another-fee' }, expected), false);
+  assert.equal(isExactParentPaymentRetry({ ...existing, student_id: 'another-student' }, expected), false);
+  assert.equal(isExactParentPaymentRetry({ ...existing, amount: 2501 }, expected), false);
+  assert.equal(isExactParentPaymentRetry({ ...existing, method: 'Bank Transfer' }, expected), false);
+  assert.equal(isExactParentPaymentRetry({ ...existing, verification_status: 'Verified' }, expected), false);
 });
