@@ -33,6 +33,20 @@ export function isParentLinkedToStudent(linkedStudentIds: ReadonlySet<string>, s
   });
 }
 
+/** Builds a fail-closed MongoDB filter for only the current parent's linked student aliases. */
+export function buildParentLinkedStudentFilter(linkedStudentIds: ReadonlySet<string>): Record<string, unknown> {
+  const ids = Array.from(new Set(Array.from(linkedStudentIds, value => String(value || '').trim()).filter(Boolean)));
+  if (ids.length === 0) return { _id: { $in: [] } };
+  const objectIdAliases = ids.filter(value => /^[a-fA-F0-9]{24}$/.test(value));
+  return {
+    $or: [
+      { record_id: { $in: ids } },
+      { admission_no: { $in: ids } },
+      ...(objectIdAliases.length > 0 ? [{ _id: { $in: objectIdAliases } }] : []),
+    ],
+  };
+}
+
 /** Payment history must be scoped only to the parent's currently linked student IDs. */
 export function buildParentPaymentHistoryFilter(linkedStudentIds: ReadonlySet<string>): { student_id: { $in: string[] } } {
   return { student_id: { $in: Array.from(linkedStudentIds) } };
