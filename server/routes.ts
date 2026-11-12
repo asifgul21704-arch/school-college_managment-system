@@ -2106,6 +2106,40 @@ async function claimStudentForParent(studentDoc: any, canonicalUserId: string, m
   );
 }
 
+async function persistParentStudentLink(
+  userDoc: any,
+  studentDoc: any,
+  canonicalStudentId: string,
+  canonicalUserId: string
+): Promise<void> {
+  try {
+    const result = await UserModel.updateOne(
+      { _id: userDoc._id, role: 'parent' },
+      {
+        $addToSet: { linked_student_ids: canonicalStudentId },
+        $set: { linked_id: canonicalStudentId },
+      }
+    );
+    if (result.matchedCount !== 1) {
+      throw new Error('Parent account is no longer available for linking.');
+    }
+  } catch (linkError) {
+    // A network error can happen after MongoDB committed. Verify before releasing ownership.
+    const latestUser = await UserModel.findOne({ _id: userDoc._id, role: 'parent' }).lean();
+    const linkPersisted = Boolean(
+      latestUser &&
+      ((latestUser.linked_student_ids || []).includes(canonicalStudentId) || latestUser.linked_id === canonicalStudentId)
+    );
+    if (!linkPersisted) {
+      await StudentModel.updateOne(
+        buildStudentParentReleaseFilter(studentDoc._id, canonicalUserId, userDoc._id.toString()),
+        { $set: { parent_user_id: '' } }
+      );
+    }
+    throw linkError;
+  }
+}
+
 // Parent link student endpoint (secure verification by Admission No and Date of Birth)
 router.post('/parents/link-student', sensitiveActionRateLimiter, authenticateToken, requireRole(['parent']), async (req: AuthenticatedRequest, res: Response) => {
   const { admission_no, dob } = req.body || {};
@@ -2141,13 +2175,7 @@ router.post('/parents/link-student', sensitiveActionRateLimiter, authenticateTok
       return res.status(409).json({ error: 'This student is already linked to another parent account. Please contact school administration if this is incorrect.' });
     }
 
-    await UserModel.updateOne(
-      { _id: userDoc._id, role: 'parent' },
-      {
-        $addToSet: { linked_student_ids: canonicalStudentId },
-        $set: { linked_id: canonicalStudentId },
-      }
-    );
+    await persistParentStudentLink(userDoc, studentDoc, canonicalStudentId, canonicalUserId);
     Object.assign(studentDoc, claimedStudent.toObject ? claimedStudent.toObject() : claimedStudent);
 
     await ParentModel.findOneAndUpdate(
@@ -2310,13 +2338,7 @@ router.post('/parents/confirm-link-child', sensitiveActionRateLimiter, authentic
       return res.status(409).json({ error: 'This student is already linked to another parent account. Please contact school administration if this is incorrect.' });
     }
 
-    await UserModel.updateOne(
-      { _id: userDoc._id, role: 'parent' },
-      {
-        $addToSet: { linked_student_ids: canonicalStudentId },
-        $set: { linked_id: canonicalStudentId },
-      }
-    );
+    await persistParentStudentLink(userDoc, studentDoc, canonicalStudentId, canonicalUserId);
     Object.assign(studentDoc, claimedStudent.toObject ? claimedStudent.toObject() : claimedStudent);
 
     await ParentModel.findOneAndUpdate(
