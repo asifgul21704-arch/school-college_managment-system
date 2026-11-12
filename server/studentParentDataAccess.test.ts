@@ -60,3 +60,15 @@ test('child portal request versions prevent late responses restoring data after 
   assert.match(studentPortal, /loadPaymentData\(targetStudentId, requestVersion\)/);
   assert.match(studentPortal, /parentChildrenLoadVersionRef\.current \+= 1/);
 });
+
+
+test('successful unlink invalidates stale child requests before refreshing account state', () => {
+  const start = studentPortal.indexOf('const handleUnlinkChild = async');
+  const end = studentPortal.indexOf('// Payment Modal Handlers', start);
+  assert.ok(start >= 0 && end > start);
+  const handler = studentPortal.slice(start, end);
+  const confirmed = handler.indexOf('await api.unlinkChild(childToUnlink.id)');
+  const cleared = handler.indexOf('clearStudentScopedData()', confirmed);
+  const refreshed = handler.indexOf('await refreshUser()', confirmed);
+  assert.ok(confirmed >= 0 && cleared > confirmed && refreshed > cleared);
+});
