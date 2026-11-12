@@ -244,6 +244,14 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   assert.equal(studentAHistory.data.length, 1);
   assert.equal(studentAHistory.data[0].student_id, studentA.id);
 
+  const parentBAi = await api('POST', '/portal/ai/query', { prompt: 'show my child attendance' }, parentBToken);
+  assert.equal(parentBAi.status, 200, JSON.stringify(parentBAi.data));
+  assert.match(parentBAi.data.text, /E2E Student B/);
+  assert.doesNotMatch(parentBAi.data.text, /E2E Student A/);
+  const studentAAi = await api('POST', '/portal/ai/query', { prompt: 'what is my attendance?' }, studentA.token);
+  assert.equal(studentAAi.status, 200, JSON.stringify(studentAAi.data));
+  assert.match(studentAAi.data.text, /E2E Student A/);
+
   // Keep using the original Parent A JWT after unlink; the live account record must deny the old child.
   const unlinkA = await api('POST', '/parents/unlink-child', { student_id: studentA.id }, parentAToken);
   assert.equal(unlinkA.status, 200, JSON.stringify(unlinkA.data));
@@ -262,6 +270,8 @@ test('parent/student permissions, unlink invalidation, and payment history work 
     `E2E-SLIP-A-AFTER-UNLINK-${RUN_ID}`
   );
   assert.equal(oldSessionPaymentAttempt.status, 403);
+  const oldSessionAi = await api('POST', '/portal/ai/query', { prompt: 'show my child attendance' }, parentAToken);
+  assert.equal(oldSessionAi.status, 404);
   const oldSessionFeeSummary = await api('GET', '/parent/fees/summary', undefined, parentAToken);
   assert.equal(oldSessionFeeSummary.status, 200);
   assert.equal(oldSessionFeeSummary.data.total_outstanding, 0);
@@ -307,6 +317,8 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   assert.equal(parentCAfterAdminUnlink.status, 403);
   const parentCHistoryAfterAdminUnlink = await api('GET', '/parent/payments/history', undefined, parentCToken);
   assert.deepEqual(parentCHistoryAfterAdminUnlink.data, []);
+  const parentCAiAfterAdminUnlink = await api('POST', '/portal/ai/query', { prompt: 'show my child attendance' }, parentCToken);
+  assert.equal(parentCAiAfterAdminUnlink.status, 404);
 
   // Student access and the other parent's payment history remain independent of parent unlinking.
   const studentAStillOwnsRecord = await api('GET', `/students/${encodeURIComponent(studentA.id)}`, undefined, studentA.token);
