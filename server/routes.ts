@@ -1998,16 +1998,14 @@ router.post('/auth/register-teacher', authRateLimiter, async (req: Request, res:
       ip_address: req.ip || '',
     }).catch(() => {});
 
-    // 4. Create Notification for School Admin
-    await NotificationModel.create({
-      notification_id: `notif_${ts}_${randSuffix}`,
-      user_id: 'admin',
+    // 4. Create one admin notification for this teacher signup.
+    await createNotificationOnce({
+      actionId: crypto.createHash('sha256').update(`teacher-signup:${newUserId}`).digest('hex'),
+      userId: 'admin',
       role: 'admin',
       title: 'New Teacher Signup Application',
       message: `${full_name} (${cleanEmail}) applied for teacher position (${chosenSubject}). Please review in Admin Console.`,
-      type: 'info',
-      read: false,
-    }).catch(() => {});
+    }).catch(() => false);
 
     return res.status(201).json({
       success: true,
@@ -4379,16 +4377,14 @@ router.post('/admin/teacher-requests/:id/approve', authenticateToken, requireRol
       `Approved ${teacherDto.name} (${teacherDto.email}). Status: ${resolvedStatus}, Classes: ${(teacherDoc.classes || []).join(', ')}`
     );
 
-    // 7. Notification for Teacher
-    await NotificationModel.create({
-      notification_id: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      user_id: userDoc.record_id,
+    // 7. Notify the teacher once for this account approval.
+    await createNotificationOnce({
+      actionId: crypto.createHash('sha256').update(`teacher-approved:${userDoc.record_id}`).digest('hex'),
+      userId: userDoc.record_id,
       role: 'teacher',
       title: 'Teacher Account Approved',
       message: `Congratulations ${teacherDto.name}! Your teacher account has been approved by the School Administration. You can now access your teacher portal.`,
-      type: 'info',
-      read: false,
-    }).catch(() => {});
+    }).catch(() => false);
 
     return res.json({
       success: true,
@@ -4505,17 +4501,15 @@ router.post('/admin/teacher-tasks', authenticateToken, requireRole(['super_admin
       assigned_by: req.user?.name || 'Administration',
     });
 
-    // Notify teacher
+    // Notify the assigned teacher once for this persisted task.
     if (teacher?.user_id) {
-      await NotificationModel.create({
-        notification_id: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        user_id: teacher.user_id,
+      await createNotificationOnce({
+        actionId: crypto.createHash('sha256').update(`teacher-task:${taskDoc._id.toString()}`).digest('hex'),
+        userId: teacher.user_id,
         role: 'teacher',
         title: 'New Responsibility Assigned',
         message: `Admin assigned a new duty: "${title}" (Due: ${due_date}). Please review your tasks tab.`,
-        type: 'info',
-        read: false,
-      }).catch(() => {});
+      }).catch(() => false);
     }
 
     await recordMongoAudit(
@@ -7639,8 +7633,9 @@ router.post('/admin/payments/:id/reject', authenticateToken, requireRole(['super
     }
 
     if (paymentDoc.parent_user_id) {
-      await NotificationModel.create({
-        user_id: paymentDoc.parent_user_id,
+      await createNotificationOnce({
+        actionId: `fee-reject:${paymentDoc._id.toString()}`,
+        userId: paymentDoc.parent_user_id,
         role: 'parent',
         title: 'Fee Payment Rejected',
         message: `Your payment Ref: ${paymentDoc.payment_reference} for ${paymentDoc.student_name} was rejected. Reason: ${cleanReason}`,
