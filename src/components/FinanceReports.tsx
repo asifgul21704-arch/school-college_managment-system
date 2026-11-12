@@ -209,6 +209,13 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
     })).sort((a,b)=>b.academicYear.localeCompare(a.academicYear));
   }, [filteredEnrollments]);
 
+  const attendanceRows = filteredAttendance.map(a => ({
+    Date: a.date, Student: a.student_name, Class: a.class_name, Section: a.section, Status: a.status,
+  }));
+
+  const filteredExpenses = expenses.filter(e => !monthFilter || String(e.expense_date || '').startsWith(monthFilter));
+  const filteredPayroll = payroll.filter(p => !monthFilter || (Number(p.salary_year) === Number(monthFilter.slice(0, 4)) && Number(p.salary_month) === Number(monthFilter.slice(5, 7))));
+
   const financeSummary = useMemo(() => {
     const verifiedIncome = collections.filter(p => (!monthFilter || p.date.startsWith(monthFilter)) && (classFilter === 'all' || p.class_name === classFilter)).reduce((sum,p)=>sum+Number(p.amount||0),0);
     const operatingExpense = filteredExpenses.filter(e=>e.category!=='Salaries').reduce((sum,e)=>sum+Number(e.amount||0),0);
@@ -216,13 +223,6 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
     const outflow = operatingExpense + payrollPaid;
     return { verifiedIncome, operatingExpense, payrollPaid, outflow, netCashIndicator: verifiedIncome-outflow };
   }, [collections, monthFilter, classFilter, filteredExpenses, filteredPayroll]);
-
-  const attendanceRows = filteredAttendance.map(a => ({
-    Date: a.date, Student: a.student_name, Class: a.class_name, Section: a.section, Status: a.status,
-  }));
-
-  const filteredExpenses = expenses.filter(e => !monthFilter || String(e.expense_date || '').startsWith(monthFilter));
-  const filteredPayroll = payroll.filter(p => !monthFilter || (Number(p.salary_year) === Number(monthFilter.slice(0, 4)) && Number(p.salary_month) === Number(monthFilter.slice(5, 7))));
   const saveExpense = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
