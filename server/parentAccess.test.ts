@@ -78,3 +78,18 @@ test('a student already assigned to another parent cannot be claimed by this par
   assert.equal(isStudentClaimedByAnotherParent('', ['parent-b']), false);
   assert.equal(isStudentClaimedByAnotherParent(null, ['parent-b']), false);
 });
+
+test('parent student lookup filter includes only linked aliases and fails closed when empty', async () => {
+  const { buildParentLinkedStudentFilter } = await import('./parentAccess.ts');
+  assert.deepEqual(
+    buildParentLinkedStudentFilter(new Set(['student-a', 'ADM-001', '65aa00000000000000000001', 'student-a'])),
+    {
+      $or: [
+        { record_id: { $in: ['student-a', 'ADM-001', '65aa00000000000000000001'] } },
+        { admission_no: { $in: ['student-a', 'ADM-001', '65aa00000000000000000001'] } },
+        { _id: { $in: ['65aa00000000000000000001'] } },
+      ],
+    }
+  );
+  assert.deepEqual(buildParentLinkedStudentFilter(new Set()), { _id: { $in: [] } });
+});
