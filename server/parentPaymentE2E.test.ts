@@ -34,7 +34,7 @@ async function api(method: string, path: string, body?: unknown, token?: string)
   return { status: response.status, data, cacheControl: response.headers.get('cache-control') || '' };
 }
 
-async function registerStudent(label: string, fatherName: string) {
+async function registerStudent(label: string, fatherName: string, className = 'E2E Class') {
   const result = await api('POST', '/auth/register-student', {
     full_name: `E2E Student ${label}`,
     email: `student-${label.toLowerCase()}-${RUN_ID}@e2e.invalid`,
@@ -42,7 +42,7 @@ async function registerStudent(label: string, fatherName: string) {
     confirm_password: PASSWORD,
     dob: DOB,
     father_name: fatherName,
-    class_name: 'E2E Class',
+    class_name: className,
     section: 'A',
     gender: 'Male',
   });
@@ -411,4 +411,85 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   assert.equal(parentEHistory.data.length, 1);
   assert.equal(parentEHistory.data[0].status, 'Rejected');
   assert.equal(parentEHistory.data[0].rejection_reason, 'Deposit slip is unreadable');
+
+  // Partial payments must reduce the outstanding balance incrementally and issue
+  // a distinct receipt for each approved installment.
+  const studentF = await registerStudent('F', 'E2E Parent F');
+  const parentF = await registerParent('F', studentF.admissionNo);
+  assert.equal(parentF.status, 201, JSON.stringify(parentF.data));
+  const parentFToken = parentF.data.token as string;
+  const feeF = await createFee(studentF, 'F');
+
+  const overpaymentF = await submitBankPayment(parentFToken, feeF, studentF.id, `E2E-SLIP-F-OVERPAY-${RUN_ID}`, 6000);
+  assert.equal(overpaymentF.status, 400);
+  assert.equal(await FeePaymentModel.countDocuments({ fee_id: feeF }), 0);
+
+  const installmentOne = await submitBankPayment(parentFToken, feeF, studentF.id, `E2E-SLIP-F-ONE-${RUN_ID}`, 2500);
+  assert.equal(installmentOne.status, 201, JSON.stringify(installmentOne.data));
+  const installmentOneId = installmentOne.data.payment.id;
+  const installmentOneApproval = await api('POST', `/admin/payments/${encodeURIComponent(installmentOneId)}/approve`, {}, adminToken);
+  assert.equal(installmentOneApproval.status, 200, JSON.stringify(installmentOneApproval.data));
+  assert.equal(installmentOneApproval.data.payment.status, 'Paid');
+  const installmentOneReceipt = installmentOneApproval.data.payment.receipt_no;
+
+  const partialFeeF = await FeeModel.findOne({ voucher_id: feeF }).lean();
+  assert.equal(partialFeeF?.paid_amount, 2500);
+  assert.equal(partialFeeF?.pending_amount, 2500);
+  assert.equal(partialFeeF?.status, 'Partial');
+  assert.equal(partialFeeF?.payment_history.length, 1);
+
+  const installmentTwo = await submitBankPayment(parentFToken, feeF, studentF.id, `E2E-SLIP-F-TWO-${RUN_ID}`, 2500);
+  assert.equal(installmentTwo.status, 201, JSON.stringify(installmentTwo.data));
+  const installmentTwoId = installmentTwo.data.payment.id;
+  const installmentTwoApproval = await api('POST', `/admin/payments/${encodeURIComponent(installmentTwoId)}/approve`, {}, adminToken);
+  assert.equal(installmentTwoApproval.status, 200, JSON.stringify(installmentTwoApproval.data));
+  const installmentTwoReceipt = installmentTwoApproval.data.payment.receipt_no;
+  assert.notEqual(installmentTwoReceipt, installmentOneReceipt);
+
+  const fullyPaidFeeF = await FeeModel.findOne({ voucher_id: feeF }).lean();
+  assert.equal(fullyPaidFeeF?.paid_amount, 5000);
+  assert.equal(fullyPaidFeeF?.pending_amount, 0);
+  assert.equal(fullyPaidFeeF?.status, 'Paid');
+  assert.equal(fullyPaidFeeF?.payment_history.length, 2);
+  assert.equal(fullyPaidFeeF?.payment_history.reduce((sum, payment) => sum + payment.amount, 0), 5000);
+
+  const parentFHistory = await api('GET', '/parent/payments/history', undefined, parentFToken);
+  assert.equal(parentFHistory.status, 200);
+  assert.equal(parentFHistory.data.length, 2);
+  assert.deepEqual(new Set(parentFHistory.data.map((payment: any) => payment.receipt_no)), new Set([installmentOneReceipt, installmentTwoReceipt]));
+
+  // Teacher role is isolated from finance and from students outside assigned classes.
+  const studentG = await registerStudent('G', 'E2E Parent G', 'Other Class');
+  const teacherEmail = `teacher-${RUN_ID}@e2e.invalid`;
+  const teacherCreated = await api('POST', '/teachers', {
+    name: 'E2E Class Teacher',
+    qualification: 'B.Ed',
+    subject: 'Computer Science',
+    classes: ['E2E Class'],
+    email: teacherEmail,
+    contact_no: '03000000000',
+  }, adminToken);
+  assert.equal(teacherCreated.status, 201, JSON.stringify(teacherCreated.data));
+  assert.ok(teacherCreated.data.temporary_password);
+  const teacherLogin = await api('POST', '/auth/login', {
+    email: teacherEmail,
+    password: teacherCreated.data.temporary_password,
+  });
+  assert.equal(teacherLogin.status, 200, JSON.stringify(teacherLogin.data));
+  const teacherToken = teacherLogin.data.token as string;
+
+  const teacherCannotListFees = await api('GET', '/fees', undefined, teacherToken);
+  assert.equal(teacherCannotListFees.status, 403);
+  const teacherCannotListAdminPayments = await api('GET', '/admin/payments', undefined, teacherToken);
+  assert.equal(teacherCannotListAdminPayments.status, 403);
+  const teacherRoster = await api('GET', '/students', undefined, teacherToken);
+  assert.equal(teacherRoster.status, 200);
+  assert.ok(teacherRoster.data.some((student: any) => student.id === studentA.id));
+  assert.ok(!teacherRoster.data.some((student: any) => student.id === studentG.id));
+  const teacherReadsAssignedStudent = await api('GET', `/students/${encodeURIComponent(studentA.id)}`, undefined, teacherToken);
+  assert.equal(teacherReadsAssignedStudent.status, 200);
+  const teacherReadsUnassignedStudent = await api('GET', `/students/${encodeURIComponent(studentG.id)}`, undefined, teacherToken);
+  assert.equal(teacherReadsUnassignedStudent.status, 403);
+  const teacherReadsUnassignedAttendance = await api('GET', `/attendance/student/${encodeURIComponent(studentG.id)}`, undefined, teacherToken);
+  assert.equal(teacherReadsUnassignedAttendance.status, 403);
 });
