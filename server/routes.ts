@@ -11040,6 +11040,7 @@ router.get('/teacher/dashboard', authenticateToken, requireExactRole(['teacher']
     ]);
 
     const assignments = assignmentDocs.map(toTeacherAssignmentDto);
+    const allowedSubjects = [teacher.subject, ...assignments.map((assignment: any) => assignment.subject)];
     const isClassTeacher = assignments.some(a => a.is_class_teacher);
     const classTeacherAssignments = assignments.filter(a => a.is_class_teacher);
 
@@ -11060,8 +11061,7 @@ router.get('/teacher/dashboard', authenticateToken, requireExactRole(['teacher']
     const todayDate = new Date().toISOString().split('T')[0];
 
     const teacherTimetable = allTtDocs.map(toTimetableDto).filter(t =>
-      t.teacher_name.toLowerCase().includes(teacher.name.toLowerCase()) ||
-      teacher.name.toLowerCase().includes(t.teacher_name.toLowerCase())
+      isExactTeacherName(t.teacher_name, teacher.name)
     );
     const todayTimetable = teacherTimetable.filter(t => t.day.toLowerCase() === todayDay.toLowerCase());
 
@@ -11087,7 +11087,10 @@ router.get('/teacher/dashboard', authenticateToken, requireExactRole(['teacher']
 
     const recentResults = allResDocs
       .map(toResultDto)
-      .filter(r => isClassAssignedToTeacher(mergedClasses, r.class_name))
+      .filter(r =>
+        isClassAssignedToTeacher(mergedClasses, r.class_name) &&
+        areAllResultSubjectsAssignedToTeacher(allowedSubjects, r.subjects.map(s => s.subject_name))
+      )
       .slice(0, 5);
 
     const tasks = taskDocs.map(toTeacherTaskDto);
