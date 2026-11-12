@@ -3,7 +3,7 @@ import { financeRouter } from './financeRoutes.ts';
 import { buildNotificationVisibilityFilter, canMarkNotificationRead } from './notificationAccess.ts';
 import { buildParentPaymentHistoryFilter, collectParentStudentReferences, isParentLinkedToStudent } from './parentAccess.ts';
 import { isClassAssignedToTeacher } from './classAccess.ts';
-import { isExactTeacherName, isExactTeacherSubject } from './teacherAccess.ts';
+import { isExactTeacherName, isExactTeacherSubject, areAllResultSubjectsAssignedToTeacher } from './teacherAccess.ts';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jsonwebtoken from 'jsonwebtoken';
@@ -8664,6 +8664,18 @@ router.delete('/results/:id', authenticateToken, requireRole(['super_admin', 'ad
           error: `Access denied: You are not assigned to class "${existing.class_name}".`,
         });
       }
+      const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter(Boolean)));
+      const assignmentDocs = await TeacherAssignmentModel.find({
+        teacher_id: { $in: teacherIds },
+        class_name: { $regex: new RegExp(`^${escapeRegexLiteral(existing.class_name)}$`, 'i') },
+      }).select('subject').lean();
+      const allowedSubjects = [teacher.subject, ...assignmentDocs.map((item: any) => item.subject)];
+      const resultSubjectNames = Array.isArray(existing.subjects)
+        ? existing.subjects.map((item: any) => String(item.subject_name || ''))
+        : [];
+      if (!areAllResultSubjectsAssignedToTeacher(allowedSubjects, resultSubjectNames)) {
+        return res.status(403).json({ error: 'Access denied: You may only manage results for your assigned subjects.' });
+      }
     }
 
     const dto = toResultDto(existing);
@@ -8701,6 +8713,18 @@ router.patch('/results/:id/publish', authenticateToken, requireRole(['super_admi
         return res.status(403).json({
           error: `Access denied: You are not assigned to class "${existing.class_name}".`,
         });
+      }
+      const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter(Boolean)));
+      const assignmentDocs = await TeacherAssignmentModel.find({
+        teacher_id: { $in: teacherIds },
+        class_name: { $regex: new RegExp(`^${escapeRegexLiteral(existing.class_name)}$`, 'i') },
+      }).select('subject').lean();
+      const allowedSubjects = [teacher.subject, ...assignmentDocs.map((item: any) => item.subject)];
+      const resultSubjectNames = Array.isArray(existing.subjects)
+        ? existing.subjects.map((item: any) => String(item.subject_name || ''))
+        : [];
+      if (!areAllResultSubjectsAssignedToTeacher(allowedSubjects, resultSubjectNames)) {
+        return res.status(403).json({ error: 'Access denied: You may only manage results for your assigned subjects.' });
       }
     }
 
