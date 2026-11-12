@@ -75,3 +75,16 @@ test('administrator unlink clears current links and releases only the selected p
   assert.match(route, /\$unset: \{ parent_user_id: '' \}/);
   assert.doesNotMatch(route, /parentUser\.save\(\)|studentDoc\.save\(\)/);
 });
+
+
+test('public parent registration uses the same verified atomic student claim as portal linking', () => {
+  const start = routes.indexOf("router.post('/auth/register-parent'");
+  const end = routes.indexOf("router.post('/auth/login'", start);
+  assert.ok(start >= 0 && end > start);
+  const route = routes.slice(start, end);
+  assert.match(route, /claimStudentForParent\([\s\S]*?canonicalParentId[\s\S]*?createdUser\._id\.toString\(\)/);
+  assert.match(route, /persistParentStudentLink\(createdUser, verifiedChild, canonicalStudentId, canonicalParentId\)/);
+  assert.match(route, /already linked to another parent account/);
+  assert.match(route, /buildStudentParentReleaseFilter\(verifiedChild\._id, canonicalParentId, createdUser\._id\.toString\(\)\)/);
+  assert.doesNotMatch(route, /verifiedChild\.parent_user_id\s*=|verifiedChild\.save\(\)/);
+});
