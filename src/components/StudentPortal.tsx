@@ -231,8 +231,18 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
     setPrintingFee(null);
     setViewingReceiptPayment(null);
     setPayingFee(null);
+    setPayAmount('');
+    setPayMethod('Bank Deposit');
+    setPayBankName('Askari Bank Limited');
+    setPayDepositDate(new Date().toISOString().split('T')[0]);
+    setPayDepositSlipRef('');
+    setPaySlipAttachmentUrl('');
+    setPayParentPhone(user?.phone || '');
+    setPayNotes('');
     setPayModalSubmitting(false);
     setNewInquiryChildId('');
+    setInquirySubmitSuccess(null);
+    setCopiedInquiryRef(null);
     setShowPayModal(false);
     setPayModalError(null);
     setPayModalSuccess(null);
@@ -590,6 +600,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
   const handleOpenPayModal = (targetFee?: FeeRecord) => {
     setPayModalError(null);
     setPayModalSuccess(null);
+    setPayMethod('Bank Deposit');
+    setPayBankName('Askari Bank Limited');
+    setPayDepositSlipRef('');
+    setPaySlipAttachmentUrl('');
+    setPayParentPhone(user?.phone || '');
+    setPayNotes('');
     if (targetFee) {
       setPayingFee(targetFee);
       setPayAmount(targetFee.pending_amount);
