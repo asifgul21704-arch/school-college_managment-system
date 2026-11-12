@@ -16,6 +16,7 @@ export interface IPayroll extends Document {
   paid_amount: number;
   payment_date?: string;
   payment_method?: string;
+  payment_history: Array<{ amount: number; payment_date: string; payment_method: string; recorded_by: string; recorded_at: string }>;
   notes?: string;
   status: PayrollStatus;
   created_by: string;
@@ -37,6 +38,7 @@ const PayrollSchema = new Schema<IPayroll>({
   paid_amount: { type: Number, default: 0, min: 0 },
   payment_date: { type: String },
   payment_method: { type: String, enum: ['Cash','Bank Transfer','Cheque','JazzCash','Easypaisa','Other'] },
+  payment_history: { type: [{ amount: { type: Number, required: true, min: 0.01 }, payment_date: { type: String, required: true }, payment_method: { type: String, required: true }, recorded_by: { type: String, required: true }, recorded_at: { type: String, required: true } }], default: [] },
   notes: { type: String, trim: true, maxlength: 1000 },
   status: { type: String, enum: ['Unpaid','Partially Paid','Paid'], default: 'Unpaid' },
   created_by: { type: String, required: true },
