@@ -1934,7 +1934,7 @@ export const ControlledSchoolTools = {
         const parent = await ParentModel.findOne({ linked_students: student.id }).select('user_id').lean();
         const userId = String(parent?.user_id || '').trim();
         if (!userId) return null;
-        return { userId, studentName: student.name, className: student.class_name };
+        return { studentId: String(student.id), studentName: student.name, className: student.class_name };
       }));
       const safeRecipients = recipients.filter((r): r is NonNullable<typeof r> => Boolean(r));
       const messageText = `محترم والدین! آپ کا بچہ آج اسکول سے غیر حاضر ہے۔ براہ کرم وجہ کی اطلاع دیں۔ شکریہ۔`;
@@ -1956,7 +1956,7 @@ export const ControlledSchoolTools = {
         const parent = await ParentModel.findOne({ linked_students: student.id }).select('user_id').lean();
         const userId = String(parent?.user_id || '').trim();
         if (!userId) return null;
-        return { userId, studentName: student.studentName, className: student.className, dueAmount: student.totalDue };
+        return { studentId: String(student.id), studentName: student.studentName, className: student.className, dueAmount: student.totalDue };
       }));
       const safeRecipients = recipients.filter((r): r is NonNullable<typeof r> => Boolean(r));
       const messageText = `محترم والدین! براہ کرم واجب الادا فیس جلد جمع کرائیں۔ شکریہ۔ اسکول انتظامیہ۔`;
@@ -2011,24 +2011,32 @@ export const ControlledSchoolTools = {
     if (!message || message.length > 1000) {
       throw new Error('Notification message is required and must be 1000 characters or fewer.');
     }
-    const uniqueRecipients = new Map<string, any>();
+    const studentIds = new Set<string>();
     for (const recipient of recipients) {
-      const userId = typeof recipient?.userId === 'string' ? recipient.userId.trim() : '';
-      if (!userId || userId.length > 128) {
-        throw new Error('Invalid parent account recipient. No notifications were created.');
+      const studentId = typeof recipient?.studentId === 'string' ? recipient.studentId.trim() : '';
+      if (!studentId || studentId.length > 128) {
+        throw new Error('Invalid student reference. No notifications were created.');
       }
-      uniqueRecipients.set(userId, recipient);
-    }
-    if (uniqueRecipients.size !== recipients.length) {
-      throw new Error('Duplicate parent account recipients detected. Please prepare the action again.');
+      studentIds.add(studentId);
     }
 
-    for (const [userId, recipient] of uniqueRecipients) {
+    // Resolve recipients again on the server at execution time; never trust client-supplied parent user IDs.
+    const parentDocs = await ParentModel.find({ linked_students: { $in: Array.from(studentIds) } })
+      .select('user_id linked_students')
+      .lean();
+    const uniqueParentIds = new Set(
+      parentDocs.map(parent => String(parent.user_id || '').trim()).filter(Boolean)
+    );
+    if (uniqueParentIds.size === 0) {
+      throw new Error('No verified linked parent accounts found. No notifications were created.');
+    }
+
+    for (const userId of uniqueParentIds) {
       await NotificationModel.create({
         user_id: userId,
         role: 'parent',
         title: actionType === 'SEND_SMS_ABSENT' ? 'Student Absence Alert' : 'Fee Reminder',
-        message: message,
+        message,
         link: '/student-portal',
         read: false,
       });
@@ -2038,12 +2046,12 @@ export const ControlledSchoolTools = {
       context,
       `AI_ACTION_EXECUTED_${actionType}`,
       'IN_APP_NOTIFICATION',
-      `Admin confirmed and created in-app notification records for ${uniqueRecipients.size} linked parent accounts. No SMS was sent.`
+      `Admin confirmed and created in-app notification records for ${uniqueParentIds.size} linked parent accounts. No SMS was sent.`
     );
     return {
       success: true,
-      message: `Created ${uniqueRecipients.size} in-app notification record(s) and saved the action to the audit log. No SMS was sent.`,
-      dispatchedCount: uniqueRecipients.size,
+      message: `Created ${uniqueParentIds.size} in-app notification record(s) and saved the action to the audit log. No SMS was sent.`,
+      dispatchedCount: uniqueParentIds.size,
       auditLogId: auditId,
     };
   },
