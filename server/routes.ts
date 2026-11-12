@@ -7311,6 +7311,58 @@ router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent
       });
   } catch (err: any) {
     if (err?.code === 11000) {
+      // A prior attempt may have persisted the payment before notification delivery failed.
+      // Recover only for the same authenticated parent and the exact same payment details.
+      try {
+        const retryFeeDoc = await FeeModel.findOne(buildFeeLookupFilter(cleanFeeId)).lean();
+        const canonicalVoucherId = retryFeeDoc?.voucher_id || retryFeeDoc?._id?.toString();
+        const existingPayment = await FeePaymentModel.findOne({
+          transaction_id: normalizeDepositReference(deposit_slip_ref),
+          parent_user_id: user.id,
+        }).lean();
+
+        const expectedMethod = method === 'Bank Transfer' ? 'Bank Transfer' : 'Bank Deposit';
+        const exactRetry = Boolean(
+          retryFeeDoc &&
+          existingPayment &&
+          existingPayment.fee_id === canonicalVoucherId &&
+          existingPayment.student_id === retryFeeDoc.student_id &&
+          Number(existingPayment.amount) === paymentAmount &&
+          existingPayment.method === expectedMethod &&
+          existingPayment.verification_status === 'Pending'
+        );
+
+        if (exactRetry && retryFeeDoc && existingPayment) {
+          const notificationActionId = `fee-submit:${existingPayment._id.toString()}`;
+          await Promise.all([
+            createNotificationOnce({
+              actionId: notificationActionId,
+              role: 'admin',
+              title: 'New Fee Payment Verification Required',
+              message: `Parent submitted Bank Deposit of PKR ${paymentAmount.toLocaleString()} for ${retryFeeDoc.student_name} (${retryFeeDoc.class_name}). Slip Ref: ${normalizeDepositReference(deposit_slip_ref)}.`,
+              link: '/admin',
+            }),
+            createNotificationOnce({
+              actionId: notificationActionId,
+              userId: user.id,
+              role: 'parent',
+              title: 'Payment Submission Received',
+              message: `Your payment voucher submission of PKR ${paymentAmount.toLocaleString()} (Ref: ${existingPayment.payment_reference}) has been received and is pending verification.`,
+              link: '/student-portal',
+            }),
+          ]);
+
+          return res.status(200).json({
+            message: 'This payment was already received. Its notifications have been checked safely.',
+            payment: toFeePaymentDto(existingPayment),
+            fee: toFeeDto(retryFeeDoc),
+            idempotent_replay: true,
+          });
+        }
+      } catch (recoveryError) {
+        return sendRouteError(res, recoveryError, 'Unable to safely recover the existing payment submission.');
+      }
+
       return res.status(409).json({
         error: 'This bank deposit reference has already been submitted. Check payment history before retrying.',
       });
