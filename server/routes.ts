@@ -1,7 +1,7 @@
 import express, { type Request, type Response } from 'express';
 import { financeRouter } from './financeRoutes.ts';
 import { buildNotificationVisibilityFilter, canMarkNotificationRead } from './notificationAccess.ts';
-import { buildParentPaymentHistoryFilter, collectParentStudentReferences, isParentLinkedToStudent, isExactGuardianNameMatch } from './parentAccess.ts';
+import { buildParentPaymentHistoryFilter, collectParentStudentReferences, isParentLinkedToStudent, isExactGuardianNameMatch, areSameStudentIdentity } from './parentAccess.ts';
 import { isClassAssignedToTeacher } from './classAccess.ts';
 import { isExactTeacherName, isExactTeacherSubject, areAllResultSubjectsAssignedToTeacher, isExactSectionMatch } from './teacherAccess.ts';
 import crypto from 'crypto';
@@ -7062,7 +7062,7 @@ router.get('/payments/settings', async (_req: Request, res: Response) => {
 });
 
 // 3. Initiate Payment (Parent Portal: Online Gateway Sandbox or Bank Deposit)
-router.post('/parent/payments/initiate', authenticateToken, sensitiveActionRateLimiter, async (req: AuthenticatedRequest, res: Response) => {
+router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent', 'student', 'admin', 'super_admin']), sensitiveActionRateLimiter, async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   const user = req.user!;
   const {
@@ -7092,26 +7092,59 @@ router.post('/parent/payments/initiate', authenticateToken, sensitiveActionRateL
     return res.status(400).json({ error: 'Fee voucher ID is required' });
   }
 
-  // Authorization check: parent must have child linked
-  if (user.role === 'parent') {
-    const linked = await getLinkedStudentIdsForParent(user);
-    if (!linked.has(cleanStudentId)) {
-      return res.status(403).json({ error: 'Access denied: You can only make payments for your linked children' });
-    }
-  } else if (user.role === 'student') {
-    const studentDoc = await StudentModel.findOne({
-      $or: [{ user_id: user.id }, { email: user.email.toLowerCase() }],
-    }).lean();
-    const myId = studentDoc?.record_id || studentDoc?._id.toString();
-    if (myId !== cleanStudentId) {
-      return res.status(403).json({ error: 'Access denied: Students can only pay their own fee vouchers' });
-    }
-  }
-
   try {
     const feeDoc = await FeeModel.findOne(buildFeeLookupFilter(cleanFeeId)).lean();
     if (!feeDoc) {
       return res.status(404).json({ error: 'Fee voucher not found' });
+    }
+
+    // The voucher itself is the authoritative payment target. Never trust a separate
+    // student_id from the browser without proving it is the same student as the voucher.
+    const feeStudentDoc = await findStudentByAnyId(String(feeDoc.student_id || ''));
+    if (!feeStudentDoc) {
+      return res.status(404).json({ error: 'The student linked to this fee voucher could not be found.' });
+    }
+    const feeStudentAliases = [
+      feeStudentDoc.record_id,
+      feeStudentDoc._id.toString(),
+      feeStudentDoc.admission_no,
+    ].filter(Boolean) as string[];
+
+    if (cleanStudentId) {
+      const requestedStudentDoc = await findStudentByAnyId(cleanStudentId);
+      if (!requestedStudentDoc) {
+        return res.status(404).json({ error: 'Requested student record not found.' });
+      }
+      const requestedStudentAliases = [
+        requestedStudentDoc.record_id,
+        requestedStudentDoc._id.toString(),
+        requestedStudentDoc.admission_no,
+      ].filter(Boolean) as string[];
+      if (!areSameStudentIdentity(feeStudentAliases, requestedStudentAliases)) {
+        return res.status(403).json({ error: 'Access denied: The selected fee voucher does not belong to the requested student.' });
+      }
+    }
+
+    if (user.role === 'parent') {
+      const linked = await getLinkedStudentIdsForParent(user);
+      if (!isParentLinkedToStudent(linked, feeStudentAliases)) {
+        return res.status(403).json({ error: 'Access denied: You can only make payments for your linked children.' });
+      }
+    } else if (user.role === 'student') {
+      const ownStudentDoc = user.linked_id
+        ? await findStudentByAnyId(user.linked_id)
+        : await StudentModel.findOne({ user_id: user.id }).lean();
+      if (!ownStudentDoc) {
+        return res.status(403).json({ error: 'Access denied: Student profile is not linked to this account.' });
+      }
+      const ownStudentAliases = [
+        ownStudentDoc.record_id,
+        ownStudentDoc._id.toString(),
+        ownStudentDoc.admission_no,
+      ].filter(Boolean) as string[];
+      if (!areSameStudentIdentity(ownStudentAliases, feeStudentAliases)) {
+        return res.status(403).json({ error: 'Access denied: Students can only pay their own fee vouchers.' });
+      }
     }
 
     const currentPending = Number(feeDoc.pending_amount) || 0;
