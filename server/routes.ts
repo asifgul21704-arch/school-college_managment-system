@@ -3,7 +3,7 @@ import { financeRouter } from './financeRoutes.ts';
 import { buildNotificationVisibilityFilter, canMarkNotificationRead } from './notificationAccess.ts';
 import { buildParentPaymentHistoryFilter, collectParentStudentReferences, isParentLinkedToStudent } from './parentAccess.ts';
 import { isClassAssignedToTeacher } from './classAccess.ts';
-import { isExactTeacherName, isExactTeacherSubject, areAllResultSubjectsAssignedToTeacher } from './teacherAccess.ts';
+import { isExactTeacherName, isExactTeacherSubject, areAllResultSubjectsAssignedToTeacher, isExactSectionMatch } from './teacherAccess.ts';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jsonwebtoken from 'jsonwebtoken';
@@ -8416,7 +8416,15 @@ router.get('/results', authenticateToken, async (req: AuthenticatedRequest, res:
     // Object-level isolation: teachers only see results for their assigned classes
     if (req.user?.role === 'teacher') {
       const teacher = await getAuthenticatedTeacherMongo(req);
-      const assignedClasses = teacher?.classes || [];
+      if (!teacher) {
+        return res.status(404).json({ error: 'Teacher profile not linked.' });
+      }
+      const assignedClasses = teacher.classes || [];
+      const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter(Boolean)));
+      const assignmentDocs = await TeacherAssignmentModel.find({
+        teacher_id: { $in: teacherIds },
+      }).select('subject').lean();
+      const allowedSubjects = [teacher.subject, ...assignmentDocs.map((item: any) => item.subject)];
 
       if (class_name) {
         if (!isClassAssignedToTeacher(assignedClasses, String(class_name))) {
@@ -8434,7 +8442,10 @@ router.get('/results', authenticateToken, async (req: AuthenticatedRequest, res:
       const docs = await ResultModel.find().sort({ created_at: -1, _id: -1 }).lean();
       let result = docs
         .map(toResultDto)
-        .filter(r => isClassAssignedToTeacher(assignedClasses, r.class_name));
+        .filter(r =>
+          isClassAssignedToTeacher(assignedClasses, r.class_name) &&
+          areAllResultSubjectsAssignedToTeacher(allowedSubjects, r.subjects.map(s => s.subject_name))
+        );
       if (exam_id) result = result.filter(r => r.exam_id === String(exam_id));
       if (resolvedStudentAliases) result = result.filter(r => resolvedStudentAliases!.has(r.student_id));
       if (class_name) result = result.filter(r => r.class_name.toLowerCase() === String(class_name).toLowerCase());
@@ -11455,6 +11466,13 @@ router.post('/teacher/attendance', authenticateToken, requireExactRole(['teacher
           error: `Access denied: Student "${rec.student_name || rec.student_id}" does not belong to assigned class "${class_name}".`,
         });
       }
+      const actualSection = sanitizePlainText(studentDoc.section || 'A', 60) || 'A';
+      const requestedSection = sanitizePlainText(section || rec.section || actualSection, 60) || actualSection;
+      if (!isExactSectionMatch(actualSection, requestedSection)) {
+        return res.status(403).json({
+          error: `Access denied: Student "${rec.student_name || rec.student_id}" does not belong to section "${requestedSection}".`,
+        });
+      }
       resolvedEntries.push({
         studentDoc,
         canonicalStudentId: studentDoc.record_id || studentDoc._id.toString(),
@@ -11471,7 +11489,7 @@ router.post('/teacher/attendance', authenticateToken, requireExactRole(['teacher
         date: cleanDate,
       });
 
-      const resolvedSection = sanitizePlainText(section || rec.section || studentDoc.section || 'A', 60) || 'A';
+      const resolvedSection = sanitizePlainText(studentDoc.section || 'A', 60) || 'A';
       const resolvedRemarks =
         rec.remarks !== undefined
           ? sanitizePlainText(rec.remarks, 500)
@@ -11555,6 +11573,14 @@ router.get('/teacher/results', authenticateToken, requireExactRole(['teacher']),
 
     const { exam_id, class_name, subject } = req.query;
     const assignedClasses = teacher.classes || [];
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter(Boolean)));
+    const assignmentDocs = await TeacherAssignmentModel.find({
+      teacher_id: { $in: teacherIds },
+    }).select('subject').lean();
+    const allowedSubjects = [teacher.subject, ...assignmentDocs.map((item: any) => item.subject)];
+    if (subject && !isExactTeacherSubject(allowedSubjects, String(subject))) {
+      return res.status(403).json({ error: 'Access denied: You are not assigned to this subject.' });
+    }
 
     if (class_name) {
       const isAssigned = isClassAssignedToTeacher(assignedClasses, String(class_name));
@@ -11566,14 +11592,17 @@ router.get('/teacher/results', authenticateToken, requireExactRole(['teacher']),
     const allResDocs = await ResultModel.find().sort({ created_at: -1, _id: -1 }).lean();
     let results = allResDocs
       .map(toResultDto)
-      .filter(r => isClassAssignedToTeacher(assignedClasses, r.class_name));
+      .filter(r =>
+        isClassAssignedToTeacher(assignedClasses, r.class_name) &&
+        areAllResultSubjectsAssignedToTeacher(allowedSubjects, r.subjects.map(s => s.subject_name))
+      );
 
     if (exam_id) results = results.filter(r => r.exam_id === String(exam_id));
     if (class_name) results = results.filter(r => r.class_name.toLowerCase() === String(class_name).toLowerCase());
 
     if (subject) {
       results = results.filter(r =>
-        r.subjects.some(s => s.subject_name.toLowerCase().includes(String(subject).toLowerCase()))
+        r.subjects.some(s => isExactTeacherSubject([String(subject)], s.subject_name))
       );
     }
 
