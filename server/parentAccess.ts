@@ -1,16 +1,6 @@
-export interface ParentAccessRecords {
-  userRecord?: {
-    linked_id?: unknown;
-    linked_student_ids?: unknown;
-  } | null;
-  parentRecord?: {
-    linked_students?: unknown;
-  } | null;
-  childRecords?: Array<{
-    record_id?: unknown;
-    _id?: unknown;
-    admission_no?: unknown;
-  }> | null;
+export interface ParentAccountLinks {
+  linked_id?: unknown;
+  linked_student_ids?: unknown;
 }
 
 function addReference(target: Set<string>, value: unknown): void {
@@ -20,32 +10,16 @@ function addReference(target: Set<string>, value: unknown): void {
 }
 
 /**
- * Builds the current parent-to-student relationship set from database records.
- * Do not pass JWT claims here: stale tokens must not restore revoked relationships.
+ * Builds a parent's student access set from the current authenticated User record.
+ * JWT claims and denormalized Parent/Student records must never be passed here.
  */
-export function collectParentStudentReferences(records: ParentAccessRecords): Set<string> {
+export function collectParentStudentReferences(userRecord: ParentAccountLinks | null | undefined): Set<string> {
   const ids = new Set<string>();
-  const user = records.userRecord;
-  const parent = records.parentRecord;
+  if (!userRecord) return ids;
 
-  if (user) {
-    addReference(ids, user.linked_id);
-    if (Array.isArray(user.linked_student_ids)) {
-      for (const id of user.linked_student_ids) addReference(ids, id);
-    }
+  addReference(ids, userRecord.linked_id);
+  if (Array.isArray(userRecord.linked_student_ids)) {
+    for (const id of userRecord.linked_student_ids) addReference(ids, id);
   }
-
-  if (parent && Array.isArray(parent.linked_students)) {
-    for (const id of parent.linked_students) addReference(ids, id);
-  }
-
-  if (Array.isArray(records.childRecords)) {
-    for (const child of records.childRecords) {
-      addReference(ids, child.record_id);
-      addReference(ids, child._id);
-      addReference(ids, child.admission_no);
-    }
-  }
-
   return ids;
 }
