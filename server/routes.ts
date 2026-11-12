@@ -1,7 +1,7 @@
 import express, { type Request, type Response } from 'express';
 import { financeRouter } from './financeRoutes.ts';
 import { buildNotificationVisibilityFilter, canMarkNotificationRead } from './notificationAccess.ts';
-import { buildParentPaymentHistoryFilter, buildParentLinkedStudentFilter, collectParentStudentReferences, isParentLinkedToStudent, isExactGuardianNameMatch, areSameStudentIdentity, isStudentClaimedByAnotherParent } from './parentAccess.ts';
+import { buildParentPaymentHistoryFilter, buildParentLinkedStudentFilter, collectParentStudentReferences, isParentLinkedToStudent, isExactGuardianNameMatch, areSameStudentIdentity, isStudentClaimedByAnotherParent, buildStudentParentClaimFilter } from './parentAccess.ts';
 import { isClassAssignedToTeacher, buildTeacherClassFilter } from './classAccess.ts';
 import { getParentPaymentMethodMode, collectStudentPaymentIdentifiers, normalizeDepositReference, isExactParentPaymentRetry } from './paymentUtils.ts';
 import { isExactTeacherName, isExactTeacherSubject, areAllResultSubjectsAssignedToTeacher, isExactSectionMatch } from './teacherAccess.ts';
@@ -2100,10 +2100,7 @@ async function claimStudentForParent(studentDoc: any, canonicalUserId: string, m
   if (!studentDoc?._id || !canonicalUserId || !mongoUserId) return null;
   // One atomic conditional write decides ownership. Concurrent parent requests cannot both claim an unowned student.
   return StudentModel.findOneAndUpdate(
-    {
-      _id: studentDoc._id,
-      parent_user_id: { $in: [null, '', canonicalUserId, mongoUserId] },
-    },
+    buildStudentParentClaimFilter(studentDoc._id, canonicalUserId, mongoUserId),
     { $set: { parent_user_id: canonicalUserId } },
     { new: true }
   );
