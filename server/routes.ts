@@ -7070,7 +7070,6 @@ router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent
     student_id,
     amount,
     method,
-    gateway_provider,
     bank_name,
     account_number,
     deposit_date,
@@ -7192,121 +7191,7 @@ router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent
     const parentName = parentDoc?.name || user.name || 'Parent/Guardian';
     const resolvedParentPhone = parent_phone || parentDoc?.phone || user.phone || '';
     const paymentRef = `PAY-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-    const isOnlineGateway =
-      method === 'Online Gateway' ||
-      method === 'Easypaisa / JazzCash' ||
-      method === 'JazzCash' ||
-      method === 'Easypaisa' ||
-      method === 'Raast';
-
-    if (isOnlineGateway) {
-      // Instant automated sandbox / live verification & settlement
-      const receiptNo = `REC-${Date.now().toString().slice(-6)}${Math.floor(100 + Math.random() * 900)}`;
-      const nextPaid = currentPaid + paymentAmount;
-      const nextPending = Math.max(0, currentTotal - nextPaid);
-      const nextStatus: FeeVoucherStatus = nextPending === 0 ? 'Paid' : 'Partial';
-
-      const paymentRecord = {
-        receipt_no: receiptNo,
-        date: new Date().toISOString().split('T')[0],
-        amount: paymentAmount,
-        method: (gateway_provider === 'JazzCash' || gateway_provider === 'Easypaisa' || method === 'Easypaisa / JazzCash'
-          ? 'Easypaisa / JazzCash'
-          : 'Bank Transfer') as any,
-        transaction_id: paymentRef,
-        notes: `Online Gateway (${gateway_provider || method}) [Verified Instant Settlement]`,
-      };
-
-      const paymentDoc = await FeePaymentModel.create({
-        fee_id: feeDoc.voucher_id || feeDoc._id.toString(),
-        student_id: feeDoc.student_id,
-        payment_reference: paymentRef,
-        receipt_no: receiptNo,
-        transaction_id: paymentRef,
-        date: new Date().toISOString().split('T')[0],
-        amount: paymentAmount,
-        method: paymentRecord.method,
-        status: 'Paid',
-        verification_status: 'Verified',
-        parent_user_id: user.id,
-        parent_name: parentName,
-        parent_phone: resolvedParentPhone,
-        student_name: feeDoc.student_name,
-        admission_no: feeDoc.student_id,
-        class_name: feeDoc.class_name,
-        fee_month: feeDoc.fee_month,
-        year: feeDoc.year,
-        gateway_provider: gateway_provider || method,
-        notes: notes || 'Instant online payment via school portal',
-        received_by: `Gateway (${gateway_provider || method})`,
-        verified_by_id: user.id,
-        verified_by_name: 'Online Payment Gateway',
-        verified_at: new Date().toISOString(),
-      });
-
-      // Atomically update fee voucher
-      const updatedFee = await FeeModel.findOneAndUpdate(
-        { _id: feeDoc._id, pending_amount: { $gte: paymentAmount } },
-        {
-          $set: {
-            paid_amount: nextPaid,
-            pending_amount: nextPending,
-            status: nextStatus,
-          },
-          $push: { payment_history: paymentRecord },
-        },
-        { returnDocument: 'after' }
-      ).lean();
-
-      // Trigger SMS confirmation
-      const smsResult = await sendPaymentApprovalSms({
-        payment_reference: paymentRef,
-        receipt_no: receiptNo,
-        amount: paymentAmount,
-        parent_name: parentName,
-        parent_phone: resolvedParentPhone,
-        student_name: feeDoc.student_name,
-        class_name: feeDoc.class_name,
-      });
-
-      if (smsResult.sent) {
-        await FeePaymentModel.updateOne(
-          { _id: paymentDoc._id },
-          {
-            $set: {
-              sms_status: smsResult.status,
-              sms_message: smsResult.message,
-              sms_sent_at: smsResult.timestamp,
-            },
-          }
-        );
-      }
-
-      // Notifications
-      await NotificationModel.create([
-        {
-          role: 'admin',
-          title: 'Fee Payment Received (Online)',
-          message: `Online payment of PKR ${paymentAmount.toLocaleString()} received for ${feeDoc.student_name} (${feeDoc.class_name}). Ref: ${paymentRef}`,
-          link: '/admin',
-        },
-        {
-          user_id: user.id,
-          role: 'parent',
-          title: 'Fee Payment Confirmed',
-          message: `Your payment of PKR ${paymentAmount.toLocaleString()} for ${feeDoc.student_name} has been processed successfully. Receipt No: ${receiptNo}.`,
-          link: '/student-portal',
-        },
-      ]);
-
-      return res.status(201).json({
-        message: 'Payment completed successfully',
-        payment: toFeePaymentDto(paymentDoc),
-        fee: updatedFee ? toFeeDto(updatedFee) : feeDoc,
-        receipt_no: receiptNo,
-      });
-    } else {
-      // Manual Bank Deposit / Wire Transfer (Requires Admin Verification)
+    // Manual Bank Deposit / Wire Transfer (Requires Admin Verification)
       const cleanSlipRef = String(deposit_slip_ref || notes || '').trim();
 
       const paymentDoc = await FeePaymentModel.create({
@@ -7382,7 +7267,6 @@ router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent
         payment: toFeePaymentDto(paymentDoc),
         fee: toFeeDto(feeDoc),
       });
-    }
   } catch (err: any) {
     return sendRouteError(res, err, 'Failed to process fee payment');
   }
