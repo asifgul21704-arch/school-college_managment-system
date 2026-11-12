@@ -7657,22 +7657,32 @@ router.post('/admin/payments/:id/reject', authenticateToken, requireRole(['super
   }
 
   try {
-    const paymentDoc = await FeePaymentModel.findById(paymentId);
+    const paymentDoc = await FeePaymentModel.findOneAndUpdate(
+      {
+        _id: paymentId,
+        status: 'Pending Verification',
+        verification_status: 'Pending',
+      },
+      {
+        $set: {
+          status: 'Rejected',
+          verification_status: 'Rejected',
+          rejection_reason: cleanReason,
+          verified_by_id: req.user!.id,
+          verified_by_name: req.user!.name,
+          verified_at: new Date().toISOString(),
+        },
+      },
+      { new: true }
+    );
+
     if (!paymentDoc) {
-      return res.status(404).json({ error: 'Payment record not found' });
+      const existing = await FeePaymentModel.findById(paymentId).lean();
+      if (!existing) {
+        return res.status(404).json({ error: 'Payment record not found' });
+      }
+      return res.status(409).json({ error: 'This payment is no longer pending verification. It may already have been approved or rejected.' });
     }
-
-    if (paymentDoc.verification_status === 'Verified' || paymentDoc.status === 'Paid') {
-      return res.status(400).json({ error: 'Cannot reject an already verified and settled payment.' });
-    }
-
-    paymentDoc.status = 'Rejected';
-    paymentDoc.verification_status = 'Rejected';
-    paymentDoc.rejection_reason = cleanReason;
-    paymentDoc.verified_by_id = req.user!.id;
-    paymentDoc.verified_by_name = req.user!.name;
-    paymentDoc.verified_at = new Date().toISOString();
-    await paymentDoc.save();
 
     // Send Rejection SMS to Parent
     const smsResult = await sendPaymentRejectionSms(
