@@ -9776,14 +9776,7 @@ router.get('/notifications/unread-count', authenticateToken, async (req: Authent
     const userRole = req.user!.role;
     const allowedUserIds = await resolveNotificationAllowedUserIds(req.user!);
 
-    const count = await NotificationModel.countDocuments({
-      read: false,
-      $or: [
-        { user_id: { $in: allowedUserIds } },
-        { role: userRole },
-        { role: 'all' },
-      ],
-    });
+    const count = await NotificationModel.countDocuments({ read: false, ...buildNotificationVisibilityFilter(userRole, allowedUserIds) });
 
     return res.json({ unreadCount: count });
   } catch (err: any) {
