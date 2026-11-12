@@ -2207,11 +2207,4452 @@ router.post('/parents/find-child', sensitiveActionRateLimiter, authenticateToken
       return res.status(404).json({ error: 'Parent account not found' });
     }
 
-    const allStudents = (await StudentModel.find().lean()).map(toStudentDto);
-    const matches = allStudents.filter(s => {
+    // Narrow candidates in MongoDB by roll number and class before applying the
+    // existing tolerant name/guardian matching rules. Never load the full student collection.
+    const rollDigits = cleanRoll.replace(/\\D/g, '');
+    const rollClauses: Record<string, any>[] = [
+      { roll_no: { $regex: new RegExp(`^${escapeRegexLiteral(cleanRoll)}import express, { type Request, type Response } from 'express';
+import { financeRouter } from './financeRoutes.ts';
+import { buildNotificationVisibilityFilter, canMarkNotificationRead } from './notificationAccess.ts';
+import { buildParentPaymentHistoryFilter, buildParentLinkedStudentFilter, collectParentStudentReferences, isParentLinkedToStudent, isExactGuardianNameMatch, areSameStudentIdentity, isStudentClaimedByAnotherParent, buildStudentParentClaimFilter } from './parentAccess.ts';
+import { isClassAssignedToTeacher, buildTeacherClassFilter } from './classAccess.ts';
+import { getParentPaymentMethodMode, collectStudentPaymentIdentifiers, normalizeDepositReference, isExactParentPaymentRetry } from './paymentUtils.ts';
+import { isExactTeacherName, isExactTeacherSubject, areAllResultSubjectsAssignedToTeacher, isExactSectionMatch } from './teacherAccess.ts';
+import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
+import jsonwebtoken from 'jsonwebtoken';
+import fs from 'fs';
+import path from 'path';
+import {
+  generateToken,
+  getJwtSecret,
+  resolveLiveUserFromDecoded,
+  authenticateToken,
+  authenticateOptionalToken,
+  requireRole,
+  requireExactRole,
+  type AuthenticatedRequest,
+  authRateLimiter,
+  contactRateLimiter,
+  sensitiveActionRateLimiter,
+  aiRateLimiter,
+  passwordResetRateLimiter,
+  bootstrapRateLimiter,
+  validateEmail,
+  validatePassword,
+  extractTokenFromRequest,
+  extractAllTokensFromRequest,
+  isTokenRevokedAsync,
+  revokeToken,
+  setSessionCookie,
+  clearSessionCookie,
+} from './auth.ts';
+import {
+  detectInquiryIntent,
+  verifyInquiryParent,
+  generateAiInquiryReply,
+  dispatchApprovedReply,
+} from './services/inquiryReplyService.ts';
+import {
+  getPaymentSettings,
+  savePaymentSettings,
+  sendPaymentSubmissionSms,
+  sendPaymentApprovalSms,
+  sendPaymentRejectionSms,
+} from './services/smsNotificationService.ts';
+import { getMongoStatus, getLastAtlasFallbackError, extractConfiguredDbName, sanitizeErrorMessage } from './config/db.ts';
+import { seedMongoFromLocal, isLocalSeedBlocked } from './config/seed.ts';
+import {
+  UserModel,
+  toUserDto,
+  type UserRole,
+  type UserStatus,
+  StudentModel,
+  toStudentDto,
+  type StudentDto,
+  TeacherModel,
+  toTeacherDto,
+  type TeacherDto,
+  ParentModel,
+  toParentDto,
+  EnrollmentModel,
+  computeActiveEnrollmentKey,
+  toEnrollmentDto,
+  TeacherAssignmentModel,
+  toTeacherAssignmentDto,
+  ClassModel,
+  toClassDto,
+  SectionModel,
+  toSectionDto,
+  SubjectModel,
+  toSubjectDto,
+  AttendanceModel,
+  toAttendanceDto,
+  type AttendanceDto,
+  ExamModel,
+  toExamDto,
+  ResultModel,
+  toResultDto,
+  type ResultDto,
+  FeeModel,
+  toFeeDto,
+  type FeeDto,
+  type FeePaymentHistoryDto,
+  type FeeVoucherStatus,
+  FeePaymentModel,
+  toFeePaymentDto,
+  AdmissionModel,
+  computeAdmissionDedupeKey,
+  toAdmissionDto,
+  TimetableModel,
+  toTimetableDto,
+  AnnouncementModel,
+  toAnnouncementDto,
+  SchoolEventModel,
+  toSchoolEventDto,
+  GalleryModel,
+  toGalleryItemDto,
+  ContactMessageModel,
+  toContactMessageDto,
+  SchoolSettingsModel,
+  toSchoolSettingsDto,
+  NotificationModel,
+  StoredDocumentModel,
+  PasswordResetTokenModel,
+  TeacherTaskModel,
+  toTeacherTaskDto,
+  type TeacherTaskDto,
+  HomeworkModel,
+  toHomeworkDto,
+  type HomeworkDto,
+} from './models/index.ts';
+import mongoose from 'mongoose';
+import { processAdminAiQuery, ControlledSchoolTools, type AdminAiQueryContext, getAiProviderStatus, testGeminiConnection } from './services/aiAssistantService.ts';
+import { AuditLogModel } from './models/AuditLog.ts';
+import {
+  bootstrapInitialSuperAdmin,
+  ensureDefaultSuperAdminIfEmpty,
+  verifyBootstrapSecretConstantTime,
+  BootstrapValidationError,
+  BootstrapConflictError,
+} from './services/bootstrapService.ts';
+import {
+  isSmtpConfigured,
+  openAuthenticatedSmtpTransport,
+  SmtpConfigurationError,
+  SmtpDeliveryError,
+} from './services/passwordResetEmailService.ts';
+
+export const router = express.Router();
+router.use('/finance', financeRouter);
+
+// Concurrency lock for in-flight fee payment operations per voucher ID (single-process fast guard, paired with DB atomic filter)
+const activePaymentLocks = new Set<string>();
+let cachedTransactionsSupported: boolean | null = null;
+
+function getUploadsBaseDir(): string {
+  return process.env.UPLOAD_STORAGE_DIR
+    ? path.resolve(process.env.UPLOAD_STORAGE_DIR)
+    : path.resolve(process.cwd(), 'data', 'uploads');
+}
+
+function getPrivateUploadsDir(): string {
+  return path.resolve(getUploadsBaseDir(), 'private');
+}
+
+function ensureMongoReady(res: Response): boolean {
+  if (mongoose.connection.readyState !== 1) {
+    res.status(503).json({
+      error: 'Database service temporarily unavailable. Write/read aborted safely without modifying local fallback state.',
+    });
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Persist one notification per business action and recipient.
+ * The Notification schema's unique partial index makes concurrent retries safe.
+ */
+async function createNotificationOnce(input: {
+  actionId: string;
+  userId?: string;
+  role: string;
+  title: string;
+  message: string;
+  link?: string;
+}): Promise<boolean> {
+  const userId = String(input.userId || '').trim();
+  try {
+    const result = await NotificationModel.updateOne(
+      { action_id: input.actionId, user_id: userId },
+      {
+        $setOnInsert: {
+          action_id: input.actionId,
+          user_id: userId,
+          role: input.role,
+          title: input.title,
+          message: input.message,
+          link: input.link || '',
+          read: false,
+        },
+      },
+      { upsert: true }
+    );
+    return result.upsertedCount === 1;
+  } catch (err: any) {
+    // A concurrent request may win the unique-index race; treat it as a replay.
+    if (err?.code === 11000) return false;
+    throw err;
+  }
+}
+
+function isMongoUnavailableError(err: any): boolean {
+  if (mongoose.connection.readyState !== 1) return true;
+  const name = String(err?.name || '');
+  if (
+    name === 'MongoNetworkError' ||
+    name === 'MongoServerSelectionError' ||
+    name === 'MongooseServerSelectionError' ||
+    name === 'MongoNotConnectedError' ||
+    name === 'MongoTopologyClosedError' ||
+    name === 'MongoPoolClearedError'
+  ) {
+    return true;
+  }
+  const msg = String(err?.message || '');
+  return /topology.*closed|client must be connected|not connected|ECONNREFUSED|server selection timed out|buffering timed out/i.test(
+    msg
+  );
+}
+
+function sendRouteError(res: Response, err: any, fallbackMessage: string) {
+  if (isMongoUnavailableError(err)) {
+    return res.status(503).json({
+      error: 'Database service temporarily unavailable. Write/read aborted safely without modifying local fallback state.',
+    });
+  }
+  return res.status(500).json({
+    error: sanitizeErrorMessage(err?.message || fallbackMessage),
+  });
+}
+
+function escapeRegexLiteral(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildAdmissionLookupFilter(rawId: string): Record<string, any> {
+  const trimmed = String(rawId || '').trim();
+  const clauses: Record<string, any>[] = [
+    { record_id: trimmed },
+    { application_no: trimmed.toUpperCase() },
+  ];
+  if (mongoose.Types.ObjectId.isValid(trimmed) && /^[a-fA-F0-9]{24}$/.test(trimmed)) {
+    clauses.push({ _id: new mongoose.Types.ObjectId(trimmed) });
+  }
+  return { $or: clauses };
+}
+
+function isValidObjectId(val: unknown): boolean {
+  if (typeof val !== 'string') return false;
+  const trimmed = val.trim();
+  return mongoose.Types.ObjectId.isValid(trimmed) && /^[a-fA-F0-9]{24}$/.test(trimmed);
+}
+
+function isValidCmsIdParam(rawId: unknown): boolean {
+  if (typeof rawId !== 'string') return false;
+  const trimmed = rawId.trim();
+  return /^[a-zA-Z0-9_-]{2,80}$/.test(trimmed);
+}
+
+function buildCmsRecordLookupFilter(rawId: string): Record<string, any> {
+  const trimmed = String(rawId || '').trim();
+  const clauses: Record<string, any>[] = [{ record_id: trimmed }];
+  if (mongoose.Types.ObjectId.isValid(trimmed) && /^[a-fA-F0-9]{24}$/.test(trimmed)) {
+    clauses.push({ _id: new mongoose.Types.ObjectId(trimmed) });
+  }
+  return clauses.length === 1 ? clauses[0] : { $or: clauses };
+}
+
+function buildFeeLookupFilter(rawId: string): Record<string, any> {
+  const trimmed = String(rawId || '').trim();
+  const clauses: Record<string, any>[] = [{ voucher_id: trimmed }];
+  if (mongoose.Types.ObjectId.isValid(trimmed) && /^[a-fA-F0-9]{24}$/.test(trimmed)) {
+    clauses.push({ _id: new mongoose.Types.ObjectId(trimmed) });
+  }
+  return clauses.length === 1 ? clauses[0] : { $or: clauses };
+}
+
+const VALID_TIMETABLE_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
+const VALID_EXAM_STATUSES = ['Scheduled', 'Ongoing', 'Completed'] as const;
+
+function isValidIsoCalendarDate(raw: unknown): boolean {
+  if (typeof raw !== 'string') return false;
+  const trimmed = raw.trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (!m) return false;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  if (year < 1990 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  return (
+    dt.getUTCFullYear() === year &&
+    dt.getUTCMonth() === month - 1 &&
+    dt.getUTCDate() === day
+  );
+}
+
+function parseSchoolTimeMinutes(raw: unknown): { minutes: number; hasMeridiem: boolean } | null {
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  const m = /^(\d{1,2}):(\d{2})(?:\s*(AM|PM))?$/i.exec(trimmed);
+  if (!m) return null;
+  const hh = Number(m[1]);
+  const mm = Number(m[2]);
+  const meridiem = m[3] ? m[3].toUpperCase() : '';
+  if (!Number.isInteger(hh) || !Number.isInteger(mm) || mm < 0 || mm > 59) return null;
+
+  if (meridiem) {
+    if (hh < 1 || hh > 12) return null;
+    const hours24 = meridiem === 'AM' ? (hh === 12 ? 0 : hh) : (hh === 12 ? 12 : hh + 12);
+    return { minutes: hours24 * 60 + mm, hasMeridiem: true };
+  }
+
+  if (hh < 0 || hh > 23) return null;
+  return { minutes: hh * 60 + mm, hasMeridiem: false };
+}
+
+function parseTimetableInterval(startRaw: unknown, endRaw: unknown): { startMin: number; endMin: number } | null {
+  const parsedStart = parseSchoolTimeMinutes(startRaw);
+  const parsedEnd = parseSchoolTimeMinutes(endRaw);
+  if (!parsedStart || !parsedEnd) return null;
+
+  let startMin = parsedStart.minutes;
+  let endMin = parsedEnd.minutes;
+
+  // Support school-day 12-hour afternoon shorthand without AM/PM (e.g., "12:15" -> "01:00" or "01:00" -> "01:45")
+  if (!parsedStart.hasMeridiem && startMin >= 60 && startMin < 420) {
+    startMin += 12 * 60;
+  }
+  if (!parsedEnd.hasMeridiem && endMin >= 60 && endMin < 420 && startMin >= 420 && startMin < 1080) {
+    endMin += 12 * 60;
+  }
+
+  if (endMin <= startMin) return null;
+  return { startMin, endMin };
+}
+
+function isGenericPlaceholderTeacher(name: unknown): boolean {
+  if (typeof name !== 'string') return true;
+  const trimmed = name.trim();
+  if (!trimmed) return true;
+  return /^(?:assigned faculty|staff teacher|to be assigned|tba|n\/a|unassigned|-)$/i.test(trimmed);
+}
+
+async function resolveExistingClassDoc(rawClassName: unknown): Promise<any | null> {
+  if (typeof rawClassName !== 'string') return null;
+  const clean = rawClassName.trim();
+  if (!clean) return null;
+  return ClassModel.findOne({
+    name: { $regex: new RegExp(`^${escapeRegexLiteral(clean)}$`, 'i') },
+  }).lean();
+}
+
+function sendAcademicPaginatedOrArray(req: Request, res: Response, items: any[], defaultLimit = 200) {
+  const total = items.length;
+  const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+  const hasLimit = req.query.limit !== undefined;
+  const limit = hasLimit
+    ? Math.min(500, Math.max(1, parseInt(req.query.limit as string, 10) || 50))
+    : defaultLimit;
+  const totalPages = Math.ceil(total / limit) || 1;
+
+  res.setHeader('X-Total-Count', total.toString());
+  res.setHeader('X-Page', page.toString());
+  res.setHeader('X-Limit', limit.toString());
+  res.setHeader('X-Total-Pages', totalPages.toString());
+
+  if (req.query.paginate === 'true' || req.query.envelope === 'true') {
+    const start = (page - 1) * limit;
+    const paged = items.slice(start, start + limit);
+    return res.json({
+      data: paged,
+      pagination: { total, page, limit, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
+    });
+  }
+
+  if (hasLimit || req.query.page !== undefined) {
+    const start = (page - 1) * limit;
+    return res.json(items.slice(start, start + limit));
+  }
+
+  return res.json(items);
+}
+
+function sanitizePlainText(input: unknown, maxLen = 5000): string {
+  if (input === null || input === undefined) return '';
+  let str = String(input).replace(/\0/g, '');
+  str = str
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, '')
+    .replace(/<object\b[^>]*>[\s\S]*?<\/object>/gi, '')
+    .replace(/<\/?(?:script|iframe|object|embed|style|link|meta|svg|math|base|form)\b[^>]*>/gi, '')
+    .replace(/\bon[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/javascript\s*:/gi, '');
+  return str.trim().slice(0, maxLen);
+}
+
+function isSafeMediaOrWebUrl(rawUrl: unknown, allowEmpty = true): boolean {
+  if (rawUrl === null || rawUrl === undefined) return allowEmpty;
+  if (typeof rawUrl !== 'string') return false;
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return allowEmpty;
+  if (/[\x00-\x1f\x7f]/.test(trimmed)) return false;
+
+  const lower = trimmed.toLowerCase();
+  if (
+    lower.startsWith('javascript:') ||
+    lower.startsWith('vbscript:') ||
+    lower.startsWith('data:text/') ||
+    lower.startsWith('data:image/svg')
+  ) {
+    return false;
+  }
+
+  if (trimmed.startsWith('/')) {
+    return !trimmed.startsWith('//') && !trimmed.includes('..') && !trimmed.includes('\\');
+  }
+
+  if (/^https?:\/\/[^\s<>"]+$/i.test(trimmed)) {
+    return true;
+  }
+
+  if (/^data:image\/(?:png|jpeg|jpg|webp|gif);base64,[a-zA-Z0-9+/=]+$/i.test(trimmed)) {
+    return true;
+  }
+
+  return false;
+}
+
+async function tryResolveOptionalUser(req: Request): Promise<{ id: string; role: string; name?: string } | null> {
+  const token = extractTokenFromRequest(req);
+  if (!token) return null;
+  if (mongoose.connection.readyState !== 1) return null;
+  if (await isTokenRevokedAsync(token)) return null;
+  try {
+    const decoded = jsonwebtoken.verify(token, getJwtSecret()) as any;
+    const liveUser = await resolveLiveUserFromDecoded(decoded);
+    if (!liveUser || liveUser.status !== 'active') {
+      return null;
+    }
+    if (liveUser.password_changed_at) {
+      const changedAtMs = new Date(liveUser.password_changed_at).getTime();
+      const tokenIssuedMs =
+        typeof decoded.iat_ms === 'number'
+          ? decoded.iat_ms
+          : typeof decoded.iat === 'number'
+          ? decoded.iat * 1000
+          : 0;
+      if (!isNaN(changedAtMs) && tokenIssuedMs < changedAtMs) {
+        return null;
+      }
+    }
+    return {
+      id: liveUser.record_id || (liveUser._id ? liveUser._id.toString() : ''),
+      role: String(liveUser.role),
+      name: liveUser.name,
+    };
+  } catch {
+    // Ignore invalid optional token on public read endpoints
+  }
+  return null;
+}
+
+const ALLOWED_USER_ROLES: UserRole[] = ['super_admin', 'admin', 'teacher', 'student', 'parent'];
+const ALLOWED_USER_STATUSES: UserStatus[] = ['active', 'inactive', 'pending', 'suspended'];
+
+async function findUserByAnyId(rawId: string): Promise<any | null> {
+  const trimmed = String(rawId || '').trim();
+  if (!trimmed) return null;
+  const clauses: Record<string, any>[] = [{ record_id: trimmed }];
+  if (mongoose.Types.ObjectId.isValid(trimmed) && /^[a-fA-F0-9]{24}$/.test(trimmed)) {
+    clauses.push({ _id: new mongoose.Types.ObjectId(trimmed) });
+  }
+  return UserModel.findOne(clauses.length === 1 ? clauses[0] : { $or: clauses });
+}
+
+async function findStudentByAnyId(rawId: string): Promise<any | null> {
+  const trimmed = String(rawId || '').trim();
+  if (!trimmed) return null;
+  const clauses: Record<string, any>[] = [
+    { record_id: trimmed },
+    { admission_no: { $regex: new RegExp(`^${escapeRegexLiteral(trimmed)}$`, 'i') } },
+  ];
+  if (mongoose.Types.ObjectId.isValid(trimmed) && /^[a-fA-F0-9]{24}$/.test(trimmed)) {
+    clauses.push({ _id: new mongoose.Types.ObjectId(trimmed) });
+  }
+  return StudentModel.findOne({ $or: clauses });
+}
+
+async function findTeacherByAnyId(rawId: string): Promise<any | null> {
+  const trimmed = String(rawId || '').trim();
+  if (!trimmed) return null;
+  const clauses: Record<string, any>[] = [{ record_id: trimmed }];
+  if (mongoose.Types.ObjectId.isValid(trimmed) && /^[a-fA-F0-9]{24}$/.test(trimmed)) {
+    clauses.push({ _id: new mongoose.Types.ObjectId(trimmed) });
+  }
+  return TeacherModel.findOne(clauses.length === 1 ? clauses[0] : { $or: clauses });
+}
+
+async function findParentByAnyId(rawId: string): Promise<any | null> {
+  const trimmed = String(rawId || '').trim();
+  if (!trimmed) return null;
+  const clauses: Record<string, any>[] = [{ record_id: trimmed }, { user_id: trimmed }];
+  if (mongoose.Types.ObjectId.isValid(trimmed) && /^[a-fA-F0-9]{24}$/.test(trimmed)) {
+    clauses.push({ _id: new mongoose.Types.ObjectId(trimmed) });
+  }
+  return ParentModel.findOne({ $or: clauses });
+}
+
+async function getLinkedStudentIdsForParent(user: {
+  id: string;
+  email?: string;
+}): Promise<Set<string>> {
+  // The authenticated user's current MongoDB link fields are the sole source of truth.
+  // JWT claims and denormalized parent/student links are intentionally excluded: a stale
+  // session or partially completed unlink must not restore access to a former child.
+  const userDoc = await findUserByAnyId(user.id);
+  const ids = collectParentStudentReferences(userDoc);
+
+  // Normalize ObjectId/admission number aliases to canonical student identifiers.
+  if (ids.size > 0) {
+    const idArr = Array.from(ids);
+    const objIds = idArr
+      .filter(v => mongoose.Types.ObjectId.isValid(v) && /^[a-fA-F0-9]{24}$/.test(v))
+      .map(v => new mongoose.Types.ObjectId(v));
+    const matchedStudents = await StudentModel.find({
+      $or: [
+        { record_id: { $in: idArr } },
+        { admission_no: { $in: idArr } },
+        ...(objIds.length > 0 ? [{ _id: { $in: objIds } }] : []),
+      ],
+    }).select('record_id _id admission_no').lean();
+    for (const st of matchedStudents) {
+      for (const identifier of collectStudentPaymentIdentifiers(st)) ids.add(identifier);
+    }
+  }
+
+  return ids;
+}
+
+async function getAuthenticatedTeacherMongo(req: AuthenticatedRequest): Promise<TeacherDto | null> {
+  if (!req.user) return null;
+  const clauses: Record<string, any>[] = [];
+  if (req.user.linked_id) {
+    const lid = String(req.user.linked_id).trim();
+    if (lid) {
+      clauses.push({ record_id: lid });
+      if (mongoose.Types.ObjectId.isValid(lid) && /^[a-fA-F0-9]{24}$/.test(lid)) {
+        clauses.push({ _id: new mongoose.Types.ObjectId(lid) });
+      }
+    }
+  }
+  if (req.user.id) {
+    clauses.push({ user_id: req.user.id });
+  }
+  if (req.user.email) {
+    clauses.push({ email: req.user.email.toLowerCase() });
+  }
+  if (clauses.length === 0) return null;
+
+  const teacherDoc = await TeacherModel.findOne({ $or: clauses }).lean();
+  if (!teacherDoc) return null;
+
+  const dto = toTeacherDto(teacherDoc);
+  const teacherIds = Array.from(
+    new Set([dto.id, teacherDoc._id ? teacherDoc._id.toString() : ''].filter(Boolean))
+  );
+  const assignmentDocs = await TeacherAssignmentModel.find({
+    teacher_id: { $in: teacherIds },
+  })
+    .select('class_name')
+    .lean();
+
+  const mergedClasses = [...dto.classes];
+  for (const asg of assignmentDocs) {
+    if (
+      asg.class_name &&
+      !mergedClasses.some(existing => existing.toLowerCase() === asg.class_name.toLowerCase())
+    ) {
+      mergedClasses.push(asg.class_name);
+    }
+  }
+  dto.classes = mergedClasses;
+  return dto;
+}
+
+async function validateClassAndSectionForRelation(
+  rawClassName: unknown,
+  rawSection?: unknown,
+  rawSectionId?: unknown
+): Promise<{ valid: true; className: string; sectionName: string } | { valid: false; error: string }> {
+  const cleanClassInput = sanitizePlainText(rawClassName, 120);
+  if (!cleanClassInput) {
+    return { valid: false, error: 'Class name is required' };
+  }
+  const matchedClass = await resolveExistingClassDoc(cleanClassInput);
+  if (!matchedClass) {
+    return { valid: false, error: `Invalid class reference: class "${cleanClassInput}" does not exist` };
+  }
+  const canonicalClassName = matchedClass.name;
+
+  let cleanSection = rawSection !== undefined ? sanitizePlainText(rawSection, 60) : 'A';
+  if (!cleanSection) cleanSection = 'A';
+
+  if (rawSectionId !== undefined && rawSectionId !== '') {
+    if (!isValidCmsIdParam(rawSectionId)) {
+      return { valid: false, error: 'Invalid section_id format' };
+    }
+    const secDoc = await SectionModel.findOne(buildCmsRecordLookupFilter(String(rawSectionId))).lean();
+    if (!secDoc || secDoc.class_name.toLowerCase() !== canonicalClassName.toLowerCase()) {
+      return { valid: false, error: 'Invalid section_id reference for the specified class' };
+    }
+    cleanSection = secDoc.name;
+  } else {
+    const classSections = await SectionModel.find({
+      class_name: { $regex: new RegExp(`^${escapeRegexLiteral(canonicalClassName)}$`, 'i') },
+    }).lean();
+    if (classSections.length > 0) {
+      const secLower = cleanSection.toLowerCase();
+      const validSec = classSections.some(s => {
+        const sLower = s.name.trim().toLowerCase();
+        return (
+          secLower === sLower ||
+          secLower.startsWith(`${sLower} (`) ||
+          sLower.startsWith(`${secLower} (`) ||
+          secLower === `section ${sLower}`
+        );
+      });
+      if (!validSec) {
+        return {
+          valid: false,
+          error: `Invalid section "${cleanSection}" for class "${canonicalClassName}". Defined sections: ${classSections.map(s => s.name).join(', ')}`,
+        };
+      }
+    }
+  }
+
+  return { valid: true, className: canonicalClassName, sectionName: cleanSection };
+}
+
+async function validateSubjectForTeacherAssignment(
+  canonicalClassName: string,
+  rawSubject: unknown,
+  rawSubjectId: unknown,
+  teacherSpecialization?: string
+): Promise<{ valid: true; subjectName: string } | { valid: false; error: string }> {
+  const cleanSubject = sanitizePlainText(rawSubject, 120);
+  if (!cleanSubject && !rawSubjectId) {
+    return { valid: false, error: 'Subject is required' };
+  }
+
+  if (rawSubjectId !== undefined && rawSubjectId !== '') {
+    if (!isValidCmsIdParam(rawSubjectId)) {
+      return { valid: false, error: 'Invalid subject_id format' };
+    }
+    const subjDoc = await SubjectModel.findOne(buildCmsRecordLookupFilter(String(rawSubjectId))).lean();
+    if (!subjDoc || subjDoc.class_name.toLowerCase() !== canonicalClassName.toLowerCase()) {
+      return { valid: false, error: 'Invalid subject_id reference for the specified class' };
+    }
+    return { valid: true, subjectName: subjDoc.name };
+  }
+
+  const classSubjects = await SubjectModel.find({
+    class_name: { $regex: new RegExp(`^${escapeRegexLiteral(canonicalClassName)}$`, 'i') },
+  }).lean();
+
+  const subjLower = cleanSubject.toLowerCase();
+  if (classSubjects.length > 0) {
+    const matched = classSubjects.find(s => {
+      const sName = s.name.trim().toLowerCase();
+      const sCode = (s.code || '').trim().toLowerCase();
+      return sName === subjLower || (sCode && sCode === subjLower);
+    });
+    if (!matched) {
+      return {
+        valid: false,
+        error: `Invalid subject "${cleanSubject}" for class "${canonicalClassName}". Defined subjects: ${classSubjects.map(s => s.name).join(', ')}`,
+      };
+    }
+    return { valid: true, subjectName: matched.name };
+  }
+
+  // When a class does not yet have class-specific rows in SubjectModel, validate against global SubjectModel catalog or teacher specialization
+  const allSubjects = await SubjectModel.find().select('name code').lean();
+  if (allSubjects.length > 0) {
+    const matchedGlobal = allSubjects.find(
+      s => s.name.trim().toLowerCase() === subjLower || (s.code || '').trim().toLowerCase() === subjLower
+    );
+    if (matchedGlobal) {
+      return { valid: true, subjectName: matchedGlobal.name };
+    }
+    const specLower = String(teacherSpecialization || '').trim().toLowerCase();
+    if (specLower && (specLower === subjLower || specLower.includes(subjLower) || subjLower.includes(specLower))) {
+      return { valid: true, subjectName: cleanSubject };
+    }
+    return {
+      valid: false,
+      error: `Invalid subject reference: subject "${cleanSubject}" does not exist in the school curriculum`,
+    };
+  }
+
+  return { valid: true, subjectName: cleanSubject };
+}
+
+function sanitizeUnknownLegacyValue(val: unknown, depth = 0): { valid: boolean; value?: any } {
+  if (depth > 4) return { valid: false };
+  if (val === null) return { valid: true, value: null };
+  if (typeof val === 'string') return { valid: true, value: sanitizePlainText(val, 5000) };
+  if (typeof val === 'number') return Number.isFinite(val) ? { valid: true, value: val } : { valid: false };
+  if (typeof val === 'boolean') return { valid: true, value: val };
+  if (Array.isArray(val)) {
+    if (val.length > 100) return { valid: false };
+    const out: any[] = [];
+    for (const item of val) {
+      const res = sanitizeUnknownLegacyValue(item, depth + 1);
+      if (!res.valid) return { valid: false };
+      out.push(res.value);
+    }
+    return { valid: true, value: out };
+  }
+  if (typeof val === 'object') {
+    const entries = Object.entries(val as Record<string, unknown>);
+    if (entries.length > 50) return { valid: false };
+    const out: Record<string, any> = {};
+    for (const [k, v] of entries) {
+      if (
+        !k ||
+        k.startsWith('$') ||
+        k.includes('.') ||
+        k === '__proto__' ||
+        k === 'constructor' ||
+        k === 'prototype'
+      ) {
+        return { valid: false };
+      }
+      const res = sanitizeUnknownLegacyValue(v, depth + 1);
+      if (!res.valid) return { valid: false };
+      out[k] = res.value;
+    }
+    return { valid: true, value: out };
+  }
+  return { valid: false };
+}
+
+async function recordMongoAudit(
+  user: { id: string; name: string; role: string },
+  action: string,
+  target_type: string,
+  target_id?: string,
+  details?: string
+): Promise<void> {
+  await AuditLogModel.create({
+    user_id: user.id || 'system',
+    user_name: user.name || 'System',
+    user_role: user.role || 'admin',
+    action,
+    target_type,
+    target_id: target_id || '',
+    details: details || '',
+    timestamp: new Date().toISOString(),
+  });
+}
+
+async function doesMongoSupportTransactions(): Promise<boolean> {
+  if (mongoose.connection.readyState !== 1 || !mongoose.connection.db) {
+    return false;
+  }
+  if (cachedTransactionsSupported !== null) {
+    return cachedTransactionsSupported;
+  }
+  try {
+    const hello = await mongoose.connection.db.admin().command({ hello: 1 });
+    cachedTransactionsSupported = Boolean(hello?.setName || hello?.msg === 'isdbgrid');
+    return cachedTransactionsSupported;
+  } catch {
+    cachedTransactionsSupported = false;
+    return false;
+  }
+}
+
+function parseIsoDateBound(raw: unknown, isEndOfDay: boolean): Date | null {
+  if (!raw || typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const d = new Date(isEndOfDay ? `${trimmed}T23:59:59.999Z` : `${trimmed}T00:00:00.000Z`);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const d = new Date(trimmed);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+// ==========================================
+// 0. HEALTH CHECK & MONGODB ATLAS DATABASE STATUS
+// ==========================================
+
+function inspectUploadStorageHealth(): { writable: boolean; persistentConfigured: boolean } {
+  const persistentConfigured = Boolean(process.env.UPLOAD_STORAGE_DIR && process.env.UPLOAD_STORAGE_DIR.trim());
+  try {
+    const pubDir = getUploadsBaseDir();
+    const privDir = getPrivateUploadsDir();
+    if (!fs.existsSync(pubDir)) fs.mkdirSync(pubDir, { recursive: true });
+    if (!fs.existsSync(privDir)) fs.mkdirSync(privDir, { recursive: true, mode: 0o700 });
+    fs.accessSync(pubDir, fs.constants.R_OK | fs.constants.W_OK);
+    fs.accessSync(privDir, fs.constants.R_OK | fs.constants.W_OK);
+    return { writable: true, persistentConfigured };
+  } catch {
+    return { writable: false, persistentConfigured };
+  }
+}
+
+router.get('/health', async (_req: Request, res: Response) => {
+  const customUri = process.env.MONGODB_URI || '';
+  const readyState = mongoose.connection.readyState;
+  const activeHost = String(mongoose.connection.host || '');
+  const isAtlas =
+    readyState === 1
+      ? activeHost.includes('.mongodb.net')
+      : customUri.includes('mongodb+srv') || customUri.includes('.mongodb.net');
+  const dbName = mongoose.connection.name || extractConfiguredDbName(customUri);
+  const storage = inspectUploadStorageHealth();
+  const lastAtlasErr = getLastAtlasFallbackError();
+
+  if (readyState !== 1 || !mongoose.connection.db) {
+    return res.status(503).json({
+      status: 'degraded',
+      connected: false,
+      database: {
+        connected: false,
+        state: readyState === 2 ? 'connecting' : 'disconnected',
+        isAtlas,
+        databaseName: dbName,
+      },
+      storage,
+      ...(lastAtlasErr ? { error: lastAtlasErr } : {}),
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  try {
+    const start = Date.now();
+    await mongoose.connection.db.admin().ping();
+    const latencyMs = Date.now() - start;
+    const usersCount = await UserModel.countDocuments().catch(() => 0);
+    const superAdminCount = await UserModel.countDocuments({ role: 'super_admin' }).catch(() => 0);
+    return res.status(200).json({
+      status: storage.writable ? 'ok' : 'degraded',
+      connected: true,
+      database: {
+        connected: true,
+        state: 'connected',
+        isAtlas,
+        databaseName: dbName,
+        latencyMs,
+        usersCount,
+        superAdminCount,
+      },
+      storage,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    return res.status(503).json({
+      status: 'degraded',
+      connected: false,
+      database: {
+        connected: false,
+        state: 'error',
+        isAtlas,
+        databaseName: dbName,
+      },
+      storage,
+      error: sanitizeErrorMessage(err?.message || 'Database health check failed'),
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+router.get('/mongodb/status', async (req: Request, res: Response) => {
+  try {
+    const status = await getMongoStatus();
+    if (process.env.NODE_ENV === 'production') {
+      res.json({
+        ...status,
+        host: 'configured-cluster',
+        uriMasked: 'Configured',
+      });
+      return;
+    }
+    res.json(status);
+  } catch (err: any) {
+    res.status(500).json({
+      connected: false,
+      state: 'error',
+      isAtlas: false,
+      databaseName: 'shawan_school',
+      host: 'unknown',
+      uriMasked: 'Error checking MongoDB',
+      error: sanitizeErrorMessage(err?.message || 'Database check failed'),
+      lastChecked: new Date().toISOString(),
+    });
+  }
+});
+
+router.post('/mongodb/sync-all', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
+  if (!ensureMongoReady(res)) return;
+  if (isLocalSeedBlocked()) {
+    return res.status(403).json({
+      error:
+        'Fresh-Start production policy active: importing or synchronizing local data/db.json into MongoDB is disabled.',
+    });
+  }
+  try {
+    const result = await seedMongoFromLocal();
+    res.json({
+      success: true,
+      message: 'All school datasets and collections synchronized to MongoDB Atlas database',
+      summary: result.counts,
+    });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Error synchronizing datasets to MongoDB');
+  }
+});
+
+router.get('/mongodb/test-connection', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const start = Date.now();
+    if (mongoose.connection.readyState !== 1 || !mongoose.connection.db) {
+      return res.status(503).json({ success: false, message: 'MongoDB not connected' });
+    }
+    const pingRes = await mongoose.connection.db.admin().ping();
+    const latency = Date.now() - start;
+    res.json({
+      success: true,
+      ping: pingRes,
+      latencyMs: latency,
+      databaseName: mongoose.connection.name,
+      host: process.env.NODE_ENV === 'production' ? 'configured-cluster' : mongoose.connection.host,
+      message: `Ping OK (${latency}ms) to MongoDB database "${mongoose.connection.name}"`,
+    });
+  } catch (err: any) {
+    if (isMongoUnavailableError(err)) {
+      return res.status(503).json({ success: false, message: 'MongoDB not connected' });
+    }
+    res.status(500).json({ success: false, error: sanitizeErrorMessage(err?.message || 'Database ping failed') });
+  }
+});
+
+router.get('/mongodb/collections', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
+  if (!ensureMongoReady(res)) return;
+  try {
+    if (!mongoose.connection.db) {
+      return res.status(503).json({ error: 'Database service temporarily unavailable.' });
+    }
+    const list = await mongoose.connection.db.listCollections().toArray();
+    const stats = [];
+    for (const c of list) {
+      const count = await mongoose.connection.db.collection(c.name).countDocuments();
+      stats.push({ name: c.name, count, type: c.type || 'collection' });
+    }
+    res.json(stats);
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to retrieve MongoDB collections');
+  }
+});
+
+// ==========================================
+// 1. AUTHENTICATION & PROFILE
+// ==========================================
+
+router.post('/auth/login', authRateLimiter, async (req: Request, res: Response) => {
+  const { email, password } = req.body || {};
+  if (!email || !password || typeof email !== 'string' || typeof password !== 'string') {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const cleanEmail = email.trim().toLowerCase();
+    let userDoc = await UserModel.findOne({ email: cleanEmail });
+
+    // On a fresh database with 0 administrators, auto-bootstrap the initial admin account
+    if (!userDoc && (cleanEmail === 'admin@shawanschool.edu.pk' || cleanEmail === 'office@shawanschool.edu.pk')) {
+      const superCount = await UserModel.countDocuments({ role: 'super_admin' }).catch(() => 1);
+      if (superCount === 0) {
+        await ensureDefaultSuperAdminIfEmpty().catch(() => {});
+        userDoc = await UserModel.findOne({ email: cleanEmail });
+      }
+    }
+
+    // Prevent account enumeration with unified error message
+    if (!userDoc || !userDoc.password_hash) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    let passwordMatch = await bcrypt.compare(password, userDoc.password_hash);
+    if (
+      process.env.NODE_ENV !== 'production' &&
+      !passwordMatch &&
+      userDoc.email === 'parent@shawanschool.edu.pk' &&
+      userDoc.password_hash === '$2b$10$3b/LCmejoXEleVzibuO6neBAhvb.9Zu1N5oQjB0xhlXOq3RwJTD1G' &&
+      password === 'ParentPassword123!'
+    ) {
+      passwordMatch = true;
+    }
+
+    if (!passwordMatch) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    if (userDoc.status && userDoc.status !== 'active') {
+      if (userDoc.role === 'teacher' && userDoc.status === 'pending') {
+        return res.status(403).json({
+          error: 'Your teacher registration is currently pending administrator approval. Please contact the school administration once approved.',
+        });
+      }
+      if (userDoc.status === 'suspended') {
+        return res.status(403).json({
+          error: 'Your account has been suspended by the school administration. Please contact the administrative office.',
+        });
+      }
+      return res.status(403).json({
+        error: `Account is currently ${userDoc.status}. Please contact school administration.`,
+      });
+    }
+
+    const userDto = toUserDto(userDoc);
+    const token = generateToken({
+      id: userDto.id,
+      email: userDto.email,
+      role: userDto.role,
+      name: userDto.name,
+      phone: userDto.phone,
+      linked_id: userDto.linked_id,
+      linked_student_ids: userDto.linked_student_ids,
+    });
+
+    setSessionCookie(req, res, token);
+
+    return res.json({
+      token,
+      user: {
+        id: userDto.id,
+        email: userDto.email,
+        name: userDto.name,
+        role: userDto.role,
+        phone: userDto.phone,
+        linked_id: userDto.linked_id,
+        linked_student_ids: userDto.linked_student_ids || [],
+      },
+    });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Authentication failed');
+  }
+});
+
+// Logout endpoint: revokes all presented session tokens (HttpOnly cookie + Bearer fallback) and clears cookie
+router.post('/auth/logout', async (req: Request, res: Response) => {
+  const rawTokens = extractAllTokensFromRequest(req);
+  for (const rawToken of rawTokens) {
+    try {
+      const decoded: any = jsonwebtoken.decode(rawToken);
+      await revokeToken(rawToken, typeof decoded?.exp === 'number' ? decoded.exp : undefined, 'logout');
+    } catch {
+      await revokeToken(rawToken, undefined, 'logout');
+    }
+  }
+  clearSessionCookie(req, res);
+  return res.json({ message: 'Logged out successfully' });
+});
+
+// One-time Super Admin bootstrap for a fresh production database (disabled unless BOOTSTRAP_SECRET >= 32 chars is set)
+router.post('/auth/bootstrap-super-admin', bootstrapRateLimiter, async (req: Request, res: Response) => {
+  const configuredSecret = String(process.env.BOOTSTRAP_SECRET || '').trim();
+  if (!configuredSecret || configuredSecret.length < 32) {
+    return res.status(403).json({
+      error:
+        'Super Admin bootstrap endpoint is disabled. Configure a strong BOOTSTRAP_SECRET (minimum 32 characters) or run the server CLI script.',
+    });
+  }
+
+  const providedSecret =
+    (typeof req.headers['x-bootstrap-secret'] === 'string' && req.headers['x-bootstrap-secret']) ||
+    req.body?.bootstrap_secret;
+
+  if (!verifyBootstrapSecretConstantTime(providedSecret)) {
+    return res.status(403).json({ error: 'Invalid bootstrap authorization secret.' });
+  }
+
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const { email, password, name, phone } = req.body || {};
+    const dto = await bootstrapInitialSuperAdmin({
+      email: String(email || ''),
+      password: String(password || ''),
+      name: String(name || 'Principal / Super Admin'),
+      phone: phone ? String(phone) : '',
+      source: 'api',
+      ipAddress: req.ip,
+    });
+
+    return res.status(201).json({
+      message:
+        'Initial Super Admin account created successfully. Remove BOOTSTRAP_SECRET from environment variables immediately.',
+      user: {
+        id: dto.id,
+        email: dto.email,
+        name: dto.name,
+        role: dto.role,
+        status: dto.status,
+      },
+    });
+  } catch (err: any) {
+    if (err instanceof BootstrapValidationError) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err instanceof BootstrapConflictError) {
+      return res.status(409).json({ error: err.message });
+    }
+    return sendRouteError(res, err, 'Super Admin bootstrap failed');
+  }
+});
+
+// Self-service Forgot Password: issues short-lived (15m), single-use, SHA-256-hashed reset token via SMTP
+router.post('/auth/forgot-password', passwordResetRateLimiter, async (req: Request, res: Response) => {
+  const rawEmail = req.body?.email;
+  if (!rawEmail || typeof rawEmail !== 'string' || !validateEmail(rawEmail)) {
+    return res.status(400).json({ error: 'Please provide a valid email address.' });
+  }
+
+  if (!isSmtpConfigured()) {
+    return res.status(503).json({
+      error:
+        'Email-based password recovery is not currently configured on this server. Please contact school administration for an authorized password reset.',
+    });
+  }
+
+  if (!ensureMongoReady(res)) return;
+
+  const uniformResponseMessage =
+    'If an active account is registered with that email address, password reset instructions have been sent.';
+  const cleanEmail = rawEmail.trim().toLowerCase();
+  const expiresInMinutes = 15;
+
+  let smtpTransport: Awaited<ReturnType<typeof openAuthenticatedSmtpTransport>> | null = null;
+  try {
+    // Open and authenticate SMTP BEFORE querying UserModel so missing/failing SMTP cannot leak account existence
+    smtpTransport = await openAuthenticatedSmtpTransport();
+  } catch (err: any) {
+    if (err instanceof SmtpConfigurationError || err instanceof SmtpDeliveryError) {
+      console.warn('[Password Reset Mailer] SMTP unavailable:', sanitizeErrorMessage(err.message));
+      return res.status(503).json({
+        error:
+          'Password recovery email service is temporarily unavailable. Please try again later or contact school administration.',
+      });
+    }
+    return res.status(503).json({
+      error: 'Password recovery email service is temporarily unavailable.',
+    });
+  }
+
+  let createdTokenHash: string | null = null;
+  try {
+    const userDoc = await UserModel.findOne({ email: cleanEmail, status: 'active' }).lean();
+    if (!userDoc) {
+      await smtpTransport.close();
+      return res.json({ message: uniformResponseMessage });
+    }
+
+    const userId = String(userDoc.record_id || userDoc._id);
+    const now = new Date();
+
+    // Invalidate any prior unused reset tokens for this user
+    await PasswordResetTokenModel.updateMany(
+      { user_id: userId, used_at: null },
+      { $set: { used_at: now } }
+    );
+
+    // 256-bit cryptographically random token; store ONLY SHA-256 hash in MongoDB (never log raw token)
+    const rawResetToken = crypto.randomBytes(32).toString('hex');
+    createdTokenHash = crypto.createHash('sha256').update(rawResetToken).digest('hex');
+    const expiresAt = new Date(now.getTime() + expiresInMinutes * 60 * 1000);
+
+    await PasswordResetTokenModel.create({
+      token_hash: createdTokenHash,
+      user_id: userId,
+      email: cleanEmail,
+      expires_at: expiresAt,
+      used_at: null,
+      request_ip: req.ip || '',
+      created_at: now,
+    });
+
+    await smtpTransport.sendPasswordResetMail({
+      toEmail: cleanEmail,
+      recipientName: String(userDoc.name || 'Portal User'),
+      rawResetToken,
+      expiresInMinutes,
+    });
+    await smtpTransport.close();
+
+    await AuditLogModel.create({
+      user_id: userId,
+      user_name: String(userDoc.name || cleanEmail),
+      role: String(userDoc.role || 'student'),
+      action: 'Requested Password Reset Email',
+      entity: 'User',
+      entity_id: userId,
+      details: 'Password reset link dispatched via SMTP (15-minute single-use token)',
+      ip_address: req.ip || '',
+      created_at: new Date(),
+    }).catch(() => {});
+
+    return res.json({ message: uniformResponseMessage });
+  } catch (err: any) {
+    if (smtpTransport) {
+      await smtpTransport.close().catch(() => {});
+    }
+    if (createdTokenHash) {
+      await PasswordResetTokenModel.deleteOne({ token_hash: createdTokenHash }).catch(() => {});
+    }
+    console.warn('[Password Reset Error]', sanitizeErrorMessage(err?.message || 'Reset dispatch failed'));
+    return res.status(503).json({
+      error:
+        'Password recovery email could not be delivered at this time. Please try again later or contact school administration.',
+    });
+  }
+});
+
+// Self-service Verify Password Reset Token: allows frontend to pre-validate whether a reset token is valid/unexpired
+router.get('/auth/verify-reset-token', passwordResetRateLimiter, async (req: Request, res: Response) => {
+  const rawToken = req.query.token || req.body?.token;
+  if (!rawToken || typeof rawToken !== 'string' || !/^[a-fA-F0-9]{64}$/.test(rawToken.trim())) {
+    return res.status(400).json({
+      valid: false,
+      error: 'Invalid password reset link. The link is malformed or has an invalid token format.',
+    });
+  }
+
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const cleanToken = rawToken.trim();
+    const tokenHash = crypto.createHash('sha256').update(cleanToken.toLowerCase()).digest('hex');
+    const exactTokenHash = crypto.createHash('sha256').update(cleanToken).digest('hex');
+    const now = new Date();
+
+    const tokenDoc = await PasswordResetTokenModel.findOne({
+      token_hash: { $in: [exactTokenHash, tokenHash] },
+      used_at: null,
+      expires_at: { $gt: now },
+    }).lean();
+
+    if (!tokenDoc) {
+      return res.status(400).json({
+        valid: false,
+        error: 'This password reset link is invalid, expired, or has already been used. Please request a new link.',
+      });
+    }
+
+    let maskedEmail = '';
+    if (tokenDoc.email) {
+      const parts = tokenDoc.email.split('@');
+      const localPart = parts[0] || '';
+      const domain = parts[1] || '';
+      if (localPart && domain) {
+        const maskedLocal =
+          localPart.length > 2
+            ? `${localPart[0]}${'*'.repeat(Math.min(localPart.length - 2, 5))}${localPart[localPart.length - 1]}`
+            : `${localPart[0]}*`;
+        maskedEmail = `${maskedLocal}@${domain}`;
+      }
+    }
+
+    return res.json({
+      valid: true,
+      email: maskedEmail,
+      message: 'Password reset token is valid and unexpired.',
+    });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to verify reset token');
+  }
+});
+
+router.post('/auth/verify-reset-token', passwordResetRateLimiter, async (req: Request, res: Response) => {
+  const rawToken = req.body?.token || req.query.token;
+  if (!rawToken || typeof rawToken !== 'string' || !/^[a-fA-F0-9]{64}$/.test(rawToken.trim())) {
+    return res.status(400).json({
+      valid: false,
+      error: 'Invalid password reset link. The link is malformed or has an invalid token format.',
+    });
+  }
+
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const cleanToken = rawToken.trim();
+    const tokenHash = crypto.createHash('sha256').update(cleanToken.toLowerCase()).digest('hex');
+    const exactTokenHash = crypto.createHash('sha256').update(cleanToken).digest('hex');
+    const now = new Date();
+
+    const tokenDoc = await PasswordResetTokenModel.findOne({
+      token_hash: { $in: [exactTokenHash, tokenHash] },
+      used_at: null,
+      expires_at: { $gt: now },
+    }).lean();
+
+    if (!tokenDoc) {
+      return res.status(400).json({
+        valid: false,
+        error: 'This password reset link is invalid, expired, or has already been used. Please request a new link.',
+      });
+    }
+
+    let maskedEmail = '';
+    if (tokenDoc.email) {
+      const parts = tokenDoc.email.split('@');
+      const localPart = parts[0] || '';
+      const domain = parts[1] || '';
+      if (localPart && domain) {
+        const maskedLocal =
+          localPart.length > 2
+            ? `${localPart[0]}${'*'.repeat(Math.min(localPart.length - 2, 5))}${localPart[localPart.length - 1]}`
+            : `${localPart[0]}*`;
+        maskedEmail = `${maskedLocal}@${domain}`;
+      }
+    }
+
+    return res.json({
+      valid: true,
+      email: maskedEmail,
+      message: 'Password reset token is valid and unexpired.',
+    });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to verify reset token');
+  }
+});
+
+// Self-service Confirm Password Reset: consumes single-use hashed token and revokes all existing sessions
+router.post('/auth/confirm-reset-password', passwordResetRateLimiter, async (req: Request, res: Response) => {
+  const { token, new_password, confirm_password } = req.body || {};
+  if (!token || typeof token !== 'string' || !/^[a-fA-F0-9]{64}$/.test(token.trim())) {
+    return res.status(400).json({
+      error: 'Invalid, expired, or already-used password reset link. Please request a new password reset.',
+    });
+  }
+  if (!new_password || typeof new_password !== 'string') {
+    return res.status(400).json({ error: 'New password is required.' });
+  }
+  if (confirm_password !== undefined && new_password !== confirm_password) {
+    return res.status(400).json({ error: 'New password and confirmation password do not match.' });
+  }
+  const passCheck = validatePassword(new_password);
+  if (!passCheck.valid) {
+    return res.status(400).json({ error: passCheck.message });
+  }
+
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const tokenHash = crypto.createHash('sha256').update(token.trim().toLowerCase()).digest('hex');
+    // Note: rawResetToken is lowercase hex from randomBytes(32).toString('hex')
+    const exactTokenHash = crypto.createHash('sha256').update(token.trim()).digest('hex');
+    const now = new Date();
+
+    // Atomic single-use claim: only matches if used_at === null and expires_at > now
+    const claimedReset = await PasswordResetTokenModel.findOneAndUpdate(
+      {
+        token_hash: { $in: [exactTokenHash, tokenHash] },
+        used_at: null,
+        expires_at: { $gt: now },
+      },
+      { $set: { used_at: now } },
+      { returnDocument: 'after' }
+    ).lean();
+
+    if (!claimedReset) {
+      return res.status(400).json({
+        error: 'Invalid, expired, or already-used password reset link. Please request a new password reset.',
+      });
+    }
+
+    const userDoc = await findUserByAnyId(String(claimedReset.user_id));
+    if (!userDoc || userDoc.status !== 'active') {
+      return res.status(400).json({
+        error: 'Invalid or expired password reset link.',
+      });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    userDoc.password_hash = await bcrypt.hash(new_password, salt);
+    // Setting password_changed_at immediately invalidates all previously issued JWTs across all instances
+    userDoc.password_changed_at = new Date();
+    await userDoc.save();
+
+    // Invalidate any other remaining reset tokens for this user
+    await PasswordResetTokenModel.updateMany(
+      { user_id: String(claimedReset.user_id), used_at: null },
+      { $set: { used_at: new Date() } }
+    );
+
+    // Clear any active session cookie on this browser
+    const activeTokens = extractAllTokensFromRequest(req);
+    for (const activeTok of activeTokens) {
+      const dec: any = jsonwebtoken.decode(activeTok);
+      await revokeToken(activeTok, typeof dec?.exp === 'number' ? dec.exp : undefined, 'password_reset');
+    }
+    clearSessionCookie(req, res);
+
+    const dto = toUserDto(userDoc);
+    await AuditLogModel.create({
+      user_id: dto.id,
+      user_name: dto.name,
+      role: dto.role,
+      action: 'Completed Self-Service Password Reset',
+      entity: 'User',
+      entity_id: dto.id,
+      details: 'Password updated via single-use email reset token; all prior sessions invalidated',
+      ip_address: req.ip || '',
+      created_at: new Date(),
+    }).catch(() => {});
+
+    return res.json({
+      message:
+        'Your password has been reset successfully. All previous sessions have been signed out. Please sign in with your new password.',
+    });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to complete password reset');
+  }
+});
+
+// Authenticated self-service password change (invalidates older sessions)
+router.post('/auth/change-password', authRateLimiter, authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  const { current_password, new_password } = req.body || {};
+  if (!current_password || !new_password || typeof current_password !== 'string' || typeof new_password !== 'string') {
+    return res.status(400).json({ error: 'Current password and new password are required' });
+  }
+  const passCheck = validatePassword(new_password);
+  if (!passCheck.valid) {
+    return res.status(400).json({ error: passCheck.message });
+  }
+  if (current_password === new_password) {
+    return res.status(400).json({ error: 'New password must be different from your current password' });
+  }
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const userDoc = await findUserByAnyId(req.user!.id);
+    if (!userDoc || !userDoc.password_hash) {
+      return res.status(404).json({ error: 'User account not found' });
+    }
+    const matchesCurrent = await bcrypt.compare(current_password, userDoc.password_hash);
+    if (!matchesCurrent) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    userDoc.password_hash = await bcrypt.hash(new_password, salt);
+    const changedAt = new Date();
+    userDoc.password_changed_at = changedAt;
+    await userDoc.save();
+
+    const oldToken = extractTokenFromRequest(req);
+    if (oldToken) {
+      const decodedOld: any = jsonwebtoken.decode(oldToken);
+      await revokeToken(
+        oldToken,
+        typeof decodedOld?.exp === 'number' ? decodedOld.exp : undefined,
+        'password_changed'
+      );
+    }
+
+    // Ensure the replacement token has iat_ms strictly >= changedAt
+    await new Promise(r => setTimeout(r, 2));
+    const userDto = toUserDto(userDoc);
+    const freshToken = generateToken({
+      id: userDto.id,
+      email: userDto.email,
+      role: userDto.role,
+      name: userDto.name,
+      phone: userDto.phone,
+      linked_id: userDto.linked_id,
+      linked_student_ids: userDto.linked_student_ids,
+    });
+    setSessionCookie(req, res, freshToken);
+
+    await recordMongoAudit(req.user!, 'Changed Account Password', 'User', userDto.id, 'Self-service password update');
+
+    return res.json({
+      message: 'Password updated successfully',
+      token: freshToken,
+    });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to change password');
+  }
+});
+
+// Authorized administrative password reset (super_admin / admin; revokes all prior user sessions)
+router.post('/auth/reset-password', authRateLimiter, authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
+  const { user_id, email, new_password } = req.body || {};
+  if ((!user_id && !email) || !new_password || typeof new_password !== 'string') {
+    return res.status(400).json({ error: 'Target user_id (or email) and new_password are required' });
+  }
+  const passCheck = validatePassword(new_password);
+  if (!passCheck.valid) {
+    return res.status(400).json({ error: passCheck.message });
+  }
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const targetDoc = user_id
+      ? await findUserByAnyId(String(user_id).trim())
+      : await UserModel.findOne({ email: String(email).trim().toLowerCase() });
+    if (!targetDoc) {
+      return res.status(404).json({ error: 'Target user account not found' });
+    }
+    if (targetDoc.role === 'super_admin' && req.user!.role !== 'super_admin') {
+      return res.status(403).json({ error: 'Only a super_admin may reset a super_admin account password' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    targetDoc.password_hash = await bcrypt.hash(new_password, salt);
+    targetDoc.password_changed_at = new Date();
+    await targetDoc.save();
+
+    const dto = toUserDto(targetDoc);
+    await recordMongoAudit(
+      req.user!,
+      'Admin Reset User Password',
+      'User',
+      dto.id,
+      `Reset password for ${dto.email} (${dto.role})`
+    );
+
+    return res.json({
+      message: 'User password reset successfully. All previous sessions have been invalidated.',
+      user: dto,
+    });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to reset user password');
+  }
+});
+
+// Student self-signup (MongoDB-authoritative)
+router.post('/auth/register-student', authRateLimiter, async (req: Request, res: Response) => {
+  const {
+    full_name,
+    email,
+    password,
+    confirm_password,
+    dob,
+    gender,
+    father_name,
+    phone,
+    address,
+    class_name,
+    section,
+    role: injectedRole,
+  } = req.body || {};
+
+  // Block privilege escalation attempts on public student registration
+  if (injectedRole !== undefined && String(injectedRole).trim().toLowerCase() !== 'student') {
+    return res.status(403).json({
+      error: 'Privilege escalation blocked: Public student registration can only create student accounts.',
+    });
+  }
+
+  if (!full_name || !email || !password || !father_name || !class_name) {
+    return res.status(400).json({ error: 'Full name, email, password, father name, and class are required' });
+  }
+
+  if (password !== confirm_password) {
+    return res.status(400).json({ error: 'Passwords do not match' });
+  }
+
+  const passCheck = validatePassword(String(password));
+  if (!passCheck.valid) {
+    return res.status(400).json({ error: passCheck.message });
+  }
+
+  const cleanEmail = String(email).trim().toLowerCase();
+  if (!validateEmail(cleanEmail)) {
+    return res.status(400).json({ error: 'Please provide a valid email address' });
+  }
+
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const existingUser = await UserModel.findOne({ email: cleanEmail }).lean();
+    if (existingUser) {
+      return res.status(409).json({ error: 'An account with this email address already exists' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const password_hash = await bcrypt.hash(String(password), salt);
+
+    const ts = Date.now();
+    const randSuffix = Math.random().toString(36).slice(2, 6);
+    const newStudentId = `std_${ts}_${randSuffix}`;
+    const newUserId = `usr_${ts}_${randSuffix}`;
+    const year = new Date().getFullYear();
+
+    let admission_no = '';
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const candidate = `SSC-${year}-${Math.floor(1000 + Math.random() * 9000)}`;
+      const exists = await StudentModel.exists({ admission_no: candidate });
+      if (!exists) {
+        admission_no = candidate;
+        break;
+      }
+    }
+    if (!admission_no) {
+      admission_no = `SSC-${year}-${String(ts).slice(-5)}`;
+    }
+
+    const cleanClassName = sanitizePlainText(class_name, 120);
+    const cleanSection = sanitizePlainText(section, 60) || 'A';
+
+    // Allocate unique roll_no within (class_name, section)
+    const totalStudentsCount = await StudentModel.countDocuments();
+    let rollNum = totalStudentsCount + 101;
+    let roll_no = String(rollNum);
+    while (
+      await StudentModel.exists({
+        class_name: { $regex: new RegExp(`^${escapeRegexLiteral(cleanClassName)}$`, 'i') },
+        section: { $regex: new RegExp(`^${escapeRegexLiteral(cleanSection)}$`, 'i') },
+        roll_no,
+      })
+    ) {
+      rollNum++;
+      roll_no = String(rollNum);
+    }
+
+    const admissionDate = new Date().toISOString().split('T')[0];
+    const cleanFullName = sanitizePlainText(full_name, 150);
+    const cleanFatherName = sanitizePlainText(father_name, 150);
+    const cleanPhone = phone ? sanitizePlainText(phone, 40) : '';
+    const cleanAddress = address ? sanitizePlainText(address, 300) : 'Paharpur, Dera Ismail Khan';
+    const normalizedGender: 'Male' | 'Female' | 'Other' =
+      gender === 'Female' ? 'Female' : gender === 'Other' ? 'Other' : 'Male';
+    const cleanDob = dob ? sanitizePlainText(dob, 20) : '2010-01-01';
+
+    const createdUser = await UserModel.create({
+      record_id: newUserId,
+      email: cleanEmail,
+      password_hash,
+      name: cleanFullName,
+      role: 'student',
+      phone: cleanPhone,
+      linked_id: newStudentId,
+      linked_student_ids: [],
+      status: 'active',
+    });
+
+    let createdStudent: any;
+    try {
+      createdStudent = await StudentModel.create({
+        record_id: newStudentId,
+        user_id: newUserId,
+        admission_no,
+        roll_no,
+        full_name: cleanFullName,
+        father_name: cleanFatherName,
+        dob: cleanDob,
+        gender: normalizedGender,
+        class_name: cleanClassName,
+        section: cleanSection,
+        contact_no: cleanPhone,
+        address: cleanAddress,
+        emergency_contact: cleanPhone,
+        admission_date: admissionDate,
+        academic_status: 'Active',
+      });
+    } catch (studentErr) {
+      await UserModel.deleteOne({ _id: createdUser._id }).catch(() => {});
+      throw studentErr;
+    }
+
+    const academicYear = '2026-2027';
+    await EnrollmentModel.create({
+      record_id: `enr_${ts}_${randSuffix}`,
+      student_id: newStudentId,
+      student_name: cleanFullName,
+      class_name: cleanClassName,
+      section: cleanSection,
+      academic_year: academicYear,
+      roll_no,
+      enrolled_date: admissionDate,
+      status: 'Active',
+      active_enrollment_key: computeActiveEnrollmentKey(newStudentId, academicYear, 'Active'),
+    }).catch(() => {});
+
+    const userDto = toUserDto(createdUser);
+    const studentDto = toStudentDto(createdStudent);
+
+    await recordMongoAudit(
+      { id: userDto.id, name: userDto.name, role: userDto.role },
+      'Student Account Registered',
+      'Student',
+      studentDto.id,
+      `Class: ${studentDto.class_name}`
+    );
+
+    const token = generateToken({
+      id: userDto.id,
+      email: userDto.email,
+      role: userDto.role,
+      name: userDto.name,
+      phone: userDto.phone,
+      linked_id: userDto.linked_id,
+    });
+
+    setSessionCookie(req, res, token);
+
+    return res.status(201).json({
+      message: 'Student account successfully created',
+      token,
+      user: {
+        id: userDto.id,
+        email: userDto.email,
+        name: userDto.name,
+        role: userDto.role,
+        phone: userDto.phone,
+        linked_id: userDto.linked_id,
+      },
+      studentProfile: studentDto,
+    });
+  } catch (err: any) {
+    if (err?.code === 11000) {
+      return res.status(409).json({ error: 'An account or student record with these unique identifiers already exists' });
+    }
+    return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to register student account') });
+  }
+});
+
+// Parent self-signup (MongoDB-authoritative)
+router.post('/auth/register-parent', authRateLimiter, async (req: Request, res: Response) => {
+  const {
+    full_name,
+    email,
+    password,
+    confirm_password,
+    phone,
+    address,
+    occupation,
+    child_admission_no,
+    child_dob,
+    role: injectedRole,
+  } = req.body || {};
+
+  // Block privilege escalation attempts on public parent registration
+  if (injectedRole !== undefined && String(injectedRole).trim().toLowerCase() !== 'parent') {
+    return res.status(403).json({
+      error: 'Privilege escalation blocked: Public parent registration can only create parent accounts.',
+    });
+  }
+
+  if (!full_name || !email || !password) {
+    return res.status(400).json({ error: 'Full name, email, and password are required' });
+  }
+
+  if (password !== confirm_password) {
+    return res.status(400).json({ error: 'Passwords do not match' });
+  }
+
+  const passCheck = validatePassword(String(password));
+  if (!passCheck.valid) {
+    return res.status(400).json({ error: passCheck.message });
+  }
+
+  const cleanEmail = String(email).trim().toLowerCase();
+  if (!validateEmail(cleanEmail)) {
+    return res.status(400).json({ error: 'Please provide a valid email address' });
+  }
+
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const existingUser = await UserModel.findOne({ email: cleanEmail }).lean();
+    if (existingUser) {
+      return res.status(409).json({ error: 'An account with this email address already exists' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const password_hash = await bcrypt.hash(String(password), salt);
+
+    const ts = Date.now();
+    const randSuffix = Math.random().toString(36).slice(2, 6);
+    const newUserId = `usr_${ts}_${randSuffix}`;
+    const linkedStudentIds: string[] = [];
+    const linkedStudentDtos: StudentDto[] = [];
+
+    // Optional child linking during signup requires BOTH matching admission_no AND child_dob
+    if (child_admission_no && String(child_admission_no).trim()) {
+      const cleanAdm = String(child_admission_no).trim().toUpperCase();
+      const cleanChildDob = child_dob ? String(child_dob).trim() : '';
+      if (!cleanChildDob) {
+        return res.status(400).json({
+          error: 'Child date of birth is required when linking a student by admission number during registration',
+        });
+      }
+      const studentDoc = await StudentModel.findOne({
+        admission_no: { $regex: new RegExp(`^${escapeRegexLiteral(cleanAdm)}$`, 'i') },
+      });
+      if (!studentDoc || studentDoc.dob !== cleanChildDob) {
+        return res.status(404).json({
+          error: 'No student found matching both the provided admission number and date of birth.',
+        });
+      }
+      const sid = studentDoc.record_id || studentDoc._id.toString();
+      linkedStudentIds.push(sid);
+      studentDoc.parent_user_id = newUserId;
+      await studentDoc.save();
+      linkedStudentDtos.push(toStudentDto(studentDoc));
+    }
+
+    const cleanName = sanitizePlainText(full_name, 150);
+    const cleanPhone = phone ? sanitizePlainText(phone, 40) : '';
+    const cleanAddress = address ? sanitizePlainText(address, 300) : '';
+    const cleanOccupation = occupation ? sanitizePlainText(occupation, 150) : '';
+
+    const createdUser = await UserModel.create({
+      record_id: newUserId,
+      email: cleanEmail,
+      password_hash,
+      name: cleanName,
+      role: 'parent',
+      phone: cleanPhone,
+      linked_id: linkedStudentIds[0] || '',
+      linked_student_ids: linkedStudentIds,
+      status: 'active',
+    });
+
+    await ParentModel.create({
+      record_id: `prt_${newUserId}`,
+      user_id: newUserId,
+      name: cleanName,
+      father_name: cleanName,
+      phone: cleanPhone,
+      email: cleanEmail,
+      address: cleanAddress,
+      occupation: cleanOccupation,
+      linked_students: linkedStudentIds,
+    });
+
+    const userDto = toUserDto(createdUser);
+    await recordMongoAudit(
+      { id: userDto.id, name: userDto.name, role: userDto.role },
+      'Parent Account Registered',
+      'Parent',
+      userDto.id,
+      `Linked students: ${linkedStudentIds.length}`
+    );
+
+    const token = generateToken({
+      id: userDto.id,
+      email: userDto.email,
+      role: userDto.role,
+      name: userDto.name,
+      phone: userDto.phone,
+      linked_id: userDto.linked_id,
+      linked_student_ids: userDto.linked_student_ids,
+    });
+
+    setSessionCookie(req, res, token);
+
+    return res.status(201).json({
+      message: 'Parent account successfully created',
+      token,
+      user: {
+        id: userDto.id,
+        email: userDto.email,
+        name: userDto.name,
+        role: userDto.role,
+        phone: userDto.phone,
+        linked_id: userDto.linked_id,
+        linked_student_ids: userDto.linked_student_ids,
+      },
+      linked_students: linkedStudentDtos,
+    });
+  } catch (err: any) {
+    if (err?.code === 11000) {
+      return res.status(409).json({ error: 'An account with this email address already exists' });
+    }
+    return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to register parent account') });
+  }
+});
+
+// Teacher self-signup (MongoDB-authoritative with mandatory Admin approval)
+router.post('/auth/register-teacher', authRateLimiter, async (req: Request, res: Response) => {
+  const {
+    full_name,
+    father_name,
+    email,
+    password,
+    confirm_password,
+    phone,
+    cnic,
+    qualification,
+    subject,
+    specialization,
+    experience,
+    bio,
+    profile_photo,
+    role: injectedRole,
+  } = req.body || {};
+
+  // Strict server-enforced role boundary: Never trust role from frontend or allow escalation
+  if (injectedRole !== undefined && String(injectedRole).trim().toLowerCase() !== 'teacher') {
+    return res.status(403).json({
+      error: 'Privilege escalation blocked: Teacher registration can only create teacher accounts.',
+    });
+  }
+
+  if (!full_name || !email || !password || !qualification || (!subject && !specialization)) {
+    return res.status(400).json({
+      error: 'Full name, email, password, qualification, and subject/specialization are required.',
+    });
+  }
+
+  if (password !== confirm_password) {
+    return res.status(400).json({ error: 'Passwords do not match' });
+  }
+
+  const passCheck = validatePassword(String(password));
+  if (!passCheck.valid) {
+    return res.status(400).json({ error: passCheck.message });
+  }
+
+  const cleanEmail = String(email).trim().toLowerCase();
+  if (!validateEmail(cleanEmail)) {
+    return res.status(400).json({ error: 'Please provide a valid email address' });
+  }
+
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const existingUser = await UserModel.findOne({ email: cleanEmail }).lean();
+    if (existingUser) {
+      return res.status(409).json({ error: 'An account with this email address already exists' });
+    }
+
+    const cleanPhone = phone ? String(phone).trim() : '';
+    if (cleanPhone) {
+      const existingPhone = await UserModel.findOne({ phone: cleanPhone }).lean();
+      if (existingPhone) {
+        return res.status(409).json({ error: 'An account with this mobile number already exists' });
+      }
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const password_hash = await bcrypt.hash(String(password), salt);
+
+    const ts = Date.now();
+    const randSuffix = Math.random().toString(36).slice(2, 6);
+    const newTeacherId = `tch_${ts}_${randSuffix}`;
+    const newUserId = `usr_${ts}_${randSuffix}`;
+
+    const chosenSubject = String(subject || specialization || 'General').trim();
+    const chosenSpec = String(specialization || subject || '').trim();
+
+    // 1. Create Teacher profile in 'Pending' state
+    const teacherDoc = await TeacherModel.create({
+      record_id: newTeacherId,
+      user_id: newUserId,
+      name: String(full_name).trim(),
+      father_name: father_name ? String(father_name).trim() : '',
+      cnic: cnic ? String(cnic).trim() : '',
+      profile_photo: profile_photo ? String(profile_photo).trim() : '',
+      qualification: String(qualification).trim(),
+      subject: chosenSubject,
+      specialization: chosenSpec,
+      classes: [],
+      contact_no: cleanPhone,
+      email: cleanEmail,
+      joining_date: new Date().toISOString().split('T')[0],
+      experience: experience ? String(experience).trim() : '',
+      status: 'Pending',
+      bio: bio ? String(bio).trim() : '',
+    });
+
+    // 2. Create User account strictly with role: 'teacher' and status: 'pending'
+    await UserModel.create({
+      record_id: newUserId,
+      email: cleanEmail,
+      name: String(full_name).trim(),
+      password_hash,
+      role: 'teacher',
+      status: 'pending',
+      linked_id: newTeacherId,
+      phone: cleanPhone,
+    });
+
+    // 3. Log to AuditLog
+    await AuditLogModel.create({
+      log_id: `aud_${ts}_${randSuffix}`,
+      user_id: newUserId,
+      user_name: String(full_name).trim(),
+      role: 'teacher',
+      action: 'TEACHER_SIGNUP_REQUEST',
+      details: `Teacher self-registration submitted: ${full_name} (${cleanEmail}), subject: ${chosenSubject}. Pending admin approval.`,
+      ip_address: req.ip || '',
+    }).catch(() => {});
+
+    // 4. Create one admin notification for this teacher signup.
+    await createNotificationOnce({
+      actionId: crypto.createHash('sha256').update(`teacher-signup:${newUserId}`).digest('hex'),
+      userId: 'admin',
+      role: 'admin',
+      title: 'New Teacher Signup Application',
+      message: `${full_name} (${cleanEmail}) applied for teacher position (${chosenSubject}). Please review in Admin Console.`,
+    }).catch(() => false);
+
+    return res.status(201).json({
+      success: true,
+      message:
+        'Your teacher registration request has been submitted successfully! The School Administration must review and approve your account before access is granted. Please check back later or contact the administration office.',
+      teacher: toTeacherDto(teacherDoc),
+    });
+  } catch (err: any) {
+    if (err?.code === 11000) {
+      return res.status(409).json({ error: 'An account or teacher record with these identifiers already exists' });
+    }
+    return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to submit teacher application') });
+  }
+});
+
+// Helper matching functions for parent-child verification
+function isStudentNameMatch(studentName: string, inputName: string): boolean {
+  const s = String(studentName || '').toLowerCase().trim();
+  const inp = String(inputName || '').toLowerCase().trim();
+  if (!s || !inp) return false;
+  if (s === inp || s.includes(inp) || inp.includes(s)) return true;
+  const sWords = s.split(/\s+/).filter(w => w.length > 1);
+  const inpWords = inp.split(/\s+/).filter(w => w.length > 1);
+  if (inpWords.length > 0 && inpWords.every(w => sWords.some(sw => sw.includes(w) || w.includes(sw)))) {
+    return true;
+  }
+  return false;
+}
+
+function isStudentClassMatch(studentClass: string, inputClass: string): boolean {
+  const s = String(studentClass || '').toLowerCase().trim();
+  const inp = String(inputClass || '').toLowerCase().trim();
+  if (!s || !inp) return false;
+  if (s === inp || s.includes(inp) || inp.includes(s)) return true;
+
+  const sNorm = s.replace(/[^a-z0-9]/g, '');
+  const inpNorm = inp.replace(/[^a-z0-9]/g, '');
+  if (sNorm && inpNorm && (sNorm.includes(inpNorm) || inpNorm.includes(sNorm))) return true;
+
+  const sDigits = s.match(/\b\d+\b/) || s.match(/\d+/);
+  const inpDigits = inp.match(/\b\d+\b/) || inp.match(/\d+/);
+  if (sDigits && inpDigits && sDigits[0] === inpDigits[0]) {
+    return true;
+  }
+  return false;
+}
+
+function isStudentRollMatch(studentRoll: string, inputRoll: string): boolean {
+  const s = String(studentRoll || '').trim().toLowerCase();
+  const inp = String(inputRoll || '').trim().toLowerCase();
+  if (!s || !inp) return false;
+  if (s === inp) return true;
+  const sNum = parseInt(s.replace(/\D/g, ''), 10);
+  const inpNum = parseInt(inp.replace(/\D/g, ''), 10);
+  if (!isNaN(sNum) && !isNaN(inpNum) && sNum === inpNum) return true;
+  return false;
+}
+
+function isFatherNameMatch(studentFather: string, inputFather: string): boolean {
+  const s = String(studentFather || '').toLowerCase().trim();
+  const inp = String(inputFather || '').toLowerCase().trim();
+  if (!s || !inp) return false;
+  if (s === inp || s.includes(inp) || inp.includes(s)) return true;
+  const sWords = s.split(/\s+/).filter(w => w.length > 1);
+  const inpWords = inp.split(/\s+/).filter(w => w.length > 1);
+  if (inpWords.some(w => sWords.some(sw => sw.includes(w) || w.includes(sw)))) {
+    return true;
+  }
+  return false;
+}
+
+async function fetchLinkedStudentsForParentUser(userId: string, email?: string): Promise<StudentDto[]> {
+  const ids = await getLinkedStudentIdsForParent({ id: userId, email });
+  if (ids.size === 0) return [];
+  const idArr = Array.from(ids);
+  const objIds = idArr
+    .filter(v => mongoose.Types.ObjectId.isValid(v) && /^[a-fA-F0-9]{24}$/.test(v))
+    .map(v => new mongoose.Types.ObjectId(v));
+  const docs = await StudentModel.find({
+    $or: [
+      { record_id: { $in: idArr } },
+      { admission_no: { $in: idArr } },
+      ...(objIds.length > 0 ? [{ _id: { $in: objIds } }] : []),
+    ],
+  })
+    .sort({ created_at: -1, _id: -1 })
+    .lean();
+  return docs.map(toStudentDto);
+}
+
+async function claimStudentForParent(studentDoc: any, canonicalUserId: string, mongoUserId: string): Promise<any | null> {
+  if (!studentDoc?._id || !canonicalUserId || !mongoUserId) return null;
+  // One atomic conditional write decides ownership. Concurrent parent requests cannot both claim an unowned student.
+  return StudentModel.findOneAndUpdate(
+    buildStudentParentClaimFilter(studentDoc._id, canonicalUserId, mongoUserId),
+    { $set: { parent_user_id: canonicalUserId } },
+    { new: true }
+  );
+}
+
+// Parent link student endpoint (secure verification by Admission No and Date of Birth)
+router.post('/parents/link-student', sensitiveActionRateLimiter, authenticateToken, requireRole(['parent']), async (req: AuthenticatedRequest, res: Response) => {
+  const { admission_no, dob } = req.body || {};
+  if (!admission_no || !dob) {
+    return res.status(400).json({ error: 'Child admission number and date of birth are required for verification' });
+  }
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const cleanAdm = String(admission_no).trim().toUpperCase();
+    const cleanDob = String(dob).trim();
+
+    const studentDoc = await StudentModel.findOne({
+      admission_no: { $regex: new RegExp(`^${escapeRegexLiteral(cleanAdm)}$`, 'i') },
+      dob: cleanDob,
+    });
+
+    if (!studentDoc) {
+      return res.status(404).json({
+        error: 'No student found matching both the provided admission number and date of birth. Please verify institutional records.',
+      });
+    }
+
+    const userDoc = await findUserByAnyId(req.user!.id);
+    if (!userDoc) {
+      return res.status(404).json({ error: 'Parent user account not found' });
+    }
+
+    const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
+    const canonicalUserId = userDoc.record_id || userDoc._id.toString();
+    const claimedStudent = await claimStudentForParent(studentDoc, canonicalUserId, userDoc._id.toString());
+    if (!claimedStudent) {
+      return res.status(409).json({ error: 'This student is already linked to another parent account. Please contact school administration if this is incorrect.' });
+    }
+
+    await UserModel.updateOne(
+      { _id: userDoc._id, role: 'parent' },
+      {
+        $addToSet: { linked_student_ids: canonicalStudentId },
+        $set: { linked_id: canonicalStudentId },
+      }
+    );
+    Object.assign(studentDoc, claimedStudent.toObject ? claimedStudent.toObject() : claimedStudent);
+
+    await ParentModel.findOneAndUpdate(
+      { $or: [{ user_id: canonicalUserId }, { email: userDoc.email.toLowerCase() }] },
+      {
+        $setOnInsert: {
+          record_id: `prt_${canonicalUserId}`,
+          user_id: canonicalUserId,
+          name: userDoc.name,
+          father_name: userDoc.name,
+          phone: userDoc.phone || '',
+          email: userDoc.email.toLowerCase(),
+        },
+        $addToSet: { linked_students: canonicalStudentId },
+      },
+      { upsert: true }
+    );
+
+    await recordMongoAudit(
+      req.user!,
+      'Linked Student to Parent',
+      'Student',
+      canonicalStudentId,
+      `Admission No: ${studentDoc.admission_no}`
+    );
+
+    const linkedStudents = await fetchLinkedStudentsForParentUser(canonicalUserId, userDoc.email);
+    return res.json({
+      message: `Successfully linked ${studentDoc.full_name} (${studentDoc.admission_no}) to parent account`,
+      student: toStudentDto(studentDoc),
+      linked_students: linkedStudents,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to link student') });
+  }
+});
+
+// 1. Find Child for Parent Linking (Father Name + Student Name + Class + Roll No)
+router.post('/parents/find-child', sensitiveActionRateLimiter, authenticateToken, requireRole(['parent']), async (req: AuthenticatedRequest, res: Response) => {
+  const { father_name, student_name, class_name, roll_no } = req.body || {};
+
+  if (!father_name || !student_name || !class_name || !roll_no) {
+    return res.status(400).json({
+      error: 'Please fill all required verification fields: Father/Guardian Name, Child Name, Class, and Roll Number.',
+    });
+  }
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const cleanFather = String(father_name).toLowerCase().trim();
+    const cleanStudent = String(student_name).toLowerCase().trim();
+    const cleanClass = String(class_name).toLowerCase().trim();
+    const cleanRoll = String(roll_no).toLowerCase().trim();
+
+    const userDoc = await findUserByAnyId(req.user!.id);
+    if (!userDoc) {
+      return res.status(404).json({ error: 'Parent account not found' });
+    }
+
+, 'i') } },
+    ];
+    if (rollDigits) {
+      const normalizedRoll = String(parseInt(rollDigits, 10));
+      rollClauses.push(
+        { roll_no: { $regex: new RegExp(`^\\\\D*0*${escapeRegexLiteral(normalizedRoll)}\\\\D*import express, { type Request, type Response } from 'express';
+import { financeRouter } from './financeRoutes.ts';
+import { buildNotificationVisibilityFilter, canMarkNotificationRead } from './notificationAccess.ts';
+import { buildParentPaymentHistoryFilter, buildParentLinkedStudentFilter, collectParentStudentReferences, isParentLinkedToStudent, isExactGuardianNameMatch, areSameStudentIdentity, isStudentClaimedByAnotherParent, buildStudentParentClaimFilter } from './parentAccess.ts';
+import { isClassAssignedToTeacher, buildTeacherClassFilter } from './classAccess.ts';
+import { getParentPaymentMethodMode, collectStudentPaymentIdentifiers, normalizeDepositReference, isExactParentPaymentRetry } from './paymentUtils.ts';
+import { isExactTeacherName, isExactTeacherSubject, areAllResultSubjectsAssignedToTeacher, isExactSectionMatch } from './teacherAccess.ts';
+import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
+import jsonwebtoken from 'jsonwebtoken';
+import fs from 'fs';
+import path from 'path';
+import {
+  generateToken,
+  getJwtSecret,
+  resolveLiveUserFromDecoded,
+  authenticateToken,
+  authenticateOptionalToken,
+  requireRole,
+  requireExactRole,
+  type AuthenticatedRequest,
+  authRateLimiter,
+  contactRateLimiter,
+  sensitiveActionRateLimiter,
+  aiRateLimiter,
+  passwordResetRateLimiter,
+  bootstrapRateLimiter,
+  validateEmail,
+  validatePassword,
+  extractTokenFromRequest,
+  extractAllTokensFromRequest,
+  isTokenRevokedAsync,
+  revokeToken,
+  setSessionCookie,
+  clearSessionCookie,
+} from './auth.ts';
+import {
+  detectInquiryIntent,
+  verifyInquiryParent,
+  generateAiInquiryReply,
+  dispatchApprovedReply,
+} from './services/inquiryReplyService.ts';
+import {
+  getPaymentSettings,
+  savePaymentSettings,
+  sendPaymentSubmissionSms,
+  sendPaymentApprovalSms,
+  sendPaymentRejectionSms,
+} from './services/smsNotificationService.ts';
+import { getMongoStatus, getLastAtlasFallbackError, extractConfiguredDbName, sanitizeErrorMessage } from './config/db.ts';
+import { seedMongoFromLocal, isLocalSeedBlocked } from './config/seed.ts';
+import {
+  UserModel,
+  toUserDto,
+  type UserRole,
+  type UserStatus,
+  StudentModel,
+  toStudentDto,
+  type StudentDto,
+  TeacherModel,
+  toTeacherDto,
+  type TeacherDto,
+  ParentModel,
+  toParentDto,
+  EnrollmentModel,
+  computeActiveEnrollmentKey,
+  toEnrollmentDto,
+  TeacherAssignmentModel,
+  toTeacherAssignmentDto,
+  ClassModel,
+  toClassDto,
+  SectionModel,
+  toSectionDto,
+  SubjectModel,
+  toSubjectDto,
+  AttendanceModel,
+  toAttendanceDto,
+  type AttendanceDto,
+  ExamModel,
+  toExamDto,
+  ResultModel,
+  toResultDto,
+  type ResultDto,
+  FeeModel,
+  toFeeDto,
+  type FeeDto,
+  type FeePaymentHistoryDto,
+  type FeeVoucherStatus,
+  FeePaymentModel,
+  toFeePaymentDto,
+  AdmissionModel,
+  computeAdmissionDedupeKey,
+  toAdmissionDto,
+  TimetableModel,
+  toTimetableDto,
+  AnnouncementModel,
+  toAnnouncementDto,
+  SchoolEventModel,
+  toSchoolEventDto,
+  GalleryModel,
+  toGalleryItemDto,
+  ContactMessageModel,
+  toContactMessageDto,
+  SchoolSettingsModel,
+  toSchoolSettingsDto,
+  NotificationModel,
+  StoredDocumentModel,
+  PasswordResetTokenModel,
+  TeacherTaskModel,
+  toTeacherTaskDto,
+  type TeacherTaskDto,
+  HomeworkModel,
+  toHomeworkDto,
+  type HomeworkDto,
+} from './models/index.ts';
+import mongoose from 'mongoose';
+import { processAdminAiQuery, ControlledSchoolTools, type AdminAiQueryContext, getAiProviderStatus, testGeminiConnection } from './services/aiAssistantService.ts';
+import { AuditLogModel } from './models/AuditLog.ts';
+import {
+  bootstrapInitialSuperAdmin,
+  ensureDefaultSuperAdminIfEmpty,
+  verifyBootstrapSecretConstantTime,
+  BootstrapValidationError,
+  BootstrapConflictError,
+} from './services/bootstrapService.ts';
+import {
+  isSmtpConfigured,
+  openAuthenticatedSmtpTransport,
+  SmtpConfigurationError,
+  SmtpDeliveryError,
+} from './services/passwordResetEmailService.ts';
+
+export const router = express.Router();
+router.use('/finance', financeRouter);
+
+// Concurrency lock for in-flight fee payment operations per voucher ID (single-process fast guard, paired with DB atomic filter)
+const activePaymentLocks = new Set<string>();
+let cachedTransactionsSupported: boolean | null = null;
+
+function getUploadsBaseDir(): string {
+  return process.env.UPLOAD_STORAGE_DIR
+    ? path.resolve(process.env.UPLOAD_STORAGE_DIR)
+    : path.resolve(process.cwd(), 'data', 'uploads');
+}
+
+function getPrivateUploadsDir(): string {
+  return path.resolve(getUploadsBaseDir(), 'private');
+}
+
+function ensureMongoReady(res: Response): boolean {
+  if (mongoose.connection.readyState !== 1) {
+    res.status(503).json({
+      error: 'Database service temporarily unavailable. Write/read aborted safely without modifying local fallback state.',
+    });
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Persist one notification per business action and recipient.
+ * The Notification schema's unique partial index makes concurrent retries safe.
+ */
+async function createNotificationOnce(input: {
+  actionId: string;
+  userId?: string;
+  role: string;
+  title: string;
+  message: string;
+  link?: string;
+}): Promise<boolean> {
+  const userId = String(input.userId || '').trim();
+  try {
+    const result = await NotificationModel.updateOne(
+      { action_id: input.actionId, user_id: userId },
+      {
+        $setOnInsert: {
+          action_id: input.actionId,
+          user_id: userId,
+          role: input.role,
+          title: input.title,
+          message: input.message,
+          link: input.link || '',
+          read: false,
+        },
+      },
+      { upsert: true }
+    );
+    return result.upsertedCount === 1;
+  } catch (err: any) {
+    // A concurrent request may win the unique-index race; treat it as a replay.
+    if (err?.code === 11000) return false;
+    throw err;
+  }
+}
+
+function isMongoUnavailableError(err: any): boolean {
+  if (mongoose.connection.readyState !== 1) return true;
+  const name = String(err?.name || '');
+  if (
+    name === 'MongoNetworkError' ||
+    name === 'MongoServerSelectionError' ||
+    name === 'MongooseServerSelectionError' ||
+    name === 'MongoNotConnectedError' ||
+    name === 'MongoTopologyClosedError' ||
+    name === 'MongoPoolClearedError'
+  ) {
+    return true;
+  }
+  const msg = String(err?.message || '');
+  return /topology.*closed|client must be connected|not connected|ECONNREFUSED|server selection timed out|buffering timed out/i.test(
+    msg
+  );
+}
+
+function sendRouteError(res: Response, err: any, fallbackMessage: string) {
+  if (isMongoUnavailableError(err)) {
+    return res.status(503).json({
+      error: 'Database service temporarily unavailable. Write/read aborted safely without modifying local fallback state.',
+    });
+  }
+  return res.status(500).json({
+    error: sanitizeErrorMessage(err?.message || fallbackMessage),
+  });
+}
+
+function escapeRegexLiteral(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildAdmissionLookupFilter(rawId: string): Record<string, any> {
+  const trimmed = String(rawId || '').trim();
+  const clauses: Record<string, any>[] = [
+    { record_id: trimmed },
+    { application_no: trimmed.toUpperCase() },
+  ];
+  if (mongoose.Types.ObjectId.isValid(trimmed) && /^[a-fA-F0-9]{24}$/.test(trimmed)) {
+    clauses.push({ _id: new mongoose.Types.ObjectId(trimmed) });
+  }
+  return { $or: clauses };
+}
+
+function isValidObjectId(val: unknown): boolean {
+  if (typeof val !== 'string') return false;
+  const trimmed = val.trim();
+  return mongoose.Types.ObjectId.isValid(trimmed) && /^[a-fA-F0-9]{24}$/.test(trimmed);
+}
+
+function isValidCmsIdParam(rawId: unknown): boolean {
+  if (typeof rawId !== 'string') return false;
+  const trimmed = rawId.trim();
+  return /^[a-zA-Z0-9_-]{2,80}$/.test(trimmed);
+}
+
+function buildCmsRecordLookupFilter(rawId: string): Record<string, any> {
+  const trimmed = String(rawId || '').trim();
+  const clauses: Record<string, any>[] = [{ record_id: trimmed }];
+  if (mongoose.Types.ObjectId.isValid(trimmed) && /^[a-fA-F0-9]{24}$/.test(trimmed)) {
+    clauses.push({ _id: new mongoose.Types.ObjectId(trimmed) });
+  }
+  return clauses.length === 1 ? clauses[0] : { $or: clauses };
+}
+
+function buildFeeLookupFilter(rawId: string): Record<string, any> {
+  const trimmed = String(rawId || '').trim();
+  const clauses: Record<string, any>[] = [{ voucher_id: trimmed }];
+  if (mongoose.Types.ObjectId.isValid(trimmed) && /^[a-fA-F0-9]{24}$/.test(trimmed)) {
+    clauses.push({ _id: new mongoose.Types.ObjectId(trimmed) });
+  }
+  return clauses.length === 1 ? clauses[0] : { $or: clauses };
+}
+
+const VALID_TIMETABLE_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
+const VALID_EXAM_STATUSES = ['Scheduled', 'Ongoing', 'Completed'] as const;
+
+function isValidIsoCalendarDate(raw: unknown): boolean {
+  if (typeof raw !== 'string') return false;
+  const trimmed = raw.trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (!m) return false;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  if (year < 1990 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  return (
+    dt.getUTCFullYear() === year &&
+    dt.getUTCMonth() === month - 1 &&
+    dt.getUTCDate() === day
+  );
+}
+
+function parseSchoolTimeMinutes(raw: unknown): { minutes: number; hasMeridiem: boolean } | null {
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  const m = /^(\d{1,2}):(\d{2})(?:\s*(AM|PM))?$/i.exec(trimmed);
+  if (!m) return null;
+  const hh = Number(m[1]);
+  const mm = Number(m[2]);
+  const meridiem = m[3] ? m[3].toUpperCase() : '';
+  if (!Number.isInteger(hh) || !Number.isInteger(mm) || mm < 0 || mm > 59) return null;
+
+  if (meridiem) {
+    if (hh < 1 || hh > 12) return null;
+    const hours24 = meridiem === 'AM' ? (hh === 12 ? 0 : hh) : (hh === 12 ? 12 : hh + 12);
+    return { minutes: hours24 * 60 + mm, hasMeridiem: true };
+  }
+
+  if (hh < 0 || hh > 23) return null;
+  return { minutes: hh * 60 + mm, hasMeridiem: false };
+}
+
+function parseTimetableInterval(startRaw: unknown, endRaw: unknown): { startMin: number; endMin: number } | null {
+  const parsedStart = parseSchoolTimeMinutes(startRaw);
+  const parsedEnd = parseSchoolTimeMinutes(endRaw);
+  if (!parsedStart || !parsedEnd) return null;
+
+  let startMin = parsedStart.minutes;
+  let endMin = parsedEnd.minutes;
+
+  // Support school-day 12-hour afternoon shorthand without AM/PM (e.g., "12:15" -> "01:00" or "01:00" -> "01:45")
+  if (!parsedStart.hasMeridiem && startMin >= 60 && startMin < 420) {
+    startMin += 12 * 60;
+  }
+  if (!parsedEnd.hasMeridiem && endMin >= 60 && endMin < 420 && startMin >= 420 && startMin < 1080) {
+    endMin += 12 * 60;
+  }
+
+  if (endMin <= startMin) return null;
+  return { startMin, endMin };
+}
+
+function isGenericPlaceholderTeacher(name: unknown): boolean {
+  if (typeof name !== 'string') return true;
+  const trimmed = name.trim();
+  if (!trimmed) return true;
+  return /^(?:assigned faculty|staff teacher|to be assigned|tba|n\/a|unassigned|-)$/i.test(trimmed);
+}
+
+async function resolveExistingClassDoc(rawClassName: unknown): Promise<any | null> {
+  if (typeof rawClassName !== 'string') return null;
+  const clean = rawClassName.trim();
+  if (!clean) return null;
+  return ClassModel.findOne({
+    name: { $regex: new RegExp(`^${escapeRegexLiteral(clean)}$`, 'i') },
+  }).lean();
+}
+
+function sendAcademicPaginatedOrArray(req: Request, res: Response, items: any[], defaultLimit = 200) {
+  const total = items.length;
+  const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+  const hasLimit = req.query.limit !== undefined;
+  const limit = hasLimit
+    ? Math.min(500, Math.max(1, parseInt(req.query.limit as string, 10) || 50))
+    : defaultLimit;
+  const totalPages = Math.ceil(total / limit) || 1;
+
+  res.setHeader('X-Total-Count', total.toString());
+  res.setHeader('X-Page', page.toString());
+  res.setHeader('X-Limit', limit.toString());
+  res.setHeader('X-Total-Pages', totalPages.toString());
+
+  if (req.query.paginate === 'true' || req.query.envelope === 'true') {
+    const start = (page - 1) * limit;
+    const paged = items.slice(start, start + limit);
+    return res.json({
+      data: paged,
+      pagination: { total, page, limit, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
+    });
+  }
+
+  if (hasLimit || req.query.page !== undefined) {
+    const start = (page - 1) * limit;
+    return res.json(items.slice(start, start + limit));
+  }
+
+  return res.json(items);
+}
+
+function sanitizePlainText(input: unknown, maxLen = 5000): string {
+  if (input === null || input === undefined) return '';
+  let str = String(input).replace(/\0/g, '');
+  str = str
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, '')
+    .replace(/<object\b[^>]*>[\s\S]*?<\/object>/gi, '')
+    .replace(/<\/?(?:script|iframe|object|embed|style|link|meta|svg|math|base|form)\b[^>]*>/gi, '')
+    .replace(/\bon[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/javascript\s*:/gi, '');
+  return str.trim().slice(0, maxLen);
+}
+
+function isSafeMediaOrWebUrl(rawUrl: unknown, allowEmpty = true): boolean {
+  if (rawUrl === null || rawUrl === undefined) return allowEmpty;
+  if (typeof rawUrl !== 'string') return false;
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return allowEmpty;
+  if (/[\x00-\x1f\x7f]/.test(trimmed)) return false;
+
+  const lower = trimmed.toLowerCase();
+  if (
+    lower.startsWith('javascript:') ||
+    lower.startsWith('vbscript:') ||
+    lower.startsWith('data:text/') ||
+    lower.startsWith('data:image/svg')
+  ) {
+    return false;
+  }
+
+  if (trimmed.startsWith('/')) {
+    return !trimmed.startsWith('//') && !trimmed.includes('..') && !trimmed.includes('\\');
+  }
+
+  if (/^https?:\/\/[^\s<>"]+$/i.test(trimmed)) {
+    return true;
+  }
+
+  if (/^data:image\/(?:png|jpeg|jpg|webp|gif);base64,[a-zA-Z0-9+/=]+$/i.test(trimmed)) {
+    return true;
+  }
+
+  return false;
+}
+
+async function tryResolveOptionalUser(req: Request): Promise<{ id: string; role: string; name?: string } | null> {
+  const token = extractTokenFromRequest(req);
+  if (!token) return null;
+  if (mongoose.connection.readyState !== 1) return null;
+  if (await isTokenRevokedAsync(token)) return null;
+  try {
+    const decoded = jsonwebtoken.verify(token, getJwtSecret()) as any;
+    const liveUser = await resolveLiveUserFromDecoded(decoded);
+    if (!liveUser || liveUser.status !== 'active') {
+      return null;
+    }
+    if (liveUser.password_changed_at) {
+      const changedAtMs = new Date(liveUser.password_changed_at).getTime();
+      const tokenIssuedMs =
+        typeof decoded.iat_ms === 'number'
+          ? decoded.iat_ms
+          : typeof decoded.iat === 'number'
+          ? decoded.iat * 1000
+          : 0;
+      if (!isNaN(changedAtMs) && tokenIssuedMs < changedAtMs) {
+        return null;
+      }
+    }
+    return {
+      id: liveUser.record_id || (liveUser._id ? liveUser._id.toString() : ''),
+      role: String(liveUser.role),
+      name: liveUser.name,
+    };
+  } catch {
+    // Ignore invalid optional token on public read endpoints
+  }
+  return null;
+}
+
+const ALLOWED_USER_ROLES: UserRole[] = ['super_admin', 'admin', 'teacher', 'student', 'parent'];
+const ALLOWED_USER_STATUSES: UserStatus[] = ['active', 'inactive', 'pending', 'suspended'];
+
+async function findUserByAnyId(rawId: string): Promise<any | null> {
+  const trimmed = String(rawId || '').trim();
+  if (!trimmed) return null;
+  const clauses: Record<string, any>[] = [{ record_id: trimmed }];
+  if (mongoose.Types.ObjectId.isValid(trimmed) && /^[a-fA-F0-9]{24}$/.test(trimmed)) {
+    clauses.push({ _id: new mongoose.Types.ObjectId(trimmed) });
+  }
+  return UserModel.findOne(clauses.length === 1 ? clauses[0] : { $or: clauses });
+}
+
+async function findStudentByAnyId(rawId: string): Promise<any | null> {
+  const trimmed = String(rawId || '').trim();
+  if (!trimmed) return null;
+  const clauses: Record<string, any>[] = [
+    { record_id: trimmed },
+    { admission_no: { $regex: new RegExp(`^${escapeRegexLiteral(trimmed)}$`, 'i') } },
+  ];
+  if (mongoose.Types.ObjectId.isValid(trimmed) && /^[a-fA-F0-9]{24}$/.test(trimmed)) {
+    clauses.push({ _id: new mongoose.Types.ObjectId(trimmed) });
+  }
+  return StudentModel.findOne({ $or: clauses });
+}
+
+async function findTeacherByAnyId(rawId: string): Promise<any | null> {
+  const trimmed = String(rawId || '').trim();
+  if (!trimmed) return null;
+  const clauses: Record<string, any>[] = [{ record_id: trimmed }];
+  if (mongoose.Types.ObjectId.isValid(trimmed) && /^[a-fA-F0-9]{24}$/.test(trimmed)) {
+    clauses.push({ _id: new mongoose.Types.ObjectId(trimmed) });
+  }
+  return TeacherModel.findOne(clauses.length === 1 ? clauses[0] : { $or: clauses });
+}
+
+async function findParentByAnyId(rawId: string): Promise<any | null> {
+  const trimmed = String(rawId || '').trim();
+  if (!trimmed) return null;
+  const clauses: Record<string, any>[] = [{ record_id: trimmed }, { user_id: trimmed }];
+  if (mongoose.Types.ObjectId.isValid(trimmed) && /^[a-fA-F0-9]{24}$/.test(trimmed)) {
+    clauses.push({ _id: new mongoose.Types.ObjectId(trimmed) });
+  }
+  return ParentModel.findOne({ $or: clauses });
+}
+
+async function getLinkedStudentIdsForParent(user: {
+  id: string;
+  email?: string;
+}): Promise<Set<string>> {
+  // The authenticated user's current MongoDB link fields are the sole source of truth.
+  // JWT claims and denormalized parent/student links are intentionally excluded: a stale
+  // session or partially completed unlink must not restore access to a former child.
+  const userDoc = await findUserByAnyId(user.id);
+  const ids = collectParentStudentReferences(userDoc);
+
+  // Normalize ObjectId/admission number aliases to canonical student identifiers.
+  if (ids.size > 0) {
+    const idArr = Array.from(ids);
+    const objIds = idArr
+      .filter(v => mongoose.Types.ObjectId.isValid(v) && /^[a-fA-F0-9]{24}$/.test(v))
+      .map(v => new mongoose.Types.ObjectId(v));
+    const matchedStudents = await StudentModel.find({
+      $or: [
+        { record_id: { $in: idArr } },
+        { admission_no: { $in: idArr } },
+        ...(objIds.length > 0 ? [{ _id: { $in: objIds } }] : []),
+      ],
+    }).select('record_id _id admission_no').lean();
+    for (const st of matchedStudents) {
+      for (const identifier of collectStudentPaymentIdentifiers(st)) ids.add(identifier);
+    }
+  }
+
+  return ids;
+}
+
+async function getAuthenticatedTeacherMongo(req: AuthenticatedRequest): Promise<TeacherDto | null> {
+  if (!req.user) return null;
+  const clauses: Record<string, any>[] = [];
+  if (req.user.linked_id) {
+    const lid = String(req.user.linked_id).trim();
+    if (lid) {
+      clauses.push({ record_id: lid });
+      if (mongoose.Types.ObjectId.isValid(lid) && /^[a-fA-F0-9]{24}$/.test(lid)) {
+        clauses.push({ _id: new mongoose.Types.ObjectId(lid) });
+      }
+    }
+  }
+  if (req.user.id) {
+    clauses.push({ user_id: req.user.id });
+  }
+  if (req.user.email) {
+    clauses.push({ email: req.user.email.toLowerCase() });
+  }
+  if (clauses.length === 0) return null;
+
+  const teacherDoc = await TeacherModel.findOne({ $or: clauses }).lean();
+  if (!teacherDoc) return null;
+
+  const dto = toTeacherDto(teacherDoc);
+  const teacherIds = Array.from(
+    new Set([dto.id, teacherDoc._id ? teacherDoc._id.toString() : ''].filter(Boolean))
+  );
+  const assignmentDocs = await TeacherAssignmentModel.find({
+    teacher_id: { $in: teacherIds },
+  })
+    .select('class_name')
+    .lean();
+
+  const mergedClasses = [...dto.classes];
+  for (const asg of assignmentDocs) {
+    if (
+      asg.class_name &&
+      !mergedClasses.some(existing => existing.toLowerCase() === asg.class_name.toLowerCase())
+    ) {
+      mergedClasses.push(asg.class_name);
+    }
+  }
+  dto.classes = mergedClasses;
+  return dto;
+}
+
+async function validateClassAndSectionForRelation(
+  rawClassName: unknown,
+  rawSection?: unknown,
+  rawSectionId?: unknown
+): Promise<{ valid: true; className: string; sectionName: string } | { valid: false; error: string }> {
+  const cleanClassInput = sanitizePlainText(rawClassName, 120);
+  if (!cleanClassInput) {
+    return { valid: false, error: 'Class name is required' };
+  }
+  const matchedClass = await resolveExistingClassDoc(cleanClassInput);
+  if (!matchedClass) {
+    return { valid: false, error: `Invalid class reference: class "${cleanClassInput}" does not exist` };
+  }
+  const canonicalClassName = matchedClass.name;
+
+  let cleanSection = rawSection !== undefined ? sanitizePlainText(rawSection, 60) : 'A';
+  if (!cleanSection) cleanSection = 'A';
+
+  if (rawSectionId !== undefined && rawSectionId !== '') {
+    if (!isValidCmsIdParam(rawSectionId)) {
+      return { valid: false, error: 'Invalid section_id format' };
+    }
+    const secDoc = await SectionModel.findOne(buildCmsRecordLookupFilter(String(rawSectionId))).lean();
+    if (!secDoc || secDoc.class_name.toLowerCase() !== canonicalClassName.toLowerCase()) {
+      return { valid: false, error: 'Invalid section_id reference for the specified class' };
+    }
+    cleanSection = secDoc.name;
+  } else {
+    const classSections = await SectionModel.find({
+      class_name: { $regex: new RegExp(`^${escapeRegexLiteral(canonicalClassName)}$`, 'i') },
+    }).lean();
+    if (classSections.length > 0) {
+      const secLower = cleanSection.toLowerCase();
+      const validSec = classSections.some(s => {
+        const sLower = s.name.trim().toLowerCase();
+        return (
+          secLower === sLower ||
+          secLower.startsWith(`${sLower} (`) ||
+          sLower.startsWith(`${secLower} (`) ||
+          secLower === `section ${sLower}`
+        );
+      });
+      if (!validSec) {
+        return {
+          valid: false,
+          error: `Invalid section "${cleanSection}" for class "${canonicalClassName}". Defined sections: ${classSections.map(s => s.name).join(', ')}`,
+        };
+      }
+    }
+  }
+
+  return { valid: true, className: canonicalClassName, sectionName: cleanSection };
+}
+
+async function validateSubjectForTeacherAssignment(
+  canonicalClassName: string,
+  rawSubject: unknown,
+  rawSubjectId: unknown,
+  teacherSpecialization?: string
+): Promise<{ valid: true; subjectName: string } | { valid: false; error: string }> {
+  const cleanSubject = sanitizePlainText(rawSubject, 120);
+  if (!cleanSubject && !rawSubjectId) {
+    return { valid: false, error: 'Subject is required' };
+  }
+
+  if (rawSubjectId !== undefined && rawSubjectId !== '') {
+    if (!isValidCmsIdParam(rawSubjectId)) {
+      return { valid: false, error: 'Invalid subject_id format' };
+    }
+    const subjDoc = await SubjectModel.findOne(buildCmsRecordLookupFilter(String(rawSubjectId))).lean();
+    if (!subjDoc || subjDoc.class_name.toLowerCase() !== canonicalClassName.toLowerCase()) {
+      return { valid: false, error: 'Invalid subject_id reference for the specified class' };
+    }
+    return { valid: true, subjectName: subjDoc.name };
+  }
+
+  const classSubjects = await SubjectModel.find({
+    class_name: { $regex: new RegExp(`^${escapeRegexLiteral(canonicalClassName)}$`, 'i') },
+  }).lean();
+
+  const subjLower = cleanSubject.toLowerCase();
+  if (classSubjects.length > 0) {
+    const matched = classSubjects.find(s => {
+      const sName = s.name.trim().toLowerCase();
+      const sCode = (s.code || '').trim().toLowerCase();
+      return sName === subjLower || (sCode && sCode === subjLower);
+    });
+    if (!matched) {
+      return {
+        valid: false,
+        error: `Invalid subject "${cleanSubject}" for class "${canonicalClassName}". Defined subjects: ${classSubjects.map(s => s.name).join(', ')}`,
+      };
+    }
+    return { valid: true, subjectName: matched.name };
+  }
+
+  // When a class does not yet have class-specific rows in SubjectModel, validate against global SubjectModel catalog or teacher specialization
+  const allSubjects = await SubjectModel.find().select('name code').lean();
+  if (allSubjects.length > 0) {
+    const matchedGlobal = allSubjects.find(
+      s => s.name.trim().toLowerCase() === subjLower || (s.code || '').trim().toLowerCase() === subjLower
+    );
+    if (matchedGlobal) {
+      return { valid: true, subjectName: matchedGlobal.name };
+    }
+    const specLower = String(teacherSpecialization || '').trim().toLowerCase();
+    if (specLower && (specLower === subjLower || specLower.includes(subjLower) || subjLower.includes(specLower))) {
+      return { valid: true, subjectName: cleanSubject };
+    }
+    return {
+      valid: false,
+      error: `Invalid subject reference: subject "${cleanSubject}" does not exist in the school curriculum`,
+    };
+  }
+
+  return { valid: true, subjectName: cleanSubject };
+}
+
+function sanitizeUnknownLegacyValue(val: unknown, depth = 0): { valid: boolean; value?: any } {
+  if (depth > 4) return { valid: false };
+  if (val === null) return { valid: true, value: null };
+  if (typeof val === 'string') return { valid: true, value: sanitizePlainText(val, 5000) };
+  if (typeof val === 'number') return Number.isFinite(val) ? { valid: true, value: val } : { valid: false };
+  if (typeof val === 'boolean') return { valid: true, value: val };
+  if (Array.isArray(val)) {
+    if (val.length > 100) return { valid: false };
+    const out: any[] = [];
+    for (const item of val) {
+      const res = sanitizeUnknownLegacyValue(item, depth + 1);
+      if (!res.valid) return { valid: false };
+      out.push(res.value);
+    }
+    return { valid: true, value: out };
+  }
+  if (typeof val === 'object') {
+    const entries = Object.entries(val as Record<string, unknown>);
+    if (entries.length > 50) return { valid: false };
+    const out: Record<string, any> = {};
+    for (const [k, v] of entries) {
+      if (
+        !k ||
+        k.startsWith('$') ||
+        k.includes('.') ||
+        k === '__proto__' ||
+        k === 'constructor' ||
+        k === 'prototype'
+      ) {
+        return { valid: false };
+      }
+      const res = sanitizeUnknownLegacyValue(v, depth + 1);
+      if (!res.valid) return { valid: false };
+      out[k] = res.value;
+    }
+    return { valid: true, value: out };
+  }
+  return { valid: false };
+}
+
+async function recordMongoAudit(
+  user: { id: string; name: string; role: string },
+  action: string,
+  target_type: string,
+  target_id?: string,
+  details?: string
+): Promise<void> {
+  await AuditLogModel.create({
+    user_id: user.id || 'system',
+    user_name: user.name || 'System',
+    user_role: user.role || 'admin',
+    action,
+    target_type,
+    target_id: target_id || '',
+    details: details || '',
+    timestamp: new Date().toISOString(),
+  });
+}
+
+async function doesMongoSupportTransactions(): Promise<boolean> {
+  if (mongoose.connection.readyState !== 1 || !mongoose.connection.db) {
+    return false;
+  }
+  if (cachedTransactionsSupported !== null) {
+    return cachedTransactionsSupported;
+  }
+  try {
+    const hello = await mongoose.connection.db.admin().command({ hello: 1 });
+    cachedTransactionsSupported = Boolean(hello?.setName || hello?.msg === 'isdbgrid');
+    return cachedTransactionsSupported;
+  } catch {
+    cachedTransactionsSupported = false;
+    return false;
+  }
+}
+
+function parseIsoDateBound(raw: unknown, isEndOfDay: boolean): Date | null {
+  if (!raw || typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const d = new Date(isEndOfDay ? `${trimmed}T23:59:59.999Z` : `${trimmed}T00:00:00.000Z`);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const d = new Date(trimmed);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+// ==========================================
+// 0. HEALTH CHECK & MONGODB ATLAS DATABASE STATUS
+// ==========================================
+
+function inspectUploadStorageHealth(): { writable: boolean; persistentConfigured: boolean } {
+  const persistentConfigured = Boolean(process.env.UPLOAD_STORAGE_DIR && process.env.UPLOAD_STORAGE_DIR.trim());
+  try {
+    const pubDir = getUploadsBaseDir();
+    const privDir = getPrivateUploadsDir();
+    if (!fs.existsSync(pubDir)) fs.mkdirSync(pubDir, { recursive: true });
+    if (!fs.existsSync(privDir)) fs.mkdirSync(privDir, { recursive: true, mode: 0o700 });
+    fs.accessSync(pubDir, fs.constants.R_OK | fs.constants.W_OK);
+    fs.accessSync(privDir, fs.constants.R_OK | fs.constants.W_OK);
+    return { writable: true, persistentConfigured };
+  } catch {
+    return { writable: false, persistentConfigured };
+  }
+}
+
+router.get('/health', async (_req: Request, res: Response) => {
+  const customUri = process.env.MONGODB_URI || '';
+  const readyState = mongoose.connection.readyState;
+  const activeHost = String(mongoose.connection.host || '');
+  const isAtlas =
+    readyState === 1
+      ? activeHost.includes('.mongodb.net')
+      : customUri.includes('mongodb+srv') || customUri.includes('.mongodb.net');
+  const dbName = mongoose.connection.name || extractConfiguredDbName(customUri);
+  const storage = inspectUploadStorageHealth();
+  const lastAtlasErr = getLastAtlasFallbackError();
+
+  if (readyState !== 1 || !mongoose.connection.db) {
+    return res.status(503).json({
+      status: 'degraded',
+      connected: false,
+      database: {
+        connected: false,
+        state: readyState === 2 ? 'connecting' : 'disconnected',
+        isAtlas,
+        databaseName: dbName,
+      },
+      storage,
+      ...(lastAtlasErr ? { error: lastAtlasErr } : {}),
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  try {
+    const start = Date.now();
+    await mongoose.connection.db.admin().ping();
+    const latencyMs = Date.now() - start;
+    const usersCount = await UserModel.countDocuments().catch(() => 0);
+    const superAdminCount = await UserModel.countDocuments({ role: 'super_admin' }).catch(() => 0);
+    return res.status(200).json({
+      status: storage.writable ? 'ok' : 'degraded',
+      connected: true,
+      database: {
+        connected: true,
+        state: 'connected',
+        isAtlas,
+        databaseName: dbName,
+        latencyMs,
+        usersCount,
+        superAdminCount,
+      },
+      storage,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    return res.status(503).json({
+      status: 'degraded',
+      connected: false,
+      database: {
+        connected: false,
+        state: 'error',
+        isAtlas,
+        databaseName: dbName,
+      },
+      storage,
+      error: sanitizeErrorMessage(err?.message || 'Database health check failed'),
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+router.get('/mongodb/status', async (req: Request, res: Response) => {
+  try {
+    const status = await getMongoStatus();
+    if (process.env.NODE_ENV === 'production') {
+      res.json({
+        ...status,
+        host: 'configured-cluster',
+        uriMasked: 'Configured',
+      });
+      return;
+    }
+    res.json(status);
+  } catch (err: any) {
+    res.status(500).json({
+      connected: false,
+      state: 'error',
+      isAtlas: false,
+      databaseName: 'shawan_school',
+      host: 'unknown',
+      uriMasked: 'Error checking MongoDB',
+      error: sanitizeErrorMessage(err?.message || 'Database check failed'),
+      lastChecked: new Date().toISOString(),
+    });
+  }
+});
+
+router.post('/mongodb/sync-all', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
+  if (!ensureMongoReady(res)) return;
+  if (isLocalSeedBlocked()) {
+    return res.status(403).json({
+      error:
+        'Fresh-Start production policy active: importing or synchronizing local data/db.json into MongoDB is disabled.',
+    });
+  }
+  try {
+    const result = await seedMongoFromLocal();
+    res.json({
+      success: true,
+      message: 'All school datasets and collections synchronized to MongoDB Atlas database',
+      summary: result.counts,
+    });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Error synchronizing datasets to MongoDB');
+  }
+});
+
+router.get('/mongodb/test-connection', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const start = Date.now();
+    if (mongoose.connection.readyState !== 1 || !mongoose.connection.db) {
+      return res.status(503).json({ success: false, message: 'MongoDB not connected' });
+    }
+    const pingRes = await mongoose.connection.db.admin().ping();
+    const latency = Date.now() - start;
+    res.json({
+      success: true,
+      ping: pingRes,
+      latencyMs: latency,
+      databaseName: mongoose.connection.name,
+      host: process.env.NODE_ENV === 'production' ? 'configured-cluster' : mongoose.connection.host,
+      message: `Ping OK (${latency}ms) to MongoDB database "${mongoose.connection.name}"`,
+    });
+  } catch (err: any) {
+    if (isMongoUnavailableError(err)) {
+      return res.status(503).json({ success: false, message: 'MongoDB not connected' });
+    }
+    res.status(500).json({ success: false, error: sanitizeErrorMessage(err?.message || 'Database ping failed') });
+  }
+});
+
+router.get('/mongodb/collections', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
+  if (!ensureMongoReady(res)) return;
+  try {
+    if (!mongoose.connection.db) {
+      return res.status(503).json({ error: 'Database service temporarily unavailable.' });
+    }
+    const list = await mongoose.connection.db.listCollections().toArray();
+    const stats = [];
+    for (const c of list) {
+      const count = await mongoose.connection.db.collection(c.name).countDocuments();
+      stats.push({ name: c.name, count, type: c.type || 'collection' });
+    }
+    res.json(stats);
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to retrieve MongoDB collections');
+  }
+});
+
+// ==========================================
+// 1. AUTHENTICATION & PROFILE
+// ==========================================
+
+router.post('/auth/login', authRateLimiter, async (req: Request, res: Response) => {
+  const { email, password } = req.body || {};
+  if (!email || !password || typeof email !== 'string' || typeof password !== 'string') {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const cleanEmail = email.trim().toLowerCase();
+    let userDoc = await UserModel.findOne({ email: cleanEmail });
+
+    // On a fresh database with 0 administrators, auto-bootstrap the initial admin account
+    if (!userDoc && (cleanEmail === 'admin@shawanschool.edu.pk' || cleanEmail === 'office@shawanschool.edu.pk')) {
+      const superCount = await UserModel.countDocuments({ role: 'super_admin' }).catch(() => 1);
+      if (superCount === 0) {
+        await ensureDefaultSuperAdminIfEmpty().catch(() => {});
+        userDoc = await UserModel.findOne({ email: cleanEmail });
+      }
+    }
+
+    // Prevent account enumeration with unified error message
+    if (!userDoc || !userDoc.password_hash) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    let passwordMatch = await bcrypt.compare(password, userDoc.password_hash);
+    if (
+      process.env.NODE_ENV !== 'production' &&
+      !passwordMatch &&
+      userDoc.email === 'parent@shawanschool.edu.pk' &&
+      userDoc.password_hash === '$2b$10$3b/LCmejoXEleVzibuO6neBAhvb.9Zu1N5oQjB0xhlXOq3RwJTD1G' &&
+      password === 'ParentPassword123!'
+    ) {
+      passwordMatch = true;
+    }
+
+    if (!passwordMatch) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    if (userDoc.status && userDoc.status !== 'active') {
+      if (userDoc.role === 'teacher' && userDoc.status === 'pending') {
+        return res.status(403).json({
+          error: 'Your teacher registration is currently pending administrator approval. Please contact the school administration once approved.',
+        });
+      }
+      if (userDoc.status === 'suspended') {
+        return res.status(403).json({
+          error: 'Your account has been suspended by the school administration. Please contact the administrative office.',
+        });
+      }
+      return res.status(403).json({
+        error: `Account is currently ${userDoc.status}. Please contact school administration.`,
+      });
+    }
+
+    const userDto = toUserDto(userDoc);
+    const token = generateToken({
+      id: userDto.id,
+      email: userDto.email,
+      role: userDto.role,
+      name: userDto.name,
+      phone: userDto.phone,
+      linked_id: userDto.linked_id,
+      linked_student_ids: userDto.linked_student_ids,
+    });
+
+    setSessionCookie(req, res, token);
+
+    return res.json({
+      token,
+      user: {
+        id: userDto.id,
+        email: userDto.email,
+        name: userDto.name,
+        role: userDto.role,
+        phone: userDto.phone,
+        linked_id: userDto.linked_id,
+        linked_student_ids: userDto.linked_student_ids || [],
+      },
+    });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Authentication failed');
+  }
+});
+
+// Logout endpoint: revokes all presented session tokens (HttpOnly cookie + Bearer fallback) and clears cookie
+router.post('/auth/logout', async (req: Request, res: Response) => {
+  const rawTokens = extractAllTokensFromRequest(req);
+  for (const rawToken of rawTokens) {
+    try {
+      const decoded: any = jsonwebtoken.decode(rawToken);
+      await revokeToken(rawToken, typeof decoded?.exp === 'number' ? decoded.exp : undefined, 'logout');
+    } catch {
+      await revokeToken(rawToken, undefined, 'logout');
+    }
+  }
+  clearSessionCookie(req, res);
+  return res.json({ message: 'Logged out successfully' });
+});
+
+// One-time Super Admin bootstrap for a fresh production database (disabled unless BOOTSTRAP_SECRET >= 32 chars is set)
+router.post('/auth/bootstrap-super-admin', bootstrapRateLimiter, async (req: Request, res: Response) => {
+  const configuredSecret = String(process.env.BOOTSTRAP_SECRET || '').trim();
+  if (!configuredSecret || configuredSecret.length < 32) {
+    return res.status(403).json({
+      error:
+        'Super Admin bootstrap endpoint is disabled. Configure a strong BOOTSTRAP_SECRET (minimum 32 characters) or run the server CLI script.',
+    });
+  }
+
+  const providedSecret =
+    (typeof req.headers['x-bootstrap-secret'] === 'string' && req.headers['x-bootstrap-secret']) ||
+    req.body?.bootstrap_secret;
+
+  if (!verifyBootstrapSecretConstantTime(providedSecret)) {
+    return res.status(403).json({ error: 'Invalid bootstrap authorization secret.' });
+  }
+
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const { email, password, name, phone } = req.body || {};
+    const dto = await bootstrapInitialSuperAdmin({
+      email: String(email || ''),
+      password: String(password || ''),
+      name: String(name || 'Principal / Super Admin'),
+      phone: phone ? String(phone) : '',
+      source: 'api',
+      ipAddress: req.ip,
+    });
+
+    return res.status(201).json({
+      message:
+        'Initial Super Admin account created successfully. Remove BOOTSTRAP_SECRET from environment variables immediately.',
+      user: {
+        id: dto.id,
+        email: dto.email,
+        name: dto.name,
+        role: dto.role,
+        status: dto.status,
+      },
+    });
+  } catch (err: any) {
+    if (err instanceof BootstrapValidationError) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err instanceof BootstrapConflictError) {
+      return res.status(409).json({ error: err.message });
+    }
+    return sendRouteError(res, err, 'Super Admin bootstrap failed');
+  }
+});
+
+// Self-service Forgot Password: issues short-lived (15m), single-use, SHA-256-hashed reset token via SMTP
+router.post('/auth/forgot-password', passwordResetRateLimiter, async (req: Request, res: Response) => {
+  const rawEmail = req.body?.email;
+  if (!rawEmail || typeof rawEmail !== 'string' || !validateEmail(rawEmail)) {
+    return res.status(400).json({ error: 'Please provide a valid email address.' });
+  }
+
+  if (!isSmtpConfigured()) {
+    return res.status(503).json({
+      error:
+        'Email-based password recovery is not currently configured on this server. Please contact school administration for an authorized password reset.',
+    });
+  }
+
+  if (!ensureMongoReady(res)) return;
+
+  const uniformResponseMessage =
+    'If an active account is registered with that email address, password reset instructions have been sent.';
+  const cleanEmail = rawEmail.trim().toLowerCase();
+  const expiresInMinutes = 15;
+
+  let smtpTransport: Awaited<ReturnType<typeof openAuthenticatedSmtpTransport>> | null = null;
+  try {
+    // Open and authenticate SMTP BEFORE querying UserModel so missing/failing SMTP cannot leak account existence
+    smtpTransport = await openAuthenticatedSmtpTransport();
+  } catch (err: any) {
+    if (err instanceof SmtpConfigurationError || err instanceof SmtpDeliveryError) {
+      console.warn('[Password Reset Mailer] SMTP unavailable:', sanitizeErrorMessage(err.message));
+      return res.status(503).json({
+        error:
+          'Password recovery email service is temporarily unavailable. Please try again later or contact school administration.',
+      });
+    }
+    return res.status(503).json({
+      error: 'Password recovery email service is temporarily unavailable.',
+    });
+  }
+
+  let createdTokenHash: string | null = null;
+  try {
+    const userDoc = await UserModel.findOne({ email: cleanEmail, status: 'active' }).lean();
+    if (!userDoc) {
+      await smtpTransport.close();
+      return res.json({ message: uniformResponseMessage });
+    }
+
+    const userId = String(userDoc.record_id || userDoc._id);
+    const now = new Date();
+
+    // Invalidate any prior unused reset tokens for this user
+    await PasswordResetTokenModel.updateMany(
+      { user_id: userId, used_at: null },
+      { $set: { used_at: now } }
+    );
+
+    // 256-bit cryptographically random token; store ONLY SHA-256 hash in MongoDB (never log raw token)
+    const rawResetToken = crypto.randomBytes(32).toString('hex');
+    createdTokenHash = crypto.createHash('sha256').update(rawResetToken).digest('hex');
+    const expiresAt = new Date(now.getTime() + expiresInMinutes * 60 * 1000);
+
+    await PasswordResetTokenModel.create({
+      token_hash: createdTokenHash,
+      user_id: userId,
+      email: cleanEmail,
+      expires_at: expiresAt,
+      used_at: null,
+      request_ip: req.ip || '',
+      created_at: now,
+    });
+
+    await smtpTransport.sendPasswordResetMail({
+      toEmail: cleanEmail,
+      recipientName: String(userDoc.name || 'Portal User'),
+      rawResetToken,
+      expiresInMinutes,
+    });
+    await smtpTransport.close();
+
+    await AuditLogModel.create({
+      user_id: userId,
+      user_name: String(userDoc.name || cleanEmail),
+      role: String(userDoc.role || 'student'),
+      action: 'Requested Password Reset Email',
+      entity: 'User',
+      entity_id: userId,
+      details: 'Password reset link dispatched via SMTP (15-minute single-use token)',
+      ip_address: req.ip || '',
+      created_at: new Date(),
+    }).catch(() => {});
+
+    return res.json({ message: uniformResponseMessage });
+  } catch (err: any) {
+    if (smtpTransport) {
+      await smtpTransport.close().catch(() => {});
+    }
+    if (createdTokenHash) {
+      await PasswordResetTokenModel.deleteOne({ token_hash: createdTokenHash }).catch(() => {});
+    }
+    console.warn('[Password Reset Error]', sanitizeErrorMessage(err?.message || 'Reset dispatch failed'));
+    return res.status(503).json({
+      error:
+        'Password recovery email could not be delivered at this time. Please try again later or contact school administration.',
+    });
+  }
+});
+
+// Self-service Verify Password Reset Token: allows frontend to pre-validate whether a reset token is valid/unexpired
+router.get('/auth/verify-reset-token', passwordResetRateLimiter, async (req: Request, res: Response) => {
+  const rawToken = req.query.token || req.body?.token;
+  if (!rawToken || typeof rawToken !== 'string' || !/^[a-fA-F0-9]{64}$/.test(rawToken.trim())) {
+    return res.status(400).json({
+      valid: false,
+      error: 'Invalid password reset link. The link is malformed or has an invalid token format.',
+    });
+  }
+
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const cleanToken = rawToken.trim();
+    const tokenHash = crypto.createHash('sha256').update(cleanToken.toLowerCase()).digest('hex');
+    const exactTokenHash = crypto.createHash('sha256').update(cleanToken).digest('hex');
+    const now = new Date();
+
+    const tokenDoc = await PasswordResetTokenModel.findOne({
+      token_hash: { $in: [exactTokenHash, tokenHash] },
+      used_at: null,
+      expires_at: { $gt: now },
+    }).lean();
+
+    if (!tokenDoc) {
+      return res.status(400).json({
+        valid: false,
+        error: 'This password reset link is invalid, expired, or has already been used. Please request a new link.',
+      });
+    }
+
+    let maskedEmail = '';
+    if (tokenDoc.email) {
+      const parts = tokenDoc.email.split('@');
+      const localPart = parts[0] || '';
+      const domain = parts[1] || '';
+      if (localPart && domain) {
+        const maskedLocal =
+          localPart.length > 2
+            ? `${localPart[0]}${'*'.repeat(Math.min(localPart.length - 2, 5))}${localPart[localPart.length - 1]}`
+            : `${localPart[0]}*`;
+        maskedEmail = `${maskedLocal}@${domain}`;
+      }
+    }
+
+    return res.json({
+      valid: true,
+      email: maskedEmail,
+      message: 'Password reset token is valid and unexpired.',
+    });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to verify reset token');
+  }
+});
+
+router.post('/auth/verify-reset-token', passwordResetRateLimiter, async (req: Request, res: Response) => {
+  const rawToken = req.body?.token || req.query.token;
+  if (!rawToken || typeof rawToken !== 'string' || !/^[a-fA-F0-9]{64}$/.test(rawToken.trim())) {
+    return res.status(400).json({
+      valid: false,
+      error: 'Invalid password reset link. The link is malformed or has an invalid token format.',
+    });
+  }
+
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const cleanToken = rawToken.trim();
+    const tokenHash = crypto.createHash('sha256').update(cleanToken.toLowerCase()).digest('hex');
+    const exactTokenHash = crypto.createHash('sha256').update(cleanToken).digest('hex');
+    const now = new Date();
+
+    const tokenDoc = await PasswordResetTokenModel.findOne({
+      token_hash: { $in: [exactTokenHash, tokenHash] },
+      used_at: null,
+      expires_at: { $gt: now },
+    }).lean();
+
+    if (!tokenDoc) {
+      return res.status(400).json({
+        valid: false,
+        error: 'This password reset link is invalid, expired, or has already been used. Please request a new link.',
+      });
+    }
+
+    let maskedEmail = '';
+    if (tokenDoc.email) {
+      const parts = tokenDoc.email.split('@');
+      const localPart = parts[0] || '';
+      const domain = parts[1] || '';
+      if (localPart && domain) {
+        const maskedLocal =
+          localPart.length > 2
+            ? `${localPart[0]}${'*'.repeat(Math.min(localPart.length - 2, 5))}${localPart[localPart.length - 1]}`
+            : `${localPart[0]}*`;
+        maskedEmail = `${maskedLocal}@${domain}`;
+      }
+    }
+
+    return res.json({
+      valid: true,
+      email: maskedEmail,
+      message: 'Password reset token is valid and unexpired.',
+    });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to verify reset token');
+  }
+});
+
+// Self-service Confirm Password Reset: consumes single-use hashed token and revokes all existing sessions
+router.post('/auth/confirm-reset-password', passwordResetRateLimiter, async (req: Request, res: Response) => {
+  const { token, new_password, confirm_password } = req.body || {};
+  if (!token || typeof token !== 'string' || !/^[a-fA-F0-9]{64}$/.test(token.trim())) {
+    return res.status(400).json({
+      error: 'Invalid, expired, or already-used password reset link. Please request a new password reset.',
+    });
+  }
+  if (!new_password || typeof new_password !== 'string') {
+    return res.status(400).json({ error: 'New password is required.' });
+  }
+  if (confirm_password !== undefined && new_password !== confirm_password) {
+    return res.status(400).json({ error: 'New password and confirmation password do not match.' });
+  }
+  const passCheck = validatePassword(new_password);
+  if (!passCheck.valid) {
+    return res.status(400).json({ error: passCheck.message });
+  }
+
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const tokenHash = crypto.createHash('sha256').update(token.trim().toLowerCase()).digest('hex');
+    // Note: rawResetToken is lowercase hex from randomBytes(32).toString('hex')
+    const exactTokenHash = crypto.createHash('sha256').update(token.trim()).digest('hex');
+    const now = new Date();
+
+    // Atomic single-use claim: only matches if used_at === null and expires_at > now
+    const claimedReset = await PasswordResetTokenModel.findOneAndUpdate(
+      {
+        token_hash: { $in: [exactTokenHash, tokenHash] },
+        used_at: null,
+        expires_at: { $gt: now },
+      },
+      { $set: { used_at: now } },
+      { returnDocument: 'after' }
+    ).lean();
+
+    if (!claimedReset) {
+      return res.status(400).json({
+        error: 'Invalid, expired, or already-used password reset link. Please request a new password reset.',
+      });
+    }
+
+    const userDoc = await findUserByAnyId(String(claimedReset.user_id));
+    if (!userDoc || userDoc.status !== 'active') {
+      return res.status(400).json({
+        error: 'Invalid or expired password reset link.',
+      });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    userDoc.password_hash = await bcrypt.hash(new_password, salt);
+    // Setting password_changed_at immediately invalidates all previously issued JWTs across all instances
+    userDoc.password_changed_at = new Date();
+    await userDoc.save();
+
+    // Invalidate any other remaining reset tokens for this user
+    await PasswordResetTokenModel.updateMany(
+      { user_id: String(claimedReset.user_id), used_at: null },
+      { $set: { used_at: new Date() } }
+    );
+
+    // Clear any active session cookie on this browser
+    const activeTokens = extractAllTokensFromRequest(req);
+    for (const activeTok of activeTokens) {
+      const dec: any = jsonwebtoken.decode(activeTok);
+      await revokeToken(activeTok, typeof dec?.exp === 'number' ? dec.exp : undefined, 'password_reset');
+    }
+    clearSessionCookie(req, res);
+
+    const dto = toUserDto(userDoc);
+    await AuditLogModel.create({
+      user_id: dto.id,
+      user_name: dto.name,
+      role: dto.role,
+      action: 'Completed Self-Service Password Reset',
+      entity: 'User',
+      entity_id: dto.id,
+      details: 'Password updated via single-use email reset token; all prior sessions invalidated',
+      ip_address: req.ip || '',
+      created_at: new Date(),
+    }).catch(() => {});
+
+    return res.json({
+      message:
+        'Your password has been reset successfully. All previous sessions have been signed out. Please sign in with your new password.',
+    });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to complete password reset');
+  }
+});
+
+// Authenticated self-service password change (invalidates older sessions)
+router.post('/auth/change-password', authRateLimiter, authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+  const { current_password, new_password } = req.body || {};
+  if (!current_password || !new_password || typeof current_password !== 'string' || typeof new_password !== 'string') {
+    return res.status(400).json({ error: 'Current password and new password are required' });
+  }
+  const passCheck = validatePassword(new_password);
+  if (!passCheck.valid) {
+    return res.status(400).json({ error: passCheck.message });
+  }
+  if (current_password === new_password) {
+    return res.status(400).json({ error: 'New password must be different from your current password' });
+  }
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const userDoc = await findUserByAnyId(req.user!.id);
+    if (!userDoc || !userDoc.password_hash) {
+      return res.status(404).json({ error: 'User account not found' });
+    }
+    const matchesCurrent = await bcrypt.compare(current_password, userDoc.password_hash);
+    if (!matchesCurrent) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    userDoc.password_hash = await bcrypt.hash(new_password, salt);
+    const changedAt = new Date();
+    userDoc.password_changed_at = changedAt;
+    await userDoc.save();
+
+    const oldToken = extractTokenFromRequest(req);
+    if (oldToken) {
+      const decodedOld: any = jsonwebtoken.decode(oldToken);
+      await revokeToken(
+        oldToken,
+        typeof decodedOld?.exp === 'number' ? decodedOld.exp : undefined,
+        'password_changed'
+      );
+    }
+
+    // Ensure the replacement token has iat_ms strictly >= changedAt
+    await new Promise(r => setTimeout(r, 2));
+    const userDto = toUserDto(userDoc);
+    const freshToken = generateToken({
+      id: userDto.id,
+      email: userDto.email,
+      role: userDto.role,
+      name: userDto.name,
+      phone: userDto.phone,
+      linked_id: userDto.linked_id,
+      linked_student_ids: userDto.linked_student_ids,
+    });
+    setSessionCookie(req, res, freshToken);
+
+    await recordMongoAudit(req.user!, 'Changed Account Password', 'User', userDto.id, 'Self-service password update');
+
+    return res.json({
+      message: 'Password updated successfully',
+      token: freshToken,
+    });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to change password');
+  }
+});
+
+// Authorized administrative password reset (super_admin / admin; revokes all prior user sessions)
+router.post('/auth/reset-password', authRateLimiter, authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
+  const { user_id, email, new_password } = req.body || {};
+  if ((!user_id && !email) || !new_password || typeof new_password !== 'string') {
+    return res.status(400).json({ error: 'Target user_id (or email) and new_password are required' });
+  }
+  const passCheck = validatePassword(new_password);
+  if (!passCheck.valid) {
+    return res.status(400).json({ error: passCheck.message });
+  }
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const targetDoc = user_id
+      ? await findUserByAnyId(String(user_id).trim())
+      : await UserModel.findOne({ email: String(email).trim().toLowerCase() });
+    if (!targetDoc) {
+      return res.status(404).json({ error: 'Target user account not found' });
+    }
+    if (targetDoc.role === 'super_admin' && req.user!.role !== 'super_admin') {
+      return res.status(403).json({ error: 'Only a super_admin may reset a super_admin account password' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    targetDoc.password_hash = await bcrypt.hash(new_password, salt);
+    targetDoc.password_changed_at = new Date();
+    await targetDoc.save();
+
+    const dto = toUserDto(targetDoc);
+    await recordMongoAudit(
+      req.user!,
+      'Admin Reset User Password',
+      'User',
+      dto.id,
+      `Reset password for ${dto.email} (${dto.role})`
+    );
+
+    return res.json({
+      message: 'User password reset successfully. All previous sessions have been invalidated.',
+      user: dto,
+    });
+  } catch (err: any) {
+    return sendRouteError(res, err, 'Failed to reset user password');
+  }
+});
+
+// Student self-signup (MongoDB-authoritative)
+router.post('/auth/register-student', authRateLimiter, async (req: Request, res: Response) => {
+  const {
+    full_name,
+    email,
+    password,
+    confirm_password,
+    dob,
+    gender,
+    father_name,
+    phone,
+    address,
+    class_name,
+    section,
+    role: injectedRole,
+  } = req.body || {};
+
+  // Block privilege escalation attempts on public student registration
+  if (injectedRole !== undefined && String(injectedRole).trim().toLowerCase() !== 'student') {
+    return res.status(403).json({
+      error: 'Privilege escalation blocked: Public student registration can only create student accounts.',
+    });
+  }
+
+  if (!full_name || !email || !password || !father_name || !class_name) {
+    return res.status(400).json({ error: 'Full name, email, password, father name, and class are required' });
+  }
+
+  if (password !== confirm_password) {
+    return res.status(400).json({ error: 'Passwords do not match' });
+  }
+
+  const passCheck = validatePassword(String(password));
+  if (!passCheck.valid) {
+    return res.status(400).json({ error: passCheck.message });
+  }
+
+  const cleanEmail = String(email).trim().toLowerCase();
+  if (!validateEmail(cleanEmail)) {
+    return res.status(400).json({ error: 'Please provide a valid email address' });
+  }
+
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const existingUser = await UserModel.findOne({ email: cleanEmail }).lean();
+    if (existingUser) {
+      return res.status(409).json({ error: 'An account with this email address already exists' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const password_hash = await bcrypt.hash(String(password), salt);
+
+    const ts = Date.now();
+    const randSuffix = Math.random().toString(36).slice(2, 6);
+    const newStudentId = `std_${ts}_${randSuffix}`;
+    const newUserId = `usr_${ts}_${randSuffix}`;
+    const year = new Date().getFullYear();
+
+    let admission_no = '';
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const candidate = `SSC-${year}-${Math.floor(1000 + Math.random() * 9000)}`;
+      const exists = await StudentModel.exists({ admission_no: candidate });
+      if (!exists) {
+        admission_no = candidate;
+        break;
+      }
+    }
+    if (!admission_no) {
+      admission_no = `SSC-${year}-${String(ts).slice(-5)}`;
+    }
+
+    const cleanClassName = sanitizePlainText(class_name, 120);
+    const cleanSection = sanitizePlainText(section, 60) || 'A';
+
+    // Allocate unique roll_no within (class_name, section)
+    const totalStudentsCount = await StudentModel.countDocuments();
+    let rollNum = totalStudentsCount + 101;
+    let roll_no = String(rollNum);
+    while (
+      await StudentModel.exists({
+        class_name: { $regex: new RegExp(`^${escapeRegexLiteral(cleanClassName)}$`, 'i') },
+        section: { $regex: new RegExp(`^${escapeRegexLiteral(cleanSection)}$`, 'i') },
+        roll_no,
+      })
+    ) {
+      rollNum++;
+      roll_no = String(rollNum);
+    }
+
+    const admissionDate = new Date().toISOString().split('T')[0];
+    const cleanFullName = sanitizePlainText(full_name, 150);
+    const cleanFatherName = sanitizePlainText(father_name, 150);
+    const cleanPhone = phone ? sanitizePlainText(phone, 40) : '';
+    const cleanAddress = address ? sanitizePlainText(address, 300) : 'Paharpur, Dera Ismail Khan';
+    const normalizedGender: 'Male' | 'Female' | 'Other' =
+      gender === 'Female' ? 'Female' : gender === 'Other' ? 'Other' : 'Male';
+    const cleanDob = dob ? sanitizePlainText(dob, 20) : '2010-01-01';
+
+    const createdUser = await UserModel.create({
+      record_id: newUserId,
+      email: cleanEmail,
+      password_hash,
+      name: cleanFullName,
+      role: 'student',
+      phone: cleanPhone,
+      linked_id: newStudentId,
+      linked_student_ids: [],
+      status: 'active',
+    });
+
+    let createdStudent: any;
+    try {
+      createdStudent = await StudentModel.create({
+        record_id: newStudentId,
+        user_id: newUserId,
+        admission_no,
+        roll_no,
+        full_name: cleanFullName,
+        father_name: cleanFatherName,
+        dob: cleanDob,
+        gender: normalizedGender,
+        class_name: cleanClassName,
+        section: cleanSection,
+        contact_no: cleanPhone,
+        address: cleanAddress,
+        emergency_contact: cleanPhone,
+        admission_date: admissionDate,
+        academic_status: 'Active',
+      });
+    } catch (studentErr) {
+      await UserModel.deleteOne({ _id: createdUser._id }).catch(() => {});
+      throw studentErr;
+    }
+
+    const academicYear = '2026-2027';
+    await EnrollmentModel.create({
+      record_id: `enr_${ts}_${randSuffix}`,
+      student_id: newStudentId,
+      student_name: cleanFullName,
+      class_name: cleanClassName,
+      section: cleanSection,
+      academic_year: academicYear,
+      roll_no,
+      enrolled_date: admissionDate,
+      status: 'Active',
+      active_enrollment_key: computeActiveEnrollmentKey(newStudentId, academicYear, 'Active'),
+    }).catch(() => {});
+
+    const userDto = toUserDto(createdUser);
+    const studentDto = toStudentDto(createdStudent);
+
+    await recordMongoAudit(
+      { id: userDto.id, name: userDto.name, role: userDto.role },
+      'Student Account Registered',
+      'Student',
+      studentDto.id,
+      `Class: ${studentDto.class_name}`
+    );
+
+    const token = generateToken({
+      id: userDto.id,
+      email: userDto.email,
+      role: userDto.role,
+      name: userDto.name,
+      phone: userDto.phone,
+      linked_id: userDto.linked_id,
+    });
+
+    setSessionCookie(req, res, token);
+
+    return res.status(201).json({
+      message: 'Student account successfully created',
+      token,
+      user: {
+        id: userDto.id,
+        email: userDto.email,
+        name: userDto.name,
+        role: userDto.role,
+        phone: userDto.phone,
+        linked_id: userDto.linked_id,
+      },
+      studentProfile: studentDto,
+    });
+  } catch (err: any) {
+    if (err?.code === 11000) {
+      return res.status(409).json({ error: 'An account or student record with these unique identifiers already exists' });
+    }
+    return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to register student account') });
+  }
+});
+
+// Parent self-signup (MongoDB-authoritative)
+router.post('/auth/register-parent', authRateLimiter, async (req: Request, res: Response) => {
+  const {
+    full_name,
+    email,
+    password,
+    confirm_password,
+    phone,
+    address,
+    occupation,
+    child_admission_no,
+    child_dob,
+    role: injectedRole,
+  } = req.body || {};
+
+  // Block privilege escalation attempts on public parent registration
+  if (injectedRole !== undefined && String(injectedRole).trim().toLowerCase() !== 'parent') {
+    return res.status(403).json({
+      error: 'Privilege escalation blocked: Public parent registration can only create parent accounts.',
+    });
+  }
+
+  if (!full_name || !email || !password) {
+    return res.status(400).json({ error: 'Full name, email, and password are required' });
+  }
+
+  if (password !== confirm_password) {
+    return res.status(400).json({ error: 'Passwords do not match' });
+  }
+
+  const passCheck = validatePassword(String(password));
+  if (!passCheck.valid) {
+    return res.status(400).json({ error: passCheck.message });
+  }
+
+  const cleanEmail = String(email).trim().toLowerCase();
+  if (!validateEmail(cleanEmail)) {
+    return res.status(400).json({ error: 'Please provide a valid email address' });
+  }
+
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const existingUser = await UserModel.findOne({ email: cleanEmail }).lean();
+    if (existingUser) {
+      return res.status(409).json({ error: 'An account with this email address already exists' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const password_hash = await bcrypt.hash(String(password), salt);
+
+    const ts = Date.now();
+    const randSuffix = Math.random().toString(36).slice(2, 6);
+    const newUserId = `usr_${ts}_${randSuffix}`;
+    const linkedStudentIds: string[] = [];
+    const linkedStudentDtos: StudentDto[] = [];
+
+    // Optional child linking during signup requires BOTH matching admission_no AND child_dob
+    if (child_admission_no && String(child_admission_no).trim()) {
+      const cleanAdm = String(child_admission_no).trim().toUpperCase();
+      const cleanChildDob = child_dob ? String(child_dob).trim() : '';
+      if (!cleanChildDob) {
+        return res.status(400).json({
+          error: 'Child date of birth is required when linking a student by admission number during registration',
+        });
+      }
+      const studentDoc = await StudentModel.findOne({
+        admission_no: { $regex: new RegExp(`^${escapeRegexLiteral(cleanAdm)}$`, 'i') },
+      });
+      if (!studentDoc || studentDoc.dob !== cleanChildDob) {
+        return res.status(404).json({
+          error: 'No student found matching both the provided admission number and date of birth.',
+        });
+      }
+      const sid = studentDoc.record_id || studentDoc._id.toString();
+      linkedStudentIds.push(sid);
+      studentDoc.parent_user_id = newUserId;
+      await studentDoc.save();
+      linkedStudentDtos.push(toStudentDto(studentDoc));
+    }
+
+    const cleanName = sanitizePlainText(full_name, 150);
+    const cleanPhone = phone ? sanitizePlainText(phone, 40) : '';
+    const cleanAddress = address ? sanitizePlainText(address, 300) : '';
+    const cleanOccupation = occupation ? sanitizePlainText(occupation, 150) : '';
+
+    const createdUser = await UserModel.create({
+      record_id: newUserId,
+      email: cleanEmail,
+      password_hash,
+      name: cleanName,
+      role: 'parent',
+      phone: cleanPhone,
+      linked_id: linkedStudentIds[0] || '',
+      linked_student_ids: linkedStudentIds,
+      status: 'active',
+    });
+
+    await ParentModel.create({
+      record_id: `prt_${newUserId}`,
+      user_id: newUserId,
+      name: cleanName,
+      father_name: cleanName,
+      phone: cleanPhone,
+      email: cleanEmail,
+      address: cleanAddress,
+      occupation: cleanOccupation,
+      linked_students: linkedStudentIds,
+    });
+
+    const userDto = toUserDto(createdUser);
+    await recordMongoAudit(
+      { id: userDto.id, name: userDto.name, role: userDto.role },
+      'Parent Account Registered',
+      'Parent',
+      userDto.id,
+      `Linked students: ${linkedStudentIds.length}`
+    );
+
+    const token = generateToken({
+      id: userDto.id,
+      email: userDto.email,
+      role: userDto.role,
+      name: userDto.name,
+      phone: userDto.phone,
+      linked_id: userDto.linked_id,
+      linked_student_ids: userDto.linked_student_ids,
+    });
+
+    setSessionCookie(req, res, token);
+
+    return res.status(201).json({
+      message: 'Parent account successfully created',
+      token,
+      user: {
+        id: userDto.id,
+        email: userDto.email,
+        name: userDto.name,
+        role: userDto.role,
+        phone: userDto.phone,
+        linked_id: userDto.linked_id,
+        linked_student_ids: userDto.linked_student_ids,
+      },
+      linked_students: linkedStudentDtos,
+    });
+  } catch (err: any) {
+    if (err?.code === 11000) {
+      return res.status(409).json({ error: 'An account with this email address already exists' });
+    }
+    return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to register parent account') });
+  }
+});
+
+// Teacher self-signup (MongoDB-authoritative with mandatory Admin approval)
+router.post('/auth/register-teacher', authRateLimiter, async (req: Request, res: Response) => {
+  const {
+    full_name,
+    father_name,
+    email,
+    password,
+    confirm_password,
+    phone,
+    cnic,
+    qualification,
+    subject,
+    specialization,
+    experience,
+    bio,
+    profile_photo,
+    role: injectedRole,
+  } = req.body || {};
+
+  // Strict server-enforced role boundary: Never trust role from frontend or allow escalation
+  if (injectedRole !== undefined && String(injectedRole).trim().toLowerCase() !== 'teacher') {
+    return res.status(403).json({
+      error: 'Privilege escalation blocked: Teacher registration can only create teacher accounts.',
+    });
+  }
+
+  if (!full_name || !email || !password || !qualification || (!subject && !specialization)) {
+    return res.status(400).json({
+      error: 'Full name, email, password, qualification, and subject/specialization are required.',
+    });
+  }
+
+  if (password !== confirm_password) {
+    return res.status(400).json({ error: 'Passwords do not match' });
+  }
+
+  const passCheck = validatePassword(String(password));
+  if (!passCheck.valid) {
+    return res.status(400).json({ error: passCheck.message });
+  }
+
+  const cleanEmail = String(email).trim().toLowerCase();
+  if (!validateEmail(cleanEmail)) {
+    return res.status(400).json({ error: 'Please provide a valid email address' });
+  }
+
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const existingUser = await UserModel.findOne({ email: cleanEmail }).lean();
+    if (existingUser) {
+      return res.status(409).json({ error: 'An account with this email address already exists' });
+    }
+
+    const cleanPhone = phone ? String(phone).trim() : '';
+    if (cleanPhone) {
+      const existingPhone = await UserModel.findOne({ phone: cleanPhone }).lean();
+      if (existingPhone) {
+        return res.status(409).json({ error: 'An account with this mobile number already exists' });
+      }
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const password_hash = await bcrypt.hash(String(password), salt);
+
+    const ts = Date.now();
+    const randSuffix = Math.random().toString(36).slice(2, 6);
+    const newTeacherId = `tch_${ts}_${randSuffix}`;
+    const newUserId = `usr_${ts}_${randSuffix}`;
+
+    const chosenSubject = String(subject || specialization || 'General').trim();
+    const chosenSpec = String(specialization || subject || '').trim();
+
+    // 1. Create Teacher profile in 'Pending' state
+    const teacherDoc = await TeacherModel.create({
+      record_id: newTeacherId,
+      user_id: newUserId,
+      name: String(full_name).trim(),
+      father_name: father_name ? String(father_name).trim() : '',
+      cnic: cnic ? String(cnic).trim() : '',
+      profile_photo: profile_photo ? String(profile_photo).trim() : '',
+      qualification: String(qualification).trim(),
+      subject: chosenSubject,
+      specialization: chosenSpec,
+      classes: [],
+      contact_no: cleanPhone,
+      email: cleanEmail,
+      joining_date: new Date().toISOString().split('T')[0],
+      experience: experience ? String(experience).trim() : '',
+      status: 'Pending',
+      bio: bio ? String(bio).trim() : '',
+    });
+
+    // 2. Create User account strictly with role: 'teacher' and status: 'pending'
+    await UserModel.create({
+      record_id: newUserId,
+      email: cleanEmail,
+      name: String(full_name).trim(),
+      password_hash,
+      role: 'teacher',
+      status: 'pending',
+      linked_id: newTeacherId,
+      phone: cleanPhone,
+    });
+
+    // 3. Log to AuditLog
+    await AuditLogModel.create({
+      log_id: `aud_${ts}_${randSuffix}`,
+      user_id: newUserId,
+      user_name: String(full_name).trim(),
+      role: 'teacher',
+      action: 'TEACHER_SIGNUP_REQUEST',
+      details: `Teacher self-registration submitted: ${full_name} (${cleanEmail}), subject: ${chosenSubject}. Pending admin approval.`,
+      ip_address: req.ip || '',
+    }).catch(() => {});
+
+    // 4. Create one admin notification for this teacher signup.
+    await createNotificationOnce({
+      actionId: crypto.createHash('sha256').update(`teacher-signup:${newUserId}`).digest('hex'),
+      userId: 'admin',
+      role: 'admin',
+      title: 'New Teacher Signup Application',
+      message: `${full_name} (${cleanEmail}) applied for teacher position (${chosenSubject}). Please review in Admin Console.`,
+    }).catch(() => false);
+
+    return res.status(201).json({
+      success: true,
+      message:
+        'Your teacher registration request has been submitted successfully! The School Administration must review and approve your account before access is granted. Please check back later or contact the administration office.',
+      teacher: toTeacherDto(teacherDoc),
+    });
+  } catch (err: any) {
+    if (err?.code === 11000) {
+      return res.status(409).json({ error: 'An account or teacher record with these identifiers already exists' });
+    }
+    return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to submit teacher application') });
+  }
+});
+
+// Helper matching functions for parent-child verification
+function isStudentNameMatch(studentName: string, inputName: string): boolean {
+  const s = String(studentName || '').toLowerCase().trim();
+  const inp = String(inputName || '').toLowerCase().trim();
+  if (!s || !inp) return false;
+  if (s === inp || s.includes(inp) || inp.includes(s)) return true;
+  const sWords = s.split(/\s+/).filter(w => w.length > 1);
+  const inpWords = inp.split(/\s+/).filter(w => w.length > 1);
+  if (inpWords.length > 0 && inpWords.every(w => sWords.some(sw => sw.includes(w) || w.includes(sw)))) {
+    return true;
+  }
+  return false;
+}
+
+function isStudentClassMatch(studentClass: string, inputClass: string): boolean {
+  const s = String(studentClass || '').toLowerCase().trim();
+  const inp = String(inputClass || '').toLowerCase().trim();
+  if (!s || !inp) return false;
+  if (s === inp || s.includes(inp) || inp.includes(s)) return true;
+
+  const sNorm = s.replace(/[^a-z0-9]/g, '');
+  const inpNorm = inp.replace(/[^a-z0-9]/g, '');
+  if (sNorm && inpNorm && (sNorm.includes(inpNorm) || inpNorm.includes(sNorm))) return true;
+
+  const sDigits = s.match(/\b\d+\b/) || s.match(/\d+/);
+  const inpDigits = inp.match(/\b\d+\b/) || inp.match(/\d+/);
+  if (sDigits && inpDigits && sDigits[0] === inpDigits[0]) {
+    return true;
+  }
+  return false;
+}
+
+function isStudentRollMatch(studentRoll: string, inputRoll: string): boolean {
+  const s = String(studentRoll || '').trim().toLowerCase();
+  const inp = String(inputRoll || '').trim().toLowerCase();
+  if (!s || !inp) return false;
+  if (s === inp) return true;
+  const sNum = parseInt(s.replace(/\D/g, ''), 10);
+  const inpNum = parseInt(inp.replace(/\D/g, ''), 10);
+  if (!isNaN(sNum) && !isNaN(inpNum) && sNum === inpNum) return true;
+  return false;
+}
+
+function isFatherNameMatch(studentFather: string, inputFather: string): boolean {
+  const s = String(studentFather || '').toLowerCase().trim();
+  const inp = String(inputFather || '').toLowerCase().trim();
+  if (!s || !inp) return false;
+  if (s === inp || s.includes(inp) || inp.includes(s)) return true;
+  const sWords = s.split(/\s+/).filter(w => w.length > 1);
+  const inpWords = inp.split(/\s+/).filter(w => w.length > 1);
+  if (inpWords.some(w => sWords.some(sw => sw.includes(w) || w.includes(sw)))) {
+    return true;
+  }
+  return false;
+}
+
+async function fetchLinkedStudentsForParentUser(userId: string, email?: string): Promise<StudentDto[]> {
+  const ids = await getLinkedStudentIdsForParent({ id: userId, email });
+  if (ids.size === 0) return [];
+  const idArr = Array.from(ids);
+  const objIds = idArr
+    .filter(v => mongoose.Types.ObjectId.isValid(v) && /^[a-fA-F0-9]{24}$/.test(v))
+    .map(v => new mongoose.Types.ObjectId(v));
+  const docs = await StudentModel.find({
+    $or: [
+      { record_id: { $in: idArr } },
+      { admission_no: { $in: idArr } },
+      ...(objIds.length > 0 ? [{ _id: { $in: objIds } }] : []),
+    ],
+  })
+    .sort({ created_at: -1, _id: -1 })
+    .lean();
+  return docs.map(toStudentDto);
+}
+
+async function claimStudentForParent(studentDoc: any, canonicalUserId: string, mongoUserId: string): Promise<any | null> {
+  if (!studentDoc?._id || !canonicalUserId || !mongoUserId) return null;
+  // One atomic conditional write decides ownership. Concurrent parent requests cannot both claim an unowned student.
+  return StudentModel.findOneAndUpdate(
+    buildStudentParentClaimFilter(studentDoc._id, canonicalUserId, mongoUserId),
+    { $set: { parent_user_id: canonicalUserId } },
+    { new: true }
+  );
+}
+
+// Parent link student endpoint (secure verification by Admission No and Date of Birth)
+router.post('/parents/link-student', sensitiveActionRateLimiter, authenticateToken, requireRole(['parent']), async (req: AuthenticatedRequest, res: Response) => {
+  const { admission_no, dob } = req.body || {};
+  if (!admission_no || !dob) {
+    return res.status(400).json({ error: 'Child admission number and date of birth are required for verification' });
+  }
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const cleanAdm = String(admission_no).trim().toUpperCase();
+    const cleanDob = String(dob).trim();
+
+    const studentDoc = await StudentModel.findOne({
+      admission_no: { $regex: new RegExp(`^${escapeRegexLiteral(cleanAdm)}$`, 'i') },
+      dob: cleanDob,
+    });
+
+    if (!studentDoc) {
+      return res.status(404).json({
+        error: 'No student found matching both the provided admission number and date of birth. Please verify institutional records.',
+      });
+    }
+
+    const userDoc = await findUserByAnyId(req.user!.id);
+    if (!userDoc) {
+      return res.status(404).json({ error: 'Parent user account not found' });
+    }
+
+    const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
+    const canonicalUserId = userDoc.record_id || userDoc._id.toString();
+    const claimedStudent = await claimStudentForParent(studentDoc, canonicalUserId, userDoc._id.toString());
+    if (!claimedStudent) {
+      return res.status(409).json({ error: 'This student is already linked to another parent account. Please contact school administration if this is incorrect.' });
+    }
+
+    await UserModel.updateOne(
+      { _id: userDoc._id, role: 'parent' },
+      {
+        $addToSet: { linked_student_ids: canonicalStudentId },
+        $set: { linked_id: canonicalStudentId },
+      }
+    );
+    Object.assign(studentDoc, claimedStudent.toObject ? claimedStudent.toObject() : claimedStudent);
+
+    await ParentModel.findOneAndUpdate(
+      { $or: [{ user_id: canonicalUserId }, { email: userDoc.email.toLowerCase() }] },
+      {
+        $setOnInsert: {
+          record_id: `prt_${canonicalUserId}`,
+          user_id: canonicalUserId,
+          name: userDoc.name,
+          father_name: userDoc.name,
+          phone: userDoc.phone || '',
+          email: userDoc.email.toLowerCase(),
+        },
+        $addToSet: { linked_students: canonicalStudentId },
+      },
+      { upsert: true }
+    );
+
+    await recordMongoAudit(
+      req.user!,
+      'Linked Student to Parent',
+      'Student',
+      canonicalStudentId,
+      `Admission No: ${studentDoc.admission_no}`
+    );
+
+    const linkedStudents = await fetchLinkedStudentsForParentUser(canonicalUserId, userDoc.email);
+    return res.json({
+      message: `Successfully linked ${studentDoc.full_name} (${studentDoc.admission_no}) to parent account`,
+      student: toStudentDto(studentDoc),
+      linked_students: linkedStudents,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to link student') });
+  }
+});
+
+// 1. Find Child for Parent Linking (Father Name + Student Name + Class + Roll No)
+router.post('/parents/find-child', sensitiveActionRateLimiter, authenticateToken, requireRole(['parent']), async (req: AuthenticatedRequest, res: Response) => {
+  const { father_name, student_name, class_name, roll_no } = req.body || {};
+
+  if (!father_name || !student_name || !class_name || !roll_no) {
+    return res.status(400).json({
+      error: 'Please fill all required verification fields: Father/Guardian Name, Child Name, Class, and Roll Number.',
+    });
+  }
+  if (!ensureMongoReady(res)) return;
+
+  try {
+    const cleanFather = String(father_name).toLowerCase().trim();
+    const cleanStudent = String(student_name).toLowerCase().trim();
+    const cleanClass = String(class_name).toLowerCase().trim();
+    const cleanRoll = String(roll_no).toLowerCase().trim();
+
+    const userDoc = await findUserByAnyId(req.user!.id);
+    if (!userDoc) {
+      return res.status(404).json({ error: 'Parent account not found' });
+    }
+
+, 'i') } },
+        { roll_no: Number(normalizedRoll) }
+      );
+    }
+
+    const classDigits = cleanClass.match(/\\d+/)?.[0] || '';
+    const classClauses: Record<string, any>[] = [
+      { class_name: { $regex: new RegExp(escapeRegexLiteral(cleanClass), 'i') } },
+    ];
+    if (classDigits) {
+      classClauses.push({ class_name: { $regex: new RegExp(`\\\\b${escapeRegexLiteral(classDigits)}\\\\b`, 'i') } });
+    }
+
+    const candidateDocs = await StudentModel.find({
+      $and: [{ $or: rollClauses }, { $or: classClauses }],
+    }).lean();
+    const matches = candidateDocs.map(toStudentDto).filter(s => {
       if (!isStudentNameMatch(s.full_name, cleanStudent)) return false;
       if (!isStudentClassMatch(s.class_name, cleanClass)) return false;
-      if (!isStudentRollMatch(s.roll_no, cleanRoll)) return false;
 
       const fatherMatches =
         isFatherNameMatch(s.father_name, cleanFather) ||
