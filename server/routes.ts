@@ -3,7 +3,7 @@ import { financeRouter } from './financeRoutes.ts';
 import { buildNotificationVisibilityFilter, canMarkNotificationRead } from './notificationAccess.ts';
 import { buildParentPaymentHistoryFilter, buildParentLinkedStudentFilter, collectParentStudentReferences, isParentLinkedToStudent, isExactGuardianNameMatch, areSameStudentIdentity, isStudentClaimedByAnotherParent } from './parentAccess.ts';
 import { isClassAssignedToTeacher, buildTeacherClassFilter } from './classAccess.ts';
-import { getParentPaymentMethodMode, collectStudentPaymentIdentifiers, normalizeDepositReference } from './paymentUtils.ts';
+import { getParentPaymentMethodMode, collectStudentPaymentIdentifiers, normalizeDepositReference, isExactParentPaymentRetry } from './paymentUtils.ts';
 import { isExactTeacherName, isExactTeacherSubject, areAllResultSubjectsAssignedToTeacher, isExactSectionMatch } from './teacherAccess.ts';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
@@ -7324,12 +7324,13 @@ router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent
         const expectedMethod = method === 'Bank Transfer' ? 'Bank Transfer' : 'Bank Deposit';
         const exactRetry = Boolean(
           retryFeeDoc &&
-          existingPayment &&
-          existingPayment.fee_id === canonicalVoucherId &&
-          existingPayment.student_id === retryFeeDoc.student_id &&
-          Number(existingPayment.amount) === paymentAmount &&
-          existingPayment.method === expectedMethod &&
-          existingPayment.verification_status === 'Pending'
+          isExactParentPaymentRetry(existingPayment, {
+            feeId: String(canonicalVoucherId || ''),
+            studentId: String(retryFeeDoc.student_id || ''),
+            amount: paymentAmount,
+            method: expectedMethod,
+            parentUserId: user.id,
+          })
         );
 
         if (exactRetry && retryFeeDoc && existingPayment) {
