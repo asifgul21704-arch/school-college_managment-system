@@ -38,3 +38,16 @@ test('local dotenv defaults do not overwrite explicitly injected environment var
   assert.match(envLoader, /override: false/);
   assert.doesNotMatch(envLoader, /override: true/);
 });
+
+const aiHarness = readFileSync(new URL('../test_phase2_ai_accuracy.cjs', import.meta.url), 'utf8');
+
+test('real-data AI accuracy harness is opt-in and restricted to isolated local MongoDB', () => {
+  assert.match(aiHarness, /E2E_ALLOW_AI_QUERIES !== 'true'/);
+  assert.match(aiHarness, /E2E_EXPECTED_DATABASE_NAME/);
+  assert.match(aiHarness, /database\?\.isAtlas !== false/);
+  assert.match(aiHarness, /database\?\.databaseName !== EXPECTED_DATABASE_NAME/);
+  assert.match(aiHarness, /E2E_SUPER_ADMIN_PASSWORD/);
+  assert.equal(aiHarness.includes('AdminPassword123!'), false);
+  assert.equal(aiHarness.includes('TeacherPassword123!'), false);
+  assert.equal(aiHarness.includes('process.env.JWT_SECRET ||'), false);
+});
