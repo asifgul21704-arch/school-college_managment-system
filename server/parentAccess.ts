@@ -37,3 +37,14 @@ export function isParentLinkedToStudent(linkedStudentIds: ReadonlySet<string>, s
 export function buildParentPaymentHistoryFilter(linkedStudentIds: ReadonlySet<string>): { student_id: { $in: string[] } } {
   return { student_id: { $in: Array.from(linkedStudentIds) } };
 }
+
+/** Linking a child requires an exact guardian/father-name match; fuzzy discovery is not proof of ownership. */
+export function isExactGuardianNameMatch(studentFatherName: unknown, verifiedGuardianName: unknown): boolean {
+  const normalize = (value: unknown) =>
+    typeof value === 'string'
+      ? value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('en')
+      : '';
+  const father = normalize(studentFatherName);
+  const guardian = normalize(verifiedGuardianName);
+  return Boolean(father && guardian && father === guardian);
+}
