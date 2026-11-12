@@ -15,7 +15,7 @@
     "lint": "tsc --noEmit",
     "bootstrap:super-admin": "node scripts/bootstrap-super-admin.ts",
     "seed:demo": "tsx scripts/seed-demo-data.ts",
-    "test": "node --import tsx --test server/financeUtils.test.ts server/paymentUtils.test.ts server/notificationUtils.test.ts server/notificationAccess.test.ts server/roleAccess.test.ts server/authSecurity.test.ts server/adminAiRouteSecurity.test.ts server/parentAccess.test.ts server/classAccess.test.ts server/teacherAccess.test.ts server/e2eHarnessSafety.test.ts"
+    "test": "node --import tsx --test server/financeUtils.test.ts server/paymentUtils.test.ts server/notificationUtils.test.ts server/notificationAccess.test.ts server/roleAccess.test.ts server/authSecurity.test.ts server/adminAiRouteSecurity.test.ts server/parentAccess.test.ts server/classAccess.test.ts server/teacherAccess.test.ts server/e2eHarnessSafety.test.ts server/smsNotificationService.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.32.0",
