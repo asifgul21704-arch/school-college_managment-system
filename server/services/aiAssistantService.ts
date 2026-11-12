@@ -2775,11 +2775,9 @@ export async function processAdminAiQuery(
   // ----------------------------------------------------
   if (
     pLower.includes('income vs expense') ||
-    pLower.includes('expense report') ||
-    pLower.includes('expense summary') ||
-    pLower.includes('payroll report') ||
-    pLower.includes('salary report') ||
-    pLower.includes('salary summary')
+    pLower.includes('expense') ||
+    pLower.includes('payroll') ||
+    pLower.includes('salary')
   ) {
     const monthMatch = prompt.match(/\b(20\d{2})-(0?[1-9]|1[0-2])\b/);
     const now = new Date();
