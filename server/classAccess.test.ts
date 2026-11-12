@@ -22,3 +22,14 @@ test('fails closed for empty or malformed class names', () => {
   assert.equal(isClassAssignedToTeacher([''], 'Class 1'), false);
   assert.equal(isClassAssignedToTeacher(['Class 1'], 'Class 1 Section A'), false);
 });
+
+test('teacher database filter is restricted to exact assigned class names', async () => {
+  const { buildTeacherClassFilter } = await import('./classAccess.ts');
+  assert.deepEqual(buildTeacherClassFilter(['Class 1', '  CLASS   2  ']), {
+    $or: [
+      { class_name: { $regex: '^class\\\\s+1$', $options: 'i' } },
+      { class_name: { $regex: '^class\\\\s+2$', $options: 'i' } },
+    ],
+  });
+  assert.deepEqual(buildTeacherClassFilter([]), { $or: [] });
+});
