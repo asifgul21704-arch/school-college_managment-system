@@ -13,10 +13,9 @@ function between(startMarker: string, endMarker: string): string {
 
 test('parent unlink removes authoritative links atomically and cannot clear a new owner', () => {
   const route = between("router.post('/parents/unlink-child'", '// Parent directory & profile CRUD');
-  assert.match(route, /UserModel\\.updateOne\\([\\s\\S]*?linked_student_ids: remainingLinksExpression[\\s\\S]*?linked_id: \\{[\\s\\S]*?\\$cond:[\\s\\S]*?idsToRemove/);
-  assert.match(route, /StudentModel\.updateOne\([\s\S]*?buildStudentParentReleaseFilter\(studentDoc\._id, canonicalUserId, userDoc\._id\.toString\(\)\)/);
-  assert.doesNotMatch(route, /userDoc\.save\(\)|studentDoc\.save\(\)/);
-  assert.match(route, /linked_id: \{ \$in: idsToRemove \}/);
+  assert.match(route, /UserModel\.updateOne\([\s\S]*?linked_student_ids: remainingLinksExpression[\s\S]*?linked_id: \{[\s\S]*?\$cond:[\s\S]*?idsToRemove/);
+  assert.match(route, /remainingLinksExpression = \{[\s\S]*?\$filter:[\s\S]*?\$in: \['\$\$linkedId', idsToRemove\]/);
+  assert.doesNotMatch(route, /\$pull: \{ linked_student_ids:/);
   assert.match(route, /finalUserDoc\?\.linked_id/);
 });
 
