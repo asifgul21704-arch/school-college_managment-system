@@ -17,16 +17,12 @@ export function isClassAssignedToTeacher(assignedClasses: string[], targetClassN
 /** Builds a database-level class scope for teacher queries; empty assignments fail closed. */
 export function buildTeacherClassFilter(assignedClasses: string[]): Record<string, unknown> {
   if (!Array.isArray(assignedClasses)) return { $or: [] };
-  const normalized = Array.from(new Set(assignedClasses
-    .map(normalizeClassName)
-    .filter(Boolean)));
+  const normalized = Array.from(new Set(assignedClasses.map(normalizeClassName).filter(Boolean)));
   if (normalized.length === 0) return { $or: [] };
   return {
-    $or: normalized.map(className => ({
-      class_name: {
-        $regex: `^${className.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&').replace(/\\s+/g, '\\\\s+')}$`,
-        $options: 'i',
-      },
-    })),
+    $or: normalized.map(className => {
+      const escaped = className.replace(/[|\\{}()[\]^$+*?.-]/g, '\\$&').replace(/\s+/g, '\\s+');
+      return { class_name: { $regex: '^' + escaped + '$', $options: 'i' } };
+    }),
   };
 }
