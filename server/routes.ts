@@ -3318,7 +3318,7 @@ router.get('/students/:id', authenticateToken, async (req: AuthenticatedRequest,
       return res.status(404).json({ error: 'Student record not found' });
     }
     const student = toStudentDto(studentDoc);
-    const studentIds = new Set<string>([student.id, studentDoc._id.toString()]);
+    const studentIds = new Set<string>(collectStudentPaymentIdentifiers(studentDoc));
 
     // OBJECT-LEVEL SECURITY CHECK: STUDENT (own record only)
     if (req.user?.role === 'student') {
