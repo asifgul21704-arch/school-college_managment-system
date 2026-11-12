@@ -39,3 +39,21 @@ test('teacher results query is database-scoped to assigned classes', () => {
   const route = routeBetween("router.get('/teacher/results'", "router.post('/teacher/results'");
   assert.match(route, /ResultModel\.find\(buildTeacherClassFilter\(assignedClasses\)\)/);
 });
+
+
+test('teacher AI prefers the longest exact student name before falling back to first-name matching', () => {
+  const route = routeBetween("router.post('/teacher/ai/query'", "router.post('/teacher/ai/execute-action'");
+  assert.match(route, /const findMentionedTeacherStudents = \(query: string\)/);
+  assert.match(route, /fullNameMatches/);
+  assert.match(route, /longestMatchLength/);
+});
+
+test('teacher AI marks actions validate assigned subjects and an existing class-eligible exam', () => {
+  const start = routes.indexOf("router.post('/teacher/ai/execute-action'");
+  const end = routes.indexOf("\n});", start) + 4;
+  assert.ok(start >= 0 && end > start);
+  const route = routes.slice(start, end);
+  assert.match(route, /isExactTeacherSubject\(allowedSubjects, cleanSubj\)/);
+  assert.match(route, /ExamModel\.findOne\(buildCmsRecordLookupFilter\(cleanExamId\)\)/);
+  assert.match(route, /examClasses\.some/);
+});
