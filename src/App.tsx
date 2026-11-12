@@ -136,7 +136,7 @@ function SchoolApp() {
             if (errStr.includes('bad auth') || errStr.includes('authentication failed')) {
               detailedMessage = `Database authentication failed (${healthData.error}). Please verify the MongoDB Atlas username and password in Railway environment variables and MongoDB Atlas Database Access.`;
             } else if (errStr.includes('timed out') || errStr.includes('whitelisted') || errStr.includes('network') || errStr.includes('enotfound')) {
-              detailedMessage = `MongoDB Atlas network unreachable (${healthData.error}). Please ensure the server IP is allowlisted in MongoDB Atlas Network Access (or allow 0.0.0.0/0 for cloud deployments).`;
+              detailedMessage = `MongoDB Atlas network unreachable (${healthData.error}). Check Railway outbound network access and the MongoDB Atlas Network Access allowlist. Avoid opening database access to all IP addresses; use the narrowest supported network rule.`;
             } else {
               detailedMessage = `MongoDB Atlas connection error: ${healthData.error}. Please verify database configuration and retry.`;
             }
@@ -162,7 +162,7 @@ function SchoolApp() {
         'Backend connection failed (Failed to fetch). The browser could not communicate with the backend server. If using Vercel, please ensure VITE_API_BASE_URL is pointing to your active Railway backend URL (e.g. https://<service>.up.railway.app) and redeploy.';
     } else if (/not allowed to do action/i.test(detailedMessage)) {
       detailedMessage =
-        'MongoDB Atlas permission denied (user is not allowed to do action [find]). In MongoDB Atlas -> Security -> Database Access, click Edit on user "shawan_prod_app" and set Built-in Role to "Read and write to any database" (or "Atlas admin"), then click Update User.';
+        'MongoDB Atlas permission denied. Verify that the configured database user has the minimum required read/write permissions for this application database. Do not share or paste database credentials.';
     }
 
     setLoadError(detailedMessage);
@@ -243,7 +243,7 @@ function SchoolApp() {
         <div className="text-center space-y-3">
           <div className="w-10 h-10 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto" />
           <h1 className="text-white text-lg font-bold font-display tracking-tight">
-            Shawan School &amp; College
+            School and College Management System with AI Assistant
           </h1>
           <p className="text-neutral-400 text-xs">Paharpur, Dera Ismail Khan, Pakistan</p>
         </div>
@@ -259,7 +259,7 @@ function SchoolApp() {
             <AlertCircle className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-neutral-900 font-display">Shawan School &amp; College</h1>
+            <h1 className="text-lg font-bold text-neutral-900 font-display">School and College Management System with AI Assistant</h1>
             <p className="text-xs text-neutral-600 mt-1 leading-relaxed">
               {loadError || 'Unable to connect to the institutional server.'}
             </p>
