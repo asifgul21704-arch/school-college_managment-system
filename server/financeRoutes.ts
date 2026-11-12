@@ -2,6 +2,7 @@ import express, { type Response } from 'express';
 import mongoose from 'mongoose';
 import { authenticateToken, requireRole, type AuthenticatedRequest } from './auth.ts';
 import { ExpenseModel, PayrollModel, AuditLogModel, FeePaymentModel, TeacherModel } from './models/index.ts';
+import { calculatePayrollNet, getPayrollStatus, isValidIsoDate } from './financeUtils.ts';
 
 export const financeRouter = express.Router();
 financeRouter.use(authenticateToken, requireRole(['super_admin', 'admin']));
@@ -23,12 +24,6 @@ function audit(req: AuthenticatedRequest, action: string, targetType: string, ta
     details,
     timestamp: new Date().toISOString(),
   });
-}
-
-function validIsoDate(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const date = new Date(`${value}T00:00:00.000Z`);
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
 function cleanText(value: unknown, max = 160): string {
@@ -189,7 +184,7 @@ financeRouter.post('/payroll', async (req: AuthenticatedRequest, res: Response) 
     const authoritativeDesignation = String(staffDoc.subject || designation);
     const now = new Date().toISOString();
     const recordId = `pay_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const net = Number((basic + allowances - deductions).toFixed(2));
+    const net = calculatePayrollNet({ basicSalary: basic, allowances, deductions });
     const row = await PayrollModel.create({
       record_id: recordId, staff_id: staffId, staff_name: authoritativeStaffName, designation: authoritativeDesignation, salary_month: month, salary_year: year,
       basic_salary: basic, allowances, deductions, net_salary: net, paid_amount: 0, status: 'Unpaid',
@@ -225,7 +220,7 @@ financeRouter.post('/payroll/:id/payment', async (req: AuthenticatedRequest, res
       {
         $inc: { paid_amount: Number(amount.toFixed(2)) },
         $push: { payment_history: { amount: Number(amount.toFixed(2)), payment_date: paymentDate, payment_method: method, recorded_by: req.user?.id || 'unknown', recorded_at: now } },
-        $set: { payment_date: paymentDate, payment_method: method, status: nextPaid >= Number(existing.net_salary) ? 'Paid' : 'Partially Paid', updated_at: now },
+        $set: { payment_date: paymentDate, payment_method: method, status: getPayrollStatus(Number(existing.net_salary), nextPaid), updated_at: now },
       },
       { new: true, runValidators: true }
     );
