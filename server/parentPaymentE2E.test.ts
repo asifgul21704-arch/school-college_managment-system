@@ -658,6 +658,15 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   assert.equal(teacherCannotApproveAdmission.status, 403);
   const teacherCannotUseAdminAi = await api('POST', '/admin/ai/query', { prompt: 'show school fee summary' }, teacherToken);
   assert.equal(teacherCannotUseAdminAi.status, 403);
+  const teacherMarksPrompt = await api('POST', '/teacher/ai/query', {
+    prompt: 'enter marks for E2E Student A 80 in E2E Unit Test',
+  }, teacherToken);
+  assert.equal(teacherMarksPrompt.status, 200, JSON.stringify(teacherMarksPrompt.data));
+  assert.equal(teacherMarksPrompt.data.requiresConfirmation, true);
+  assert.equal(teacherMarksPrompt.data.pendingAction.actionType, 'RECORD_MARKS');
+  assert.equal(teacherMarksPrompt.data.pendingAction.payload.exam_id, examOne);
+  assert.equal(teacherMarksPrompt.data.pendingAction.payload.exam_title, 'E2E Unit Test');
+
   const teacherCannotUseStudentPortalAi = await api('POST', '/portal/ai/query', { prompt: 'show my attendance' }, teacherToken);
   assert.equal(teacherCannotUseStudentPortalAi.status, 403);
   const parentCannotUseTeacherAi = await api('POST', '/teacher/ai/query', { prompt: 'show my assigned classes' }, parentAToken);
@@ -666,6 +675,39 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   assert.equal(studentCannotUseTeacherAi.status, 403);
   const teacherReadsAssignedDocument = await api('GET', `/documents/${encodeURIComponent(privateDocumentFilename)}`, undefined, teacherToken);
   assert.equal(teacherReadsAssignedDocument.status, 200);
+  const preparedMarksPayload = teacherMarksPrompt.data.pendingAction.payload;
+  const teacherCannotEnterUnassignedSubject = await api('POST', '/teacher/ai/execute-action', {
+    actionType: 'RECORD_MARKS',
+    confirmed: true,
+    payload: { ...preparedMarksPayload, subject_name: 'Mathematics' },
+  }, teacherToken);
+  assert.equal(teacherCannotEnterUnassignedSubject.status, 403);
+  const teacherCannotEnterMarksWithoutConfirmation = await api('POST', '/teacher/ai/execute-action', {
+    actionType: 'RECORD_MARKS',
+    confirmed: false,
+    payload: preparedMarksPayload,
+  }, teacherToken);
+  assert.equal(teacherCannotEnterMarksWithoutConfirmation.status, 400);
+  const teacherCannotUseUnknownExam = await api('POST', '/teacher/ai/execute-action', {
+    actionType: 'RECORD_MARKS',
+    confirmed: true,
+    payload: { ...preparedMarksPayload, exam_id: 'E2E-UNKNOWN-EXAM' },
+  }, teacherToken);
+  assert.equal(teacherCannotUseUnknownExam.status, 404);
+  const teacherCannotEnterMarksForUnassignedClass = await api('POST', '/teacher/ai/execute-action', {
+    actionType: 'RECORD_MARKS',
+    confirmed: true,
+    payload: { ...preparedMarksPayload, student_id: studentG.id },
+  }, teacherToken);
+  assert.equal(teacherCannotEnterMarksForUnassignedClass.status, 403);
+  const teacherEntersAssignedMarks = await api('POST', '/teacher/ai/execute-action', {
+    actionType: 'RECORD_MARKS',
+    confirmed: true,
+    payload: { ...preparedMarksPayload, subject_name: 'Computer Science' },
+  }, teacherToken);
+  assert.equal(teacherEntersAssignedMarks.status, 200, JSON.stringify(teacherEntersAssignedMarks.data));
+  const teacherEnteredResult = await ResultModel.findOne({ exam_id: examOne, student_id: studentA.id }).lean();
+  assert.equal(teacherEnteredResult?.subjects.find((subject: any) => subject.subject_name === 'Computer Science')?.obtained_marks, 80);
   const teacherCannotUploadUnassignedDocument = await api('POST', '/upload', {
     dataUrl: 'data:application/pdf;base64,JVBERi0xLjQKJUVPRgo=',
     filename: 'E2E-Teacher-Unassigned.pdf',
