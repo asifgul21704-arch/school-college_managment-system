@@ -7158,8 +7158,6 @@ router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent
     }
 
     const currentPending = Number(feeDoc.pending_amount) || 0;
-    const currentPaid = Number(feeDoc.paid_amount) || 0;
-    const currentTotal = Number(feeDoc.total_amount) || 0;
 
     if (currentPending <= 0 || feeDoc.status === 'Paid') {
       return res.status(400).json({ error: 'Fee voucher is already fully settled. No payment required.' });
@@ -7190,7 +7188,7 @@ router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent
 
     const parentName = parentDoc?.name || user.name || 'Parent/Guardian';
     const resolvedParentPhone = parent_phone || parentDoc?.phone || user.phone || '';
-    const paymentRef = `PAY-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const paymentRef = `PAY-${new Date().getFullYear()}-${crypto.randomUUID()}`;
     // Manual Bank Deposit / Wire Transfer (Requires Admin Verification)
       const cleanSlipRef = String(deposit_slip_ref || notes || '').trim();
 
