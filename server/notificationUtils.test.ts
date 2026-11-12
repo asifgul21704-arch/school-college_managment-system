@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createNotificationBatchId, createNotificationBatchOnce, validateParentNotificationAction } from './notificationUtils.ts';
+import { createNotificationBatchId, createNotificationBatchOnce, executeParentNotificationWorkflow, validateParentNotificationAction } from './notificationUtils.ts';
 
 const message = 'Fee reminder';
 const date = '2026-11-12';
@@ -76,4 +76,51 @@ test('concurrent retries remain idempotent with an atomic persistence adapter', 
 
   assert.equal(persisted.size, 2);
   assert.equal(results.reduce((sum, result) => sum + result.createdCount, 0), 2);
+});
+
+test('end-to-end confirmation workflow resolves linked parents and skips a replay', async () => {
+  const linkedParents = new Map([
+    ['student-1', ['parent-a', 'parent-a']],
+    ['student-2', ['parent-b']],
+  ]);
+  const persisted = new Set<string>();
+  const resolveParentIds = async (studentIds: string[]) =>
+    studentIds.flatMap(studentId => linkedParents.get(studentId) || []);
+  const createOnce = async (id: string, recipient: string) => {
+    const key = id + ':' + recipient;
+    if (persisted.has(key)) return false;
+    persisted.add(key);
+    return true;
+  };
+  const payload = {
+    actionId,
+    date,
+    message,
+    recipients: [{ studentId: 'student-1' }, { studentId: 'student-2' }],
+  };
+
+  const first = await executeParentNotificationWorkflow(
+    'SEND_SMS_FEES', payload, true, 'admin', resolveParentIds, createOnce
+  );
+  const replay = await executeParentNotificationWorkflow(
+    'SEND_SMS_FEES', payload, true, 'admin', resolveParentIds, createOnce
+  );
+
+  assert.deepEqual(first, { actionId, createdCount: 2, existingCount: 0, recipientCount: 2 });
+  assert.deepEqual(replay, { actionId, createdCount: 0, existingCount: 2, recipientCount: 2 });
+  assert.equal(persisted.size, 2);
+});
+
+test('end-to-end confirmation workflow refuses unlinked recipients', async () => {
+  await assert.rejects(
+    executeParentNotificationWorkflow(
+      'SEND_SMS_FEES',
+      validPayload,
+      true,
+      'admin',
+      async () => [],
+      async () => true
+    ),
+    /No verified linked parent accounts/
+  );
 });
