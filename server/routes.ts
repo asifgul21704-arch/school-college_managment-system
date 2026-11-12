@@ -6020,7 +6020,7 @@ router.get('/admissions/track/:applicationNo', contactRateLimiter, async (req: R
   }
 });
 
-router.get('/admissions', authenticateToken, requireRole(['super_admin', 'admin', 'teacher']), async (req: AuthenticatedRequest, res: Response) => {
+router.get('/admissions', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
   const { status, class_applying, startDate, endDate, from, to } = req.query;
 
   const rawStart = (startDate ?? from) as string | undefined;
@@ -6094,7 +6094,7 @@ router.get('/admissions', authenticateToken, requireRole(['super_admin', 'admin'
   }
 });
 
-router.put('/admissions/:id/status', authenticateToken, requireRole(['super_admin', 'admin', 'teacher']), async (req: AuthenticatedRequest, res: Response) => {
+router.put('/admissions/:id/status', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
   const { status, remarks } = req.body || {};
   if (!status) {
     return res.status(400).json({ error: 'Status is required' });
