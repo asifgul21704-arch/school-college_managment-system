@@ -2762,7 +2762,7 @@ export async function processAdminAiQuery(
     );
 
     return {
-      text: `### 🏫 Shawan School and College: Administrative Overview\n\n* **Total Active Students:** **${overview.totalStudents}**\n* **Active Faculty Members:** **${overview.totalTeachers}**\n* **Configured Classes:** **${overview.totalClasses}**\n* **Today's Attendance Rate:** **${overview.attendanceRate}%** (${overview.todayPresent}/${overview.todayMarked} marked)\n* **Tuition Fees Collected:** **PKR ${overview.totalCollectedFee.toLocaleString()}**\n* **Total Pending Dues:** **PKR ${overview.totalPendingFee.toLocaleString()}**\n* **New Admissions:** **${overview.approvedAdmissions}** Approved, **${overview.pendingAdmissions}** Pending\n\n*All statistics retrieved via live MongoDB Atlas database aggregation.*`,
+      text: `### 🏫 School and College Management System: Administrative Overview\n\n* **Total Active Students:** **${overview.totalStudents}**\n* **Active Faculty Members:** **${overview.totalTeachers}**\n* **Configured Classes:** **${overview.totalClasses}**\n* **Today's Attendance Rate:** **${overview.attendanceRate}%** (${overview.todayPresent}/${overview.todayMarked} marked)\n* **Tuition Fees Collected:** **PKR ${overview.totalCollectedFee.toLocaleString()}**\n* **Total Pending Dues:** **PKR ${overview.totalPendingFee.toLocaleString()}**\n* **New Admissions:** **${overview.approvedAdmissions}** Approved, **${overview.pendingAdmissions}** Pending\n\n*All statistics retrieved via live MongoDB Atlas database aggregation.*`,
       toolUsed: 'getSchoolOverview',
       data: overview,
       auditLogId: auditId,
