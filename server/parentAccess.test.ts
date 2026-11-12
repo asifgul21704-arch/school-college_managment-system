@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { collectParentStudentReferences } from './parentAccess.ts';
+import { collectParentStudentReferences, isParentLinkedToStudent } from './parentAccess.ts';
 
 test('parent access comes only from the current database User record', () => {
   const ids = collectParentStudentReferences({
@@ -33,4 +33,11 @@ test('missing and malformed link fields are safely ignored', () => {
 test('missing user record fails closed', () => {
   assert.equal(collectParentStudentReferences(null).size, 0);
   assert.equal(collectParentStudentReferences(undefined).size, 0);
+});
+
+test('parent can access only student identifiers in the current account link set', () => {
+  const linked = new Set(['student-a', 'ADM-001']);
+  assert.equal(isParentLinkedToStudent(linked, ['student-a', 'mongo-id-a']), true);
+  assert.equal(isParentLinkedToStudent(linked, ['student-b', 'ADM-002']), false);
+  assert.equal(isParentLinkedToStudent(linked, [null, '', undefined]), false);
 });
