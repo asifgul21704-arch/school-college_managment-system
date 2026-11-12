@@ -1,10 +1,25 @@
 const http = require('http');
-const jsonwebtoken = require('jsonwebtoken');
+const EXPECTED_DATABASE_NAME = process.env.E2E_EXPECTED_DATABASE_NAME;
+const TEST_USERS = {
+  superAdmin: [process.env.E2E_SUPER_ADMIN_EMAIL, process.env.E2E_SUPER_ADMIN_PASSWORD],
+  admin: [process.env.E2E_ADMIN_EMAIL, process.env.E2E_ADMIN_PASSWORD],
+  teacher: [process.env.E2E_TEACHER_EMAIL, process.env.E2E_TEACHER_PASSWORD],
+  student: [process.env.E2E_STUDENT_EMAIL, process.env.E2E_STUDENT_PASSWORD],
+  parent: [process.env.E2E_PARENT_EMAIL, process.env.E2E_PARENT_PASSWORD],
+};
 
-const JWT_SECRET = process.env.JWT_SECRET || 'shawan-school-and-college-secure-jwt-secret-2026-paharpur';
-
-function makeToken(payload) {
-  return jsonwebtoken.sign(payload, JWT_SECRET, { expiresIn: '1h' });
+function getHealth() {
+  return new Promise((resolve) => {
+    const req = http.get({ hostname: 'localhost', port: 3000, path: '/api/health' }, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, data: JSON.parse(body) }); }
+        catch { resolve({ status: res.statusCode, data: null }); }
+      });
+    });
+    req.on('error', () => resolve({ status: 500, data: null }));
+  });
 }
 
 function queryAi(prompt, extraBody = {}, token) {
@@ -44,6 +59,28 @@ function queryAi(prompt, extraBody = {}, token) {
 }
 
 async function runTests() {
+  if (process.env.E2E_ALLOW_AI_QUERIES !== 'true') {
+    throw new Error('Blocked: set E2E_ALLOW_AI_QUERIES=true only for an intentional local AI test run.');
+  }
+  if (!EXPECTED_DATABASE_NAME || !/^e2e[_-]/i.test(EXPECTED_DATABASE_NAME)) {
+    throw new Error('Blocked: E2E_EXPECTED_DATABASE_NAME must identify an isolated e2e_ or e2e- database.');
+  }
+  for (const [role, credentials] of Object.entries(TEST_USERS)) {
+    if (!credentials[0] || !credentials[1]) {
+      throw new Error(`Blocked: E2E credentials are required for the ${role} test account.`);
+    }
+  }
+  const health = await getHealth();
+  if (
+    health.status !== 200 ||
+    health.data?.connected !== true ||
+    health.data?.database?.connected !== true ||
+    health.data?.database?.isAtlas !== false ||
+    health.data?.database?.databaseName !== EXPECTED_DATABASE_NAME
+  ) {
+    throw new Error('Blocked: AI tests require the expected isolated local MongoDB database. No AI queries were sent.');
+  }
+
   console.log('====================================================');
   console.log('PHASE 2 — AI ASSISTANT ACCURACY & REAL DATABASE DATA');
   console.log('====================================================\n');
@@ -93,11 +130,11 @@ async function runTests() {
     });
   }
 
-  const superAdminToken = await loginRealUser('admin@shawanschool.edu.pk', 'AdminPassword123!');
-  const adminToken = await loginRealUser('office@shawanschool.edu.pk', 'AdminPassword123!');
-  const teacherToken = await loginRealUser('teacher@shawanschool.edu.pk', 'TeacherPassword123!');
-  const studentToken = await loginRealUser('student@shawanschool.edu.pk', 'StudentPassword123!');
-  const parentToken = await loginRealUser('parent@shawanschool.edu.pk', 'ParentPassword123!');
+  const superAdminToken = await loginRealUser(...TEST_USERS.superAdmin);
+  const adminToken = await loginRealUser(...TEST_USERS.admin);
+  const teacherToken = await loginRealUser(...TEST_USERS.teacher);
+  const studentToken = await loginRealUser(...TEST_USERS.student);
+  const parentToken = await loginRealUser(...TEST_USERS.parent);
 
   // ----------------------------------------------------
   // TEST GROUP 1: Natural Language Admissions & Date Ranges (Objectives 1, 3, 5)
