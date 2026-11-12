@@ -209,8 +209,11 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
     setAnnouncements([]);
     setFeeSummary(null);
     setPaymentHistory([]);
+    setPrintingResult(null);
+    setPrintingFee(null);
     setViewingReceiptPayment(null);
     setPayingFee(null);
+    setNewInquiryChildId('');
     setShowPayModal(false);
     setPayModalError(null);
     setPayModalSuccess(null);
