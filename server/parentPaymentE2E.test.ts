@@ -451,7 +451,7 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   assert.equal(fullyPaidFeeF?.pending_amount, 0);
   assert.equal(fullyPaidFeeF?.status, 'Paid');
   assert.equal(fullyPaidFeeF?.payment_history.length, 2);
-  assert.equal(fullyPaidFeeF?.payment_history.reduce((sum, payment) => sum + payment.amount, 0), 5000);
+  assert.equal(fullyPaidFeeF?.payment_history.reduce((sum: number, payment: { amount: number }) => sum + payment.amount, 0), 5000);
 
   const parentFHistory = await api('GET', '/parent/payments/history', undefined, parentFToken);
   assert.equal(parentFHistory.status, 200);
