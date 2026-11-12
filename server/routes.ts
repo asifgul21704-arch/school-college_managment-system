@@ -11093,7 +11093,7 @@ router.get('/teacher/dashboard', authenticateToken, requireExactRole(['teacher']
     );
 
     const [allStudentDocs, allTtDocs, annDocs, allAttDocs, allResDocs, assignmentDocs, taskDocs, notifCount] = await Promise.all([
-      StudentModel.find().lean(),
+      StudentModel.find(buildTeacherClassFilter(assignedClasses)).lean(),
       TimetableModel.find().sort({ created_at: 1, _id: 1 }).lean(),
       AnnouncementModel.find({
         published: { $ne: false },
@@ -11102,8 +11102,8 @@ router.get('/teacher/dashboard', authenticateToken, requireExactRole(['teacher']
         .sort({ created_at: -1, _id: -1 })
         .limit(5)
         .lean(),
-      AttendanceModel.find().sort({ date: -1, created_at: -1, _id: -1 }).lean(),
-      ResultModel.find().sort({ created_at: -1, _id: -1 }).lean(),
+      AttendanceModel.find(buildTeacherClassFilter(assignedClasses)).sort({ date: -1, created_at: -1, _id: -1 }).lean(),
+      ResultModel.find(buildTeacherClassFilter(assignedClasses)).sort({ created_at: -1, _id: -1 }).lean(),
       TeacherAssignmentModel.find({ teacher_id: { $in: teacherIds } }).lean(),
       TeacherTaskModel.find({ teacher_id: { $in: teacherIds } }).sort({ due_date: 1 }).lean(),
       NotificationModel.countDocuments({
@@ -11306,10 +11306,10 @@ router.get('/teacher/classes', authenticateToken, requireExactRole(['teacher']),
     const todayDate = new Date().toISOString().split('T')[0];
     const assignedClasses = teacher.classes || [];
     const [allClassDocs, allSectionDocs, allStudentDocs, todayAttDocs] = await Promise.all([
-      ClassModel.find().lean(),
-      SectionModel.find().sort({ created_at: 1, _id: 1 }).lean(),
-      StudentModel.find().select('class_name section').lean(),
-      AttendanceModel.find({ date: todayDate }).select('class_name').lean(),
+      ClassModel.find(buildTeacherClassFilter(assignedClasses)).lean(),
+      SectionModel.find(buildTeacherClassFilter(assignedClasses)).sort({ created_at: 1, _id: 1 }).lean(),
+      StudentModel.find(buildTeacherClassFilter(assignedClasses)).select('class_name section').lean(),
+      AttendanceModel.find({ date: todayDate, ...buildTeacherClassFilter(assignedClasses) }).select('class_name').lean(),
     ]);
 
     const classList = assignedClasses.map(className => {
@@ -11362,7 +11362,8 @@ router.get('/teacher/students', authenticateToken, requireExactRole(['teacher'])
       }
     }
 
-    const allStudentDocs = await StudentModel.find().sort({ created_at: 1, _id: 1 }).lean();
+    const studentFilter = buildTeacherClassFilter(assignedClasses);
+    const allStudentDocs = await StudentModel.find(studentFilter).sort({ created_at: 1, _id: 1 }).lean();
     let matchedDocs = allStudentDocs.filter(doc =>
       isClassAssignedToTeacher(assignedClasses, String(doc.class_name || ''))
     );
@@ -11453,7 +11454,7 @@ router.get('/teacher/attendance', authenticateToken, requireExactRole(['teacher'
       }
     }
 
-    const allAttDocs = await AttendanceModel.find().sort({ date: -1, created_at: -1, _id: -1 }).lean();
+    const allAttDocs = await AttendanceModel.find(buildTeacherClassFilter(assignedClasses)).sort({ date: -1, created_at: -1, _id: -1 }).lean();
     let records = allAttDocs
       .map(toAttendanceDto)
       .filter(a => isClassAssignedToTeacher(assignedClasses, a.class_name));
@@ -11665,7 +11666,7 @@ router.get('/teacher/results', authenticateToken, requireExactRole(['teacher']),
       }
     }
 
-    const allResDocs = await ResultModel.find().sort({ created_at: -1, _id: -1 }).lean();
+    const allResDocs = await ResultModel.find(buildTeacherClassFilter(assignedClasses)).sort({ created_at: -1, _id: -1 }).lean();
     let results = allResDocs
       .map(toResultDto)
       .filter(r =>
