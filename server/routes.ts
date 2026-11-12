@@ -7316,7 +7316,7 @@ router.post('/parent/payments/initiate', authenticateToken, sensitiveActionRateL
 });
 
 // 4. Parent Payment History
-router.get('/parent/payments/history', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/parent/payments/history', authenticateToken, requireRole(['parent', 'student', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   try {
     const user = req.user!;
@@ -7332,7 +7332,10 @@ router.get('/parent/payments/history', authenticateToken, async (req: Authentica
       const studentDoc = await StudentModel.findOne({
         $or: [{ user_id: user.id }, { email: user.email.toLowerCase() }],
       }).lean();
-      const myId = studentDoc?.record_id || studentDoc?._id.toString();
+      if (!studentDoc) {
+        return res.json([]);
+      }
+      const myId = studentDoc.record_id || studentDoc._id.toString();
       query = { student_id: myId };
     } else {
       query = {};
