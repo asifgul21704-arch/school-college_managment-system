@@ -2425,7 +2425,7 @@ router.post('/parents/unlink-child', authenticateToken, requireRole(['parent']),
         cond: { $not: [{ $in: ['$$linkedId', idsToRemove] }] },
       },
     };
-    await UserModel.updateOne(
+    const unlinkResult = await UserModel.updateOne(
       { _id: userDoc._id, role: 'parent' },
       [{
         $set: {
@@ -2439,6 +2439,16 @@ router.post('/parents/unlink-child', authenticateToken, requireRole(['parent']),
           },
         },
       }]
+    );
+    if (unlinkResult.matchedCount !== 1) {
+      return res.status(409).json({ error: 'Parent account changed during unlink. Refresh and try again.' });
+    }
+
+    // Release the student's ownership only when it is still assigned to this parent.
+    // This allows a different verified parent to link the student after unlink.
+    await StudentModel.updateOne(
+      buildStudentParentReleaseFilter(studentDoc._id, canonicalUserId, userDoc._id.toString()),
+      { $unset: { parent_user_id: '' } }
     );
 
     await ParentModel.updateMany(
