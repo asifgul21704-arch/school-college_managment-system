@@ -6950,7 +6950,7 @@ router.delete('/fees/:id', authenticateToken, requireRole(['super_admin', 'admin
 // ==========================================
 
 // 1. Get Outstanding Fee Summary for Parent or Student
-router.get('/parent/fees/summary', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/parent/fees/summary', authenticateToken, requireRole(['parent', 'student', 'admin', 'super_admin']), async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   try {
     const user = req.user!;
