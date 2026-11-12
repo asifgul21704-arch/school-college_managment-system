@@ -2037,7 +2037,7 @@ export const ControlledSchoolTools = {
 
     return {
       success: true,
-      message: `Action recorded and verified! Logged notifications for ${recipients.length} recipient(s). All events recorded in MongoDB AuditLog.`,
+      message: `Recorded ${recipients.length} in-app notification record(s) and saved the action to the MongoDB audit log. No SMS was sent: an SMS gateway integration is not implemented in this workflow.`,
       dispatchedCount: recipients.length,
       auditLogId: auditId,
     };
@@ -2168,7 +2168,7 @@ export async function processAdminAiQuery(
       `Admin initiated sensitive notification for ${isFee ? 'fee reminder' : 'absent alert'}. Confirmation required.`
     );
     return {
-      text: `⚠️ **Admin Confirmation Required**\n\nYou have requested to dispatch notifications. In accordance with school safety protocols, this sensitive action requires explicit admin confirmation before processing.\n\nPlease review the details below and confirm to proceed.`,
+      text: `⚠️ **Admin Confirmation Required**\n\nYou have requested to create in-app notification records. Review the recipients and message before confirming. This workflow does not send SMS messages because an SMS gateway integration is not implemented.\n\nPlease review the details below and confirm to proceed.`,
       toolUsed: 'prepareSmsAction',
       requiresConfirmation: true,
       pendingAction: smsPrep.pendingAction,
@@ -3415,7 +3415,7 @@ export async function processAdminAiQuery(
   );
 
   return {
-    text: `I am the **Shawan School and College Admin AI Assistant** connected strictly to authoritative MongoDB Atlas school collections (no fabricated or guessed records).\n\n### 💡 Supported Database Queries:\n* **Admissions:** *"Show new admitted students"*, *"Show recent admissions this month"*\n* **Student Records:** *"Give me the complete record of this student"*, *"Show student attendance and fee status"*, *"Show parent details for this student"*\n* **Faculty Dossiers:** *"Show teacher details and assigned classes"*, *"Show assigned subjects for teacher [Name]"*\n* **Multi-Tool Queries:** *"Show students who have attendance below 75% AND unpaid fees"*, *"Prepare a parent warning list for students below 75% attendance"*, *"Find parents of all students with unpaid fees"*\n* **School-Wide Reports:** *"Give me the school overview"*, *"Give me a summary of today's school attendance"*, *"Give me a summary of pending fees"*, *"Which classes have the highest number of absences?"*, *"How many students are in each class?"*\n* **Administrative Actions:** *"Draft fee reminder for students with unpaid fees"*, *"Send SMS alert to absent students"*${providerUnavailableBanner}`,
+    text: `I am the **School and College Management System Admin AI Assistant**, connected strictly to authoritative MongoDB school collections (no fabricated or guessed records).\n\n### 💡 Supported Database Queries:\n* **Admissions:** *"Show new admitted students"*, *"Show recent admissions this month"*\n* **Student Records:** *"Give me the complete record of this student"*, *"Show student attendance and fee status"*, *"Show parent details for this student"*\n* **Faculty Dossiers:** *"Show teacher details and assigned classes"*, *"Show assigned subjects for teacher [Name]"*\n* **Multi-Tool Queries:** *"Show students who have attendance below 75% AND unpaid fees"*, *"Prepare a parent warning list for students below 75% attendance"*, *"Find parents of all students with unpaid fees"*\n* **School-Wide Reports:** *"Give me the school overview"*, *"Give me a summary of today's school attendance"*, *"Give me a summary of pending fees"*, *"Which classes have the highest number of absences?"*, *"How many students are in each class?"*\n* **Administrative Actions:** *"Draft fee reminder for students with unpaid fees"*, *"Send SMS alert to absent students"*${providerUnavailableBanner}`,
     toolUsed: 'generalHelp',
     auditLogId: auditId,
     aiProviderStatus: providerStatus,
