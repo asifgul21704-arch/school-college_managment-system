@@ -20,7 +20,7 @@ import {
 import mongoose from 'mongoose';
 import { GoogleGenAI } from '@google/genai';
 import { sanitizeErrorMessage } from '../config/db.ts';
-import { createNotificationBatchId, createNotificationBatchOnce, validateParentNotificationAction } from '../notificationUtils.ts';
+import { createNotificationBatchId, executeParentNotificationWorkflow } from '../notificationUtils.ts';
 
 export interface AdminAiQueryContext {
   userId: string;
@@ -1998,28 +1998,19 @@ export const ControlledSchoolTools = {
     confirmed: boolean,
     context: AdminAiQueryContext
   ) {
-    const { actionId, studentIds, message } = validateParentNotificationAction(
+    // Resolve recipients again on the server at execution time; never trust client-supplied parent user IDs.
+    const batchResult = await executeParentNotificationWorkflow(
       actionType,
       payload,
       confirmed,
-      context.userRole
-    );
-
-    // Resolve recipients again on the server at execution time; never trust client-supplied parent user IDs.
-    const parentDocs = await ParentModel.find({ linked_students: { $in: studentIds } })
-      .select('user_id linked_students')
-      .lean();
-    const uniqueParentIds = new Set(
-      parentDocs.map(parent => String(parent.user_id || '').trim()).filter(Boolean)
-    );
-    if (uniqueParentIds.size === 0) {
-      throw new Error('No verified linked parent accounts found. No notifications were created.');
-    }
-
-    const batchResult = await createNotificationBatchOnce(
-      actionId,
-      Array.from(uniqueParentIds),
-      async (batchId, userId) => {
+      context.userRole,
+      async studentIds => {
+        const parentDocs = await ParentModel.find({ linked_students: { $in: studentIds } })
+          .select('user_id linked_students')
+          .lean();
+        return parentDocs.map(parent => String(parent.user_id || '').trim()).filter(Boolean);
+      },
+      async (batchId, userId, message) => {
         try {
           const result = await NotificationModel.updateOne(
             { action_id: batchId, user_id: userId },
@@ -2046,12 +2037,13 @@ export const ControlledSchoolTools = {
         }
       }
     );
+    const { actionId } = batchResult;
 
     const auditId = await recordAuditLog(
       context,
       `AI_ACTION_EXECUTED_${actionType}`,
       'IN_APP_NOTIFICATION',
-      `Notification batch ${actionId}: created ${batchResult.createdCount}, already existed ${batchResult.existingCount}, for ${uniqueParentIds.size} linked parent accounts. No SMS was sent.`
+      `Notification batch ${actionId}: created ${batchResult.createdCount}, already existed ${batchResult.existingCount}, for ${batchResult.recipientCount} linked parent accounts. No SMS was sent.`
     );
     return {
       success: true,
