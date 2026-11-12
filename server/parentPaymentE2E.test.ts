@@ -13,6 +13,8 @@ import { ExamModel } from './models/Exam.ts';
 import { ResultModel } from './models/Result.ts';
 import { NotificationModel } from './models/Notification.ts';
 import { StoredDocumentModel } from './models/StoredDocument.ts';
+import { AdmissionModel } from './models/Admission.ts';
+import { EnrollmentModel } from './models/Enrollment.ts';
 
 const API = process.env.E2E_API_BASE_URL || 'http://127.0.0.1:3000/api';
 const PASSWORD = 'E2eStrongPass!2026';
@@ -130,6 +132,8 @@ before(async () => {
     ResultModel.init(),
     NotificationModel.init(),
     StoredDocumentModel.init(),
+    AdmissionModel.init(),
+    EnrollmentModel.init(),
   ]);
 
   const adminPasswordHash = await bcrypt.hash(PASSWORD, 10);
@@ -639,6 +643,14 @@ test('parent/student permissions, unlink invalidation, and payment history work 
     createStudentRecord: true,
   }, teacherToken);
   assert.equal(teacherCannotApproveAdmission.status, 403);
+  const teacherCannotUseAdminAi = await api('POST', '/admin/ai/query', { prompt: 'show school fee summary' }, teacherToken);
+  assert.equal(teacherCannotUseAdminAi.status, 403);
+  const teacherCannotUseStudentPortalAi = await api('POST', '/portal/ai/query', { prompt: 'show my attendance' }, teacherToken);
+  assert.equal(teacherCannotUseStudentPortalAi.status, 403);
+  const parentCannotUseTeacherAi = await api('POST', '/teacher/ai/query', { prompt: 'show my assigned classes' }, parentAToken);
+  assert.equal(parentCannotUseTeacherAi.status, 403);
+  const studentCannotUseTeacherAi = await api('POST', '/teacher/ai/query', { prompt: 'show my assigned classes' }, studentA.token);
+  assert.equal(studentCannotUseTeacherAi.status, 403);
   const teacherReadsAssignedDocument = await api('GET', `/documents/${encodeURIComponent(privateDocumentFilename)}`, undefined, teacherToken);
   assert.equal(teacherReadsAssignedDocument.status, 200);
   const teacherRoster = await api('GET', '/students', undefined, teacherToken);
@@ -796,4 +808,71 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   assert.ok(!verifiedCollections.data.some((row: any) => row.id === paymentEId));
   const teacherCannotReadCollections = await api('GET', '/finance/collections', undefined, teacherToken);
   assert.equal(teacherCannotReadCollections.status, 403);
+
+  // Public admission applications are deduplicated and public tracking redacts PII.
+  const admissionPayload = {
+    student_name: `E2E Admission Student ${RUN_ID}`,
+    father_name: `E2E Admission Father ${RUN_ID}`,
+    dob: '2012-05-10',
+    gender: 'Female',
+    class_applying: 'Class 6',
+    previous_school: 'E2E Previous School',
+    parent_phone: '03001234567',
+    parent_email: `admission-${RUN_ID}@e2e.invalid`,
+    address: 'E2E Private Address',
+    documents: [{ title: 'Birth Certificate', filename: '../private-birth-certificate.pdf' }],
+  };
+  const admissionSubmitted = await api('POST', '/admissions/apply', admissionPayload);
+  assert.equal(admissionSubmitted.status, 201, JSON.stringify(admissionSubmitted.data));
+  const admissionNo = admissionSubmitted.data.application_no as string;
+  const admissionId = admissionSubmitted.data.application.id as string;
+  assert.ok(admissionNo.startsWith('ADM-'));
+  assert.equal(admissionSubmitted.data.application.status, 'Pending');
+
+  const duplicateAdmission = await api('POST', '/admissions/apply', admissionPayload);
+  assert.equal(duplicateAdmission.status, 409);
+  assert.equal(duplicateAdmission.data.application_no, admissionNo);
+
+  const publicAdmissionTracking = await api('GET', `/admissions/track/${encodeURIComponent(admissionNo)}`);
+  assert.equal(publicAdmissionTracking.status, 200);
+  assert.equal(publicAdmissionTracking.data.application_no, admissionNo);
+  assert.notEqual(publicAdmissionTracking.data.parent_phone, admissionPayload.parent_phone);
+  assert.notEqual(publicAdmissionTracking.data.parent_email, admissionPayload.parent_email);
+  assert.equal(publicAdmissionTracking.data.address, 'Masked for applicant privacy');
+  assert.deepEqual(publicAdmissionTracking.data.documents, []);
+
+  const adminAdmissions = await api('GET', '/admissions?status=Pending', undefined, adminToken);
+  assert.equal(adminAdmissions.status, 200);
+  assert.ok(adminAdmissions.data.some((application: any) => application.id === admissionId));
+
+  const approvedAdmission = await api('PUT', `/admissions/${encodeURIComponent(admissionId)}/status`, {
+    status: 'Approved',
+    remarks: 'E2E admin approval',
+    createStudentRecord: true,
+  }, adminToken);
+  assert.equal(approvedAdmission.status, 200, JSON.stringify(approvedAdmission.data));
+  assert.equal(approvedAdmission.data.application.status, 'Approved');
+  const admittedStudent = await StudentModel.findOne({
+    full_name: admissionPayload.student_name,
+    father_name: admissionPayload.father_name,
+  }).lean();
+  assert.ok(admittedStudent);
+  const activeEnrollment = await EnrollmentModel.findOne({ student_id: admittedStudent?.record_id, status: 'Active' }).lean();
+  assert.ok(activeEnrollment);
+
+  const admissionApprovalReplay = await api('PUT', `/admissions/${encodeURIComponent(admissionId)}/status`, {
+    status: 'Approved',
+    remarks: 'E2E repeated approval',
+    createStudentRecord: true,
+  }, adminToken);
+  assert.equal(admissionApprovalReplay.status, 200, JSON.stringify(admissionApprovalReplay.data));
+  assert.equal(await StudentModel.countDocuments({
+    full_name: admissionPayload.student_name,
+    father_name: admissionPayload.father_name,
+  }), 1);
+  assert.equal(await EnrollmentModel.countDocuments({ student_id: admittedStudent?.record_id, status: 'Active' }), 1);
+
+  const approvedAdmissionTracking = await api('GET', `/admissions/track/${encodeURIComponent(admissionNo)}`);
+  assert.equal(approvedAdmissionTracking.status, 200);
+  assert.equal(approvedAdmissionTracking.data.status, 'Approved');
 });
