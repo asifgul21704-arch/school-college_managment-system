@@ -30,3 +30,33 @@ test('parent portal AI includes admission number when matching child records', (
   assert.match(route, /FeeModel\.find\(\{ student_id: \{ \$in: parentIdList \} \}\)/);
   assert.match(route, /ResultModel\.find\(\{ student_id: \{ \$in: parentIdList \}, published: \{ \$ne: false \} \}\)/);
 });
+
+
+const studentPortal = readFileSync(new URL('../src/components/StudentPortal.tsx', import.meta.url), 'utf8');
+
+test('parent unlink clears child-specific payment and academic data from the current browser session', () => {
+  assert.match(studentPortal, /const clearStudentScopedData = \(\) =>/);
+  for (const setter of [
+    'setStudent(null)',
+    'setAttendanceData(null)',
+    'setFees([])',
+    'setResults([])',
+    'setTimetable([])',
+    'setFeeSummary(null)',
+    'setPaymentHistory([])',
+    'setViewingReceiptPayment(null)',
+    'setPayingFee(null)',
+    'setShowPayModal(false)',
+  ]) {
+    assert.ok(studentPortal.includes(setter), `Missing stale-data reset: ${setter}`);
+  }
+  assert.match(studentPortal, /else \{[\s\S]*?setSelectedStudentId\(''\)[\s\S]*?clearStudentScopedData\(\)/);
+});
+
+test('child portal request versions prevent late responses restoring data after unlink or child switch', () => {
+  assert.match(studentPortal, /const portalLoadVersionRef = useRef\(0\)/);
+  assert.match(studentPortal, /const requestVersion = portalLoadVersionRef\.current/);
+  assert.match(studentPortal, /requestVersion !== portalLoadVersionRef\.current/);
+  assert.match(studentPortal, /loadPaymentData\(targetStudentId, requestVersion\)/);
+  assert.match(studentPortal, /parentChildrenLoadVersionRef\.current \+= 1/);
+});
