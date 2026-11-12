@@ -1937,14 +1937,14 @@ export const ControlledSchoolTools = {
           phone: a.phone,
         }));
 
-      const messageText = `محترم والدین! آپ کا بچہ آج شوان سکول سے غیر حاضر ہے۔ براہ کرم وجہ کی اطلاع دیں۔ شوان سکول پہاڑ پور۔`;
+      const messageText = `محترم والدین! آپ کا بچہ آج اسکول سے غیر حاضر ہے۔ براہ کرم وجہ کی اطلاع دیں۔ شکریہ۔`;
 
       return {
         requiresConfirmation: true,
         pendingAction: {
           actionType: 'SEND_SMS_ABSENT',
-          title: `Send Absent Alert SMS (${recipients.length} Parents)`,
-          description: `This will prepare dispatch of automated notifications to parents of ${recipients.length} absent students for ${absentData.date}.`,
+          title: `Create Absent Alert Notifications (${recipients.length} Parents)`,
+          description: `After confirmation, this will create in-app notification records for parents of ${recipients.length} absent students for ${absentData.date}. No SMS will be sent.`,
           payload: {
             recipients,
             date: absentData.date,
@@ -1965,14 +1965,14 @@ export const ControlledSchoolTools = {
           dueAmount: s.totalDue,
         }));
 
-      const messageText = `محترم والدین! شوان سکول کی واجب الادا فیس جلد جمع کرائیں۔ شکریہ - شوان سکول اینڈ کالج پہاڑ پور۔`;
+      const messageText = `محترم والدین! براہ کرم واجب الادا فیس جلد جمع کرائیں۔ شکریہ۔ اسکول انتظامیہ۔`;
 
       return {
         requiresConfirmation: true,
         pendingAction: {
           actionType: 'SEND_SMS_FEES',
-          title: `Send Fee Reminder SMS (${recipients.length} Parents)`,
-          description: `This will dispatch notifications to parents of ${recipients.length} students with outstanding fees totaling PKR ${feeData.grandTotalDue.toLocaleString()}.`,
+          title: `Create Fee Reminder Notifications (${recipients.length} Parents)`,
+          description: `After confirmation, this will create in-app notification records for parents of ${recipients.length} students with outstanding fees totaling PKR ${feeData.grandTotalDue.toLocaleString()}. No SMS will be sent.`,
           payload: {
             recipients,
             grandTotalDue: feeData.grandTotalDue,
@@ -1987,8 +1987,8 @@ export const ControlledSchoolTools = {
         requiresConfirmation: true,
         pendingAction: {
           actionType: 'SEND_SMS_CUSTOM',
-          title: 'Send Custom Broadcast Notification',
-          description: 'Dispatch custom administrative notification to recipients.',
+          title: 'Create Custom In-App Notification',
+          description: 'Create an in-app administrative notification after confirmation. No SMS will be sent.',
           payload: { message: customMessage || '' },
           recipientCount: 1,
           previewText: customMessage || '',
@@ -2031,7 +2031,7 @@ export const ControlledSchoolTools = {
     const auditId = await recordAuditLog(
       context,
       `AI_ACTION_EXECUTED_${actionType}`,
-      'SMS_GATEWAY',
+      'IN_APP_NOTIFICATION',
       `Admin confirmed and logged notification alert for ${recipients.length} recipients.`
     );
 
