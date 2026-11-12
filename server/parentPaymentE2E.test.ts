@@ -177,7 +177,7 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   const paymentAId = paymentA.data.payment.id;
 
   // Exact retry is idempotent: it recovers the original payment instead of duplicating it.
-  const paymentARetry = await submitBankPayment(parentAToken, feeA, studentA.id, 'E2E-SLIP-A-001');
+  const paymentARetry = await submitBankPayment(parentAToken, feeA, studentA.id, `E2E-SLIP-A-${RUN_ID}`);
   assert.equal(paymentARetry.status, 200, JSON.stringify(paymentARetry.data));
   assert.equal(paymentARetry.data.idempotent_replay, true);
   assert.equal(await FeePaymentModel.countDocuments({ transaction_id: `E2E-SLIP-A-${RUN_ID}` }), 1);
