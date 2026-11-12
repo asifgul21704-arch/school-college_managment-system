@@ -80,11 +80,7 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
     const [year, month] = monthFilter.split('-').map(Number);
     const matchesVoucherPeriod = Number(f.year) === year && monthNumber(String(f.fee_month || '')) === month;
     return matchesVoucherPeriod || dateKey(f.due_date).startsWith(monthFilter);
-  }), [fees, classFilter, monthFilter]);() => fees.filter(f =>
-    (classFilter === 'all' || f.class_name === classFilter) &&
-    (!monthFilter || `${f.year}-${String(f.fee_month || '').match(/\d+/)?.[0]?.padStart(2, '0') || ''}`.startsWith(monthFilter) ||
-      dateKey(f.due_date).startsWith(monthFilter))
-  ), [fees, classFilter, monthFilter]);
+  }), [fees, classFilter, monthFilter]);
 
   const filteredAttendance = useMemo(() => attendance.filter(a =>
     (classFilter === 'all' || a.class_name === classFilter) &&
