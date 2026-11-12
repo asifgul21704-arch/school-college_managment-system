@@ -7171,6 +7171,10 @@ router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent
     return res.status(400).json({ error: 'Fee voucher ID is required' });
   }
 
+  if (!isSafeMediaOrWebUrl(receipt_attachment_url, true)) {
+    return res.status(400).json({ error: 'Receipt attachment must be a safe image or HTTPS/HTTP URL.' });
+  }
+
   const paymentMode = getParentPaymentMethodMode(method);
   if (paymentMode === 'gateway_unavailable') {
     return res.status(503).json({
@@ -7277,6 +7281,7 @@ router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent
     }
 
     const paymentRef = `PAY-${new Date().getFullYear()}-${crypto.randomUUID()}`;
+    const paymentMethodLabel = String(method || '').trim().toLowerCase() === 'bank transfer' ? 'Bank Transfer' : 'Bank Deposit';
     // Manual Bank Deposit / Wire Transfer (Requires Admin Verification)
     const paymentDoc = await FeePaymentModel.create({
         fee_id: feeDoc.voucher_id || feeDoc._id.toString(),
@@ -7286,7 +7291,7 @@ router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent
         transaction_id: cleanSlipRef,
         date: deposit_date || new Date().toISOString().split('T')[0],
         amount: paymentAmount,
-        method: (method === 'Bank Transfer' ? 'Bank Transfer' : 'Bank Deposit') as any,
+        method: paymentMethodLabel as any,
         status: 'Pending Verification',
         verification_status: 'Pending',
         parent_user_id: user.id,
@@ -7297,12 +7302,12 @@ router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent
         class_name: feeDoc.class_name,
         fee_month: feeDoc.fee_month,
         year: feeDoc.year,
-        bank_name: bank_name || '',
+        bank_name: sanitizePlainText(bank_name, 120),
         account_number: account_number || '',
         deposit_date: deposit_date || new Date().toISOString().split('T')[0],
         deposit_slip_ref: cleanSlipRef,
         receipt_attachment_url: receipt_attachment_url || '',
-        notes: notes || 'Bank deposit submitted by parent, awaiting verification',
+        notes: sanitizePlainText(notes || 'Bank deposit submitted by parent, awaiting verification', 1000),
         received_by: 'Accounts Office (Pending Review)',
       });
 
@@ -7364,7 +7369,7 @@ router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent
           parent_user_id: user.id,
         }).lean();
 
-        const expectedMethod = method === 'Bank Transfer' ? 'Bank Transfer' : 'Bank Deposit';
+        const expectedMethod = String(method || '').trim().toLowerCase() === 'bank transfer' ? 'Bank Transfer' : 'Bank Deposit';
         const exactRetry = Boolean(
           retryFeeDoc &&
           isExactParentPaymentRetry(existingPayment, {
