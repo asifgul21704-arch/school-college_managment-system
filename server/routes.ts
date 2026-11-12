@@ -7312,6 +7312,11 @@ router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent
         fee: toFeeDto(feeDoc),
       });
   } catch (err: any) {
+    if (err?.code === 11000) {
+      return res.status(409).json({
+        error: 'This bank deposit reference has already been submitted. Check payment history before retrying.',
+      });
+    }
     return sendRouteError(res, err, 'Failed to process fee payment');
   }
 });
