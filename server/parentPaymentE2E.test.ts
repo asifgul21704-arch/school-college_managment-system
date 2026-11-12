@@ -265,6 +265,10 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   // Student access and the other parent's payment history remain independent of parent unlinking.
   const studentAStillOwnsRecord = await api('GET', `/students/${encodeURIComponent(studentA.id)}`, undefined, studentA.token);
   assert.equal(studentAStillOwnsRecord.status, 200);
+  const studentAHistoryAfterParentUnlinks = await api('GET', '/parent/payments/history', undefined, studentA.token);
+  assert.equal(studentAHistoryAfterParentUnlinks.status, 200);
+  assert.equal(studentAHistoryAfterParentUnlinks.data.length, 1);
+  assert.equal(studentAHistoryAfterParentUnlinks.data[0].student_id, studentA.id);
   const parentBStillOwnsChild = await api('GET', `/students/${encodeURIComponent(studentB.id)}`, undefined, parentBToken);
   assert.equal(parentBStillOwnsChild.status, 200);
   const parentBHistoryAfterUnlinks = await api('GET', '/parent/payments/history', undefined, parentBToken);
