@@ -50,3 +50,13 @@ test('parent payment history is restricted to currently linked student IDs only'
   assert.deepEqual(buildParentPaymentHistoryFilter(new Set()), { student_id: { $in: [] } });
   assert.equal('parent_user_id' in buildParentPaymentHistoryFilter(new Set(['student-a'])), false);
 });
+
+test('guardian link confirmation requires an exact father name match', async () => {
+  const { isExactGuardianNameMatch } = await import('./parentAccess.ts');
+  assert.equal(isExactGuardianNameMatch('Muhammad Asif Khan', '  muhammad   asif khan '), true);
+  assert.equal(isExactGuardianNameMatch('Muhammad Asif Khan', 'Asif Khan'), false);
+  assert.equal(isExactGuardianNameMatch('Muhammad Asif Khan', 'Muhammad Asif'), false);
+  assert.equal(isExactGuardianNameMatch('Muhammad Asif Khan', 'Muhammad Asif Khan Jr'), false);
+  assert.equal(isExactGuardianNameMatch('', 'Muhammad Asif Khan'), false);
+  assert.equal(isExactGuardianNameMatch('Muhammad Asif Khan', ''), false);
+});
