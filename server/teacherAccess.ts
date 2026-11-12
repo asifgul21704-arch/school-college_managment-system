@@ -19,3 +19,9 @@ export function isExactTeacherSubject(assignedSubjects: unknown[], requestedSubj
   return Boolean(requested && Array.isArray(assignedSubjects) &&
     assignedSubjects.some(subject => normalize(subject) === requested));
 }
+
+/** A teacher may change a result only when every recorded subject is assigned to them. */
+export function areAllResultSubjectsAssignedToTeacher(assignedSubjects: unknown[], resultSubjects: unknown[]): boolean {
+  return Array.isArray(resultSubjects) && resultSubjects.length > 0 &&
+    resultSubjects.every(subject => isExactTeacherSubject(assignedSubjects, subject));
+}
