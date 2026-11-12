@@ -49,7 +49,7 @@ export const AdminAiAssistant: React.FC<AdminAiAssistantProps> = ({ initialPromp
     {
       id: 'welcome',
       sender: 'assistant',
-      text: `### Shawan School & College Admin AI Assistant\n\nQuery live school collections with role-authorized verification.\n\n* **Faculty Records:** Request complete teacher profiles, qualifications, or assigned classes (e.g. *"Give me the complete record of teacher Muhammad Ali"*)\n* **Student Dossiers:** Inspect student profiles, guardian contacts, attendance rates, or fee ledgers (e.g. *"Show me Ahmad Khan's complete student profile"*)\n* **Operational Audits:** Filter low attendance, check today's absentees, or list unpaid fee vouchers\n* **Controlled Actions:** Draft fee reminders or prepare parent SMS alerts with mandatory administrator confirmation\n\nSelect a suggested inquiry below or enter a question:`,
+      text: `### School and College Management System with AI Assistant\n\nQuery live school collections with role-authorized verification.\n\n* **Faculty Records:** Request complete teacher profiles, qualifications, or assigned classes (e.g. *"Give me the complete record of teacher Muhammad Ali"*)\n* **Student Dossiers:** Inspect student profiles, guardian contacts, attendance rates, or fee ledgers (e.g. *"Show me Ahmad Khan's complete student profile"*)\n* **Operational Audits:** Filter low attendance, check today's absentees, or list unpaid fee vouchers\n* **Controlled Actions:** Draft fee reminders or prepare in-app parent notifications with mandatory administrator confirmation\n\nSelect a suggested inquiry below or enter a question:`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       toolUsed: 'systemInit',
     },
@@ -264,7 +264,7 @@ export const AdminAiAssistant: React.FC<AdminAiAssistantProps> = ({ initialPromp
     { label: "Today's Absent", query: "Show today's absent students." },
     { label: 'Unpaid Fees List', query: 'Show students with unpaid fees.' },
     { label: 'Draft Fee Reminder', query: 'Draft fee reminder for students with unpaid fees.' },
-    { label: 'Absent Parent Notification', query: 'Send SMS alert to absent students.' },
+    { label: 'Absent Parent Notification', query: 'Create in-app parent notifications for today’s absent students.' },
   ];
 
   const adminDisplayName = user?.name || 'Administrator';
