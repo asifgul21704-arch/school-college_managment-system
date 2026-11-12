@@ -91,7 +91,7 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
         api.getAttendance(),
         api.getFinanceExpenses(),
         api.getFinancePayroll(),
-        api.getFinanceCollections(),
+        api.getFinanceCollections({ month: monthFilter || undefined }),
         api.getTeachers(),
         api.getEnrollments(),
       ]);
@@ -111,7 +111,7 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
     }
   };
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [monthFilter]);
 
   const classes = useMemo(() => Array.from(new Set([
     ...fees.map(f => f.class_name),
@@ -288,7 +288,7 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
     { id: 'payroll', label: 'Payroll', icon: Wallet },
   ];
 
-  if (loading) return <div className="rounded-2xl border border-neutral-200 bg-white p-10 text-center"><RefreshCw className="mx-auto mb-3 h-6 w-6 animate-spin text-emerald-800" /><p className="text-sm font-semibold text-neutral-800">Loading live reports…</p><p className="mt-1 text-xs text-neutral-500">Reading fee and attendance records from the school database.</p></div>;
+  if (loading) return <div className="rounded-2xl border border-neutral-200 bg-white p-10 text-center"><RefreshCw className="mx-auto mb-3 h-6 w-6 animate-spin text-emerald-800" /><p className="text-sm font-semibold text-neutral-800">Loading live reports…</p><p className="mt-1 text-xs text-neutral-500">Reading fees, attendance, verified collections, staff and enrollment records from the school database.</p></div>;
 
   return (
     <section className="space-y-6">
@@ -301,7 +301,7 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
         <div className="flex flex-wrap gap-2">
           <button onClick={() => void load(true)} disabled={refreshing} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} /> Refresh</button>
           <button onClick={() => {
-            const rows = tab === 'fees' ? feeRows : tab === 'attendance' ? attendanceRows : tab === 'sessions' ? sessionSummary.map(row => ({ Session: row.academicYear, Students: row.uniqueStudents, Enrollments: row.enrollments, Active: row.active, Completed: row.completed, Transferred: row.transferred, Dropped: row.dropped })) : tab === 'expenses' ? filteredExpenses.map(e => ({ Date: e.expense_date, Title: e.title, Category: e.category, Amount: e.amount, Method: e.payment_method })) : tab === 'payroll' ? filteredPayroll.map(p => ({ Staff: p.staff_name, Designation: p.designation, Period: `${p.salary_month}/${p.salary_year}`, Net: p.net_salary, Paid: p.paid_amount, Balance: Number(p.net_salary)-Number(p.paid_amount), Status: p.status })) : classFeeSummary.map(row => ({ Class: row.className, Billed: row.billed, Collected: row.collected, Outstanding: row.outstanding, Vouchers: row.vouchers }));
+            const rows = tab === 'fees' ? feeRows : tab === 'defaulters' ? defaulters.map(f => ({ Student: f.student_name, Class: f.class_name, Month: f.fee_month, Year: f.year, Outstanding: f.pending_amount, DueDate: f.due_date })) : tab === 'attendance' ? attendanceRows : tab === 'sessions' ? sessionSummary.map(row => ({ Session: row.academicYear, Students: row.uniqueStudents, Enrollments: row.enrollments, Active: row.active, Completed: row.completed, Transferred: row.transferred, Dropped: row.dropped })) : tab === 'expenses' ? filteredExpenses.map(e => ({ Date: e.expense_date, Title: e.title, Category: e.category, Amount: e.amount, Method: e.payment_method })) : tab === 'payroll' ? filteredPayroll.map(p => ({ Staff: p.staff_name, Designation: p.designation, Period: `${p.salary_month}/${p.salary_year}`, Net: p.net_salary, Paid: p.paid_amount, Balance: Number(p.net_salary)-Number(p.paid_amount), Status: p.status })) : classFeeSummary.map(row => ({ Class: row.className, Billed: row.billed, Collected: row.collected, Outstanding: row.outstanding, Vouchers: row.vouchers }));
             downloadExcel(`school-${tab}-report.xls`, rows);
           }} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 hover:bg-neutral-50"><FileSpreadsheet className="h-4 w-4" /> Export Excel</button>
           <button onClick={() => window.print()} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 hover:bg-neutral-50"><Printer className="h-4 w-4" /> Print / PDF</button>
