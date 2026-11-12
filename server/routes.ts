@@ -2867,7 +2867,7 @@ router.get('/dashboard/stats', authenticateToken, requireRole(['super_admin', 'a
     const isTeacher = req.user?.role === 'teacher';
     const today = new Date().toISOString().split('T')[0];
 
-    const [
+    let [
       totalStudents,
       totalTeachers,
       totalParents,
@@ -2928,11 +2928,11 @@ router.get('/dashboard/stats', authenticateToken, requireRole(['super_admin', 'a
         const scopedAttendance = studentIdentifiers.length > 0
           ? await AttendanceModel.find({ date: today, student_id: { $in: studentIdentifiers } }).lean()
           : [];
-        (totalStudents as any) = assignedStudentDocs.length;
-        (todayAttendanceDocs as any) = scopedAttendance;
+        totalStudents = assignedStudentDocs.length;
+        todayAttendanceDocs.splice(0, todayAttendanceDocs.length, ...scopedAttendance);
       } else {
-        (totalStudents as any) = 0;
-        (todayAttendanceDocs as any) = [];
+        totalStudents = 0;
+        todayAttendanceDocs.splice(0, todayAttendanceDocs.length);
       }
     }
 
