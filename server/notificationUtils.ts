@@ -84,3 +84,31 @@ export async function createNotificationBatchOnce(
   const createdCount = results.filter(Boolean).length;
   return { createdCount, existingCount: results.length - createdCount };
 }
+
+/**
+ * Execute the confirmation-to-recipient workflow through injected persistence
+ * adapters. This keeps the business flow testable without touching real data.
+ */
+export async function executeParentNotificationWorkflow(
+  actionType: string,
+  payload: unknown,
+  confirmed: boolean,
+  userRole: string,
+  resolveParentIds: (studentIds: string[]) => Promise<string[]>,
+  createOnce: (actionId: string, recipientId: string, message: string) => Promise<boolean>
+): Promise<{ actionId: string; createdCount: number; existingCount: number; recipientCount: number }> {
+  const { actionId, studentIds, message } = validateParentNotificationAction(
+    actionType, payload, confirmed, userRole
+  );
+  const resolvedParentIds = await resolveParentIds(studentIds);
+  const uniqueParentIds = Array.from(new Set(resolvedParentIds.map(id => id.trim()).filter(Boolean)));
+  if (uniqueParentIds.length === 0) {
+    throw new Error('No verified linked parent accounts found. No notifications were created.');
+  }
+  const result = await createNotificationBatchOnce(
+    actionId,
+    uniqueParentIds,
+    (batchId, recipientId) => createOnce(batchId, recipientId, message)
+  );
+  return { actionId, ...result, recipientCount: uniqueParentIds.length };
+}
