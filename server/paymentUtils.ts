@@ -5,7 +5,7 @@ export function getParentPaymentMethodMode(method: unknown): ParentPaymentMethod
   if (['online gateway', 'easypaisa / jazzcash', 'jazzcash', 'easypaisa', 'raast'].includes(normalized)) {
     return 'gateway_unavailable';
   }
-  if (['bank deposit', 'bank transfer', 'online slip'].includes(normalized)) {
+  if (['bank deposit', 'bank transfer'].includes(normalized)) {
     return 'manual_verification';
   }
   return 'unsupported';
