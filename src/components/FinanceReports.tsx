@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Activity, AlertTriangle, ArrowDownToLine, CalendarDays, ChartNoAxesCombined, FileSpreadsheet, Printer, RefreshCw, Sparkles, Wallet } from 'lucide-react';
 import { api } from '../services/api';
 import type { AttendanceRecord, ExpenseRecord, FeeRecord, PayrollRecord, Student, Teacher, VerifiedFeeCollectionRecord } from '../types';
-import { sumPayrollPayments } from '../../server/financeUtils';
+import { sumPayrollPayments } from '../utils/finance';
 
 type ReportTab = 'overview' | 'fees' | 'defaulters' | 'attendance' | 'sessions' | 'expenses' | 'payroll';
 
