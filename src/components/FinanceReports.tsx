@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Activity, AlertTriangle, ArrowDownToLine, CalendarDays, ChartNoAxesCombined, FileSpreadsheet, Printer, RefreshCw, Sparkles, Wallet } from 'lucide-react';
 import { api } from '../services/api';
-import type { AttendanceRecord, FeeRecord, Student } from '../types';
+import type { AttendanceRecord, ExpenseRecord, FeeRecord, PayrollRecord, Student } from '../types';
 
 type ReportTab = 'overview' | 'fees' | 'defaulters' | 'attendance' | 'expenses' | 'payroll';
 
@@ -44,8 +44,8 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
   const [fees, setFees] = useState<FeeRecord[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
-  const [expenses, setExpenses] = useState<any[]>([]);
-  const [payroll, setPayroll] = useState<any[]>([]);
+  const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
+  const [payroll, setPayroll] = useState<PayrollRecord[]>([]);
   const [expenseDraft, setExpenseDraft] = useState({ title: '', category: 'Utilities', amount: '', expense_date: new Date().toISOString().slice(0, 10), payment_method: 'Cash' });
   const [payrollDraft, setPayrollDraft] = useState({ staff_id: '', staff_name: '', designation: 'Teacher', salary_month: new Date().getMonth() + 1, salary_year: new Date().getFullYear(), basic_salary: '', allowances: '0', deductions: '0' });
   const [loading, setLoading] = useState(true);
@@ -174,7 +174,7 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
       await load(true);
     } catch (err: any) { setError(err?.message || 'Unable to create salary record.'); }
   };
-  const paySalary = async (row: any) => {
+  const paySalary = async (row: PayrollRecord) => {
     const remaining = Number(row.net_salary || 0) - Number(row.paid_amount || 0);
     const raw = window.prompt(`Remaining salary: PKR ${remaining.toLocaleString()}. Enter payment amount:`);
     if (raw === null) return;
