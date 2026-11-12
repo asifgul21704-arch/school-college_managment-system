@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   User as UserIcon,
   Calendar,
@@ -191,14 +191,36 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
   const [payModalSubmitting, setPayModalSubmitting] = useState<boolean>(false);
   const [payModalError, setPayModalError] = useState<string | null>(null);
   const [payModalSuccess, setPayModalSuccess] = useState<string | null>(null);
+  const portalLoadVersionRef = useRef(0);
+  const parentChildrenLoadVersionRef = useRef(0);
 
-  const loadPaymentData = async (targetStudentId?: string) => {
+  // Remove child-specific data immediately when switching or losing a parent-child link.
+  // Version counters also prevent an older in-flight request from restoring stale records.
+  const clearStudentScopedData = () => {
+    portalLoadVersionRef.current += 1;
+    setStudent(null);
+    setAttendanceData(null);
+    setFees([]);
+    setResults([]);
+    setTimetable([]);
+    setAnnouncements([]);
+    setFeeSummary(null);
+    setPaymentHistory([]);
+    setViewingReceiptPayment(null);
+    setPayingFee(null);
+    setShowPayModal(false);
+    setPayModalError(null);
+    setPayModalSuccess(null);
+  };
+
+  const loadPaymentData = async (targetStudentId?: string, requestVersion?: number) => {
     try {
       const [summary, settings, history] = await Promise.all([
         api.getFeeSummary(targetStudentId).catch(() => null),
         api.getPublicPaymentSettings().catch(() => null),
         api.getParentPaymentHistory().catch(() => []),
       ]);
+      if (requestVersion !== undefined && requestVersion !== portalLoadVersionRef.current) return;
       if (summary) setFeeSummary(summary);
       if (settings) setPaymentSettings(settings);
       setPaymentHistory(Array.isArray(history) ? history : []);
@@ -245,15 +267,18 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
   };
 
   const loadPortalData = async (targetStudentId: string) => {
+    clearStudentScopedData();
     if (!targetStudentId) {
       setLoading(false);
       return;
     }
 
+    const requestVersion = portalLoadVersionRef.current;
     setLoading(true);
     setPortalError(null);
     try {
       const details = await api.getStudentById(targetStudentId);
+      if (requestVersion !== portalLoadVersionRef.current) return;
       setStudent(details.student);
       setFees(details.fees || []);
       setResults(details.results || []);
@@ -262,36 +287,42 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
       // Attendance summary & records
       try {
         const att = await api.getStudentAttendance(targetStudentId);
-        setAttendanceData(att);
+        if (requestVersion === portalLoadVersionRef.current) setAttendanceData(att);
       } catch (attErr: any) {
-        console.warn('Attendance load notice:', attErr);
-        setPortalError(attErr?.message || 'Unable to load attendance summary.');
+        if (requestVersion === portalLoadVersionRef.current) {
+          console.warn('Attendance load notice:', attErr);
+          setPortalError(attErr?.message || 'Unable to load attendance summary.');
+        }
       }
 
       // Notices
       try {
         const anns = await api.getAnnouncements({ audience: 'Students' });
-        setAnnouncements(anns);
+        if (requestVersion === portalLoadVersionRef.current) setAnnouncements(anns);
       } catch (annErr) {
-        console.warn('Notices load notice:', annErr);
+        if (requestVersion === portalLoadVersionRef.current) console.warn('Notices load notice:', annErr);
       }
 
       // Notifications & Fee Payments
       await loadNotifications();
-      await loadPaymentData(targetStudentId);
+      await loadPaymentData(targetStudentId, requestVersion);
     } catch (err: any) {
-      console.warn('Student portal details notice:', err);
-      setPortalError(err?.message || 'Unable to load student academic records at this time.');
+      if (requestVersion === portalLoadVersionRef.current) {
+        console.warn('Student portal details notice:', err);
+        setPortalError(err?.message || 'Unable to load student academic records at this time.');
+      }
     } finally {
-      setLoading(false);
+      if (requestVersion === portalLoadVersionRef.current) setLoading(false);
     }
   };
 
   const loadParentChildren = async () => {
     if (user?.role === 'parent') {
+      const requestVersion = ++parentChildrenLoadVersionRef.current;
       setPortalError(null);
       try {
         const myKids = await api.getMyStudents();
+        if (requestVersion !== parentChildrenLoadVersionRef.current) return;
         setLinkedStudents(myKids);
         if (myKids.length > 0) {
           const target =
@@ -299,12 +330,15 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
           setSelectedStudentId(target);
           await loadPortalData(target);
         } else {
-          setStudent(null);
+          setSelectedStudentId('');
+          clearStudentScopedData();
           setLoading(false);
         }
       } catch (e: any) {
+        if (requestVersion !== parentChildrenLoadVersionRef.current) return;
         console.warn('Could not load parent children:', e);
         setPortalError(e?.message || 'Unable to load linked children records.');
+        clearStudentScopedData();
         setLoading(false);
       }
     }
@@ -312,6 +346,9 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
 
   useEffect(() => {
     if (!user) {
+      parentChildrenLoadVersionRef.current += 1;
+      setLinkedStudents([]);
+      clearStudentScopedData();
       setLoading(false);
       return;
     }
@@ -494,6 +531,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
 
     try {
       const res = await api.unlinkChild(childToUnlink.id);
+      parentChildrenLoadVersionRef.current += 1;
       setUnlinkSuccess(res.message || `Successfully unlinked ${childToUnlink.full_name}.`);
       setLinkedStudents(res.linked_students);
       await refreshUser();
@@ -504,7 +542,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
         await loadPortalData(nextId);
       } else {
         setSelectedStudentId('');
-        setStudent(null);
+        clearStudentScopedData();
+        setLoading(false);
       }
 
       setTimeout(() => {
