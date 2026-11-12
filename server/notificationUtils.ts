@@ -1,5 +1,11 @@
 export type ParentNotificationActionType = 'SEND_SMS_ABSENT' | 'SEND_SMS_FEES';
 
+import { createHash } from 'node:crypto';
+
+export function createNotificationBatchId(actionType: string, date: string, studentIds: string[], message: string): string {
+  return createHash('sha256').update(JSON.stringify({ actionType, date, studentIds: [...new Set(studentIds)].sort(), message: message.trim() })).digest('hex');
+}
+
 export interface ValidatedParentNotificationAction {
   actionId: string;
   studentIds: string[];
@@ -54,7 +60,14 @@ export function validateParentNotificationAction(
     studentIds.add(studentId);
   }
 
-  return { actionId, studentIds: Array.from(studentIds), message };
+  const normalizedStudentIds = Array.from(studentIds);
+  const date = typeof data.date === 'string' ? data.date.trim() : '';
+  const expectedActionId = createNotificationBatchId(actionType, date, normalizedStudentIds, message);
+  if (!date || actionId !== expectedActionId) {
+    throw new Error('Notification batch idempotency key does not match the confirmed action details.');
+  }
+
+  return { actionId, studentIds: normalizedStudentIds, message };
 }
 
 /**
