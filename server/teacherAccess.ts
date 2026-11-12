@@ -9,3 +9,13 @@ export function isExactTeacherName(recordName: unknown, authenticatedName: unkno
   const authenticated = normalize(authenticatedName);
   return Boolean(record && authenticated && record === authenticated);
 }
+
+/** Exact subject-label matching; partial words must never grant academic write access. */
+export function isExactTeacherSubject(assignedSubjects: unknown[], requestedSubject: unknown): boolean {
+  if (typeof requestedSubject !== 'string') return false;
+  const normalize = (value: unknown) =>
+    typeof value === 'string' ? value.trim().replace(/\\s+/g, ' ').toLocaleLowerCase('en') : '';
+  const requested = normalize(requestedSubject);
+  return Boolean(requested && Array.isArray(assignedSubjects) &&
+    assignedSubjects.some(subject => normalize(subject) === requested));
+}
