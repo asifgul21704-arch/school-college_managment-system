@@ -1,7 +1,7 @@
 import express, { type Request, type Response } from 'express';
 import { financeRouter } from './financeRoutes.ts';
 import { buildNotificationVisibilityFilter, canMarkNotificationRead } from './notificationAccess.ts';
-import { buildParentPaymentHistoryFilter, collectParentStudentReferences, isParentLinkedToStudent } from './parentAccess.ts';
+import { buildParentPaymentHistoryFilter, collectParentStudentReferences, isParentLinkedToStudent, isExactGuardianNameMatch } from './parentAccess.ts';
 import { isClassAssignedToTeacher } from './classAccess.ts';
 import { isExactTeacherName, isExactTeacherSubject, areAllResultSubjectsAssignedToTeacher, isExactSectionMatch } from './teacherAccess.ts';
 import crypto from 'crypto';
@@ -2225,10 +2225,12 @@ router.post('/parents/confirm-link-child', sensitiveActionRateLimiter, authentic
       return res.status(404).json({ error: 'Student record could not be found' });
     }
 
-    const fatherMatches = father_name
-      ? isFatherNameMatch(studentDoc.father_name, String(father_name)) ||
-        (userDoc.name && isFatherNameMatch(studentDoc.father_name, userDoc.name))
-      : userDoc.name && isFatherNameMatch(studentDoc.father_name, userDoc.name);
+    // A fuzzy search match is not sufficient proof to link a child account.
+    // Require an exact normalized match against either the supplied guardian name
+    // or the authenticated parent's registered account name.
+    const fatherMatches =
+      (father_name && isExactGuardianNameMatch(studentDoc.father_name, String(father_name))) ||
+      isExactGuardianNameMatch(studentDoc.father_name, userDoc.name);
 
     if (!fatherMatches) {
       return res.status(403).json({
