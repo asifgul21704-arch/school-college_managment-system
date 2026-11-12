@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getJwtSecret, extractTokenFromRequest } from './auth.ts';
+import { getJwtSecret, extractTokenFromRequest, isValidUserRole } from './auth.ts';
 
 test('production rejects missing JWT_SECRET', () => {
   const mode = process.env.NODE_ENV, secret = process.env.JWT_SECRET;
@@ -83,4 +83,14 @@ test('authentication middleware rejects an invalid bearer token before database 
   const result = await runAuthentication({ authorization: 'Bearer definitely-not-a-jwt' });
   assert.equal(result.statusCode, 401);
   assert.equal(result.nextCalled, false);
+});
+
+
+test('live account roles are allowlisted and malformed roles fail closed', () => {
+  for (const role of ['super_admin', 'admin', 'teacher', 'parent', 'student']) {
+    assert.equal(isValidUserRole(role), true);
+  }
+  for (const role of ['guest', 'owner', 'ADMIN', '', null, undefined, 1, {}]) {
+    assert.equal(isValidUserRole(role), false);
+  }
 });
