@@ -1020,6 +1020,33 @@ test('real MongoDB: teacher dashboards and attendance are scoped to exact assign
   const updatedAttendance = await AttendanceModel.findOne({ student_id: 'TEACHER-SCOPE-STUDENT-A', date: today }).lean();
   assert.equal(updatedAttendance?.status, 'Late');
 
+  const deniedGenericBatchAttendance = await request('/attendance/batch', teacherToken, {
+    method: 'POST',
+    body: {
+      date: today,
+      records: [{
+        student_id: 'TEACHER-SCOPE-STUDENT-B',
+        class_name: 'ScopeClass-Regression-5',
+        section: 'B',
+        status: 'Present',
+      }],
+    },
+  });
+  assert.equal(deniedGenericBatchAttendance.status, 403);
+  const unchangedGenericBatchAttendance = await AttendanceModel.findOne({
+    student_id: 'TEACHER-SCOPE-STUDENT-B',
+    date: today,
+  }).lean();
+  assert.equal(unchangedGenericBatchAttendance?.status, 'Absent');
+
+  const deniedAdmissionsList = await request('/admissions', teacherToken);
+  assert.equal(deniedAdmissionsList.status, 403);
+  const deniedAdmissionStatusChange = await request('/admissions/ADMISSION-DOES-NOT-MATTER/status', teacherToken, {
+    method: 'PUT',
+    body: { status: 'Approved' },
+  });
+  assert.equal(deniedAdmissionStatusChange.status, 403);
+
   const exam = await ExamModel.create({
     title: 'Teacher Scope Regression Exam',
     term: 'Term 1',
