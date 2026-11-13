@@ -9741,19 +9741,33 @@ async function resolveNotificationAllowedUserIds(
   return baseIds;
 }
 
+function buildNotificationVisibilityFilter(
+  userRole: UserRole,
+  allowedUserIds: string[]
+): Record<string, any> {
+  const clauses: Record<string, any>[] = [
+    { user_id: { $in: allowedUserIds } },
+    { role: 'all' },
+  ];
+
+  // Role-wide administrative notices are shared only with administrators.
+  // Parent/teacher/student notices are private unless explicitly targeted by user_id.
+  if (userRole === 'super_admin' || userRole === 'admin') {
+    clauses.push({ role: 'admin' });
+  }
+
+  return { $or: clauses };
+}
+
 router.get('/notifications', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   try {
     const userRole = req.user!.role;
     const allowedUserIds = await resolveNotificationAllowedUserIds(req.user!);
 
-    const notifs = await NotificationModel.find({
-      $or: [
-        { user_id: { $in: allowedUserIds } },
-        { role: userRole },
-        { role: 'all' },
-      ],
-    })
+    const notifs = await NotificationModel.find(
+      buildNotificationVisibilityFilter(userRole, allowedUserIds)
+    )
       .sort({ created_at: -1 })
       .limit(50)
       .lean();
@@ -9777,11 +9791,7 @@ router.get('/notifications/unread-count', authenticateToken, async (req: Authent
 
     const count = await NotificationModel.countDocuments({
       read: false,
-      $or: [
-        { user_id: { $in: allowedUserIds } },
-        { role: userRole },
-        { role: 'all' },
-      ],
+      ...buildNotificationVisibilityFilter(userRole, allowedUserIds),
     });
 
     return res.json({ unreadCount: count });
@@ -9796,27 +9806,23 @@ router.put('/notifications/:id/read', authenticateToken, async (req: Authenticat
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({ error: 'Invalid notification ID format' });
     }
-    const notif = await NotificationModel.findById(req.params.id);
-    if (!notif) {
-      return res.status(404).json({ error: 'Notification not found' });
-    }
-
     const userRole = req.user!.role;
     const allowedUserIds = await resolveNotificationAllowedUserIds(req.user!);
+    const notif = await NotificationModel.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        ...buildNotificationVisibilityFilter(userRole, allowedUserIds),
+      },
+      { $set: { read: true } },
+      { new: true }
+    );
 
-    const isAdmin = userRole === 'super_admin' || userRole === 'admin';
-    const isAuthorized =
-      isAdmin ||
-      allowedUserIds.includes(notif.user_id) ||
-      notif.role === userRole ||
-      notif.role === 'all';
-
-    if (!isAuthorized) {
+    if (!notif) {
+      const exists = await NotificationModel.exists({ _id: req.params.id });
+      if (!exists) return res.status(404).json({ error: 'Notification not found' });
       return res.status(403).json({ error: 'Access denied: You may only mark your own notifications as read.' });
     }
 
-    notif.read = true;
-    await notif.save();
     return res.json(notif);
   } catch (err: any) {
     return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to update notification') });
@@ -9832,11 +9838,7 @@ router.put('/notifications/mark-all-read', authenticateToken, async (req: Authen
     await NotificationModel.updateMany(
       {
         read: false,
-        $or: [
-          { user_id: { $in: allowedUserIds } },
-          { role: userRole },
-          { role: 'all' },
-        ],
+        ...buildNotificationVisibilityFilter(userRole, allowedUserIds),
       },
       { $set: { read: true } }
     );
