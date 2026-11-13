@@ -29,6 +29,7 @@ import {
   clearSessionCookie,
 } from './auth.ts';
 import { buildStudentParentClaimFilter } from './parentAccess.ts';
+import { isClassAssignedToTeacher } from './classAccess.ts';
 import {
   detectInquiryIntent,
   verifyInquiryParent,
@@ -516,16 +517,6 @@ async function getLinkedStudentIdsForParent(user: {
   }
 
   return ids;
-}
-
-function isClassAssignedToTeacher(assignedClasses: string[], targetClassName: string): boolean {
-  const target = String(targetClassName || '').trim().toLowerCase();
-  if (!target) return false;
-  return assignedClasses.some(raw => {
-    const c = String(raw || '').trim().toLowerCase();
-    if (!c) return false;
-    return c === target || target.includes(c) || c.includes(target);
-  });
 }
 
 async function getAuthenticatedTeacherMongo(req: AuthenticatedRequest): Promise<TeacherDto | null> {
