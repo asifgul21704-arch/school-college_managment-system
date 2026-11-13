@@ -189,7 +189,7 @@ test('teacher class access uses exact normalized labels and prevents substring e
 });
 
 test('all teacher data-scope routes use the shared exact class access helper', () => {
-  assert.match(routes, /import \{ isClassAssignedToTeacher \} from '\.\/classAccess\.ts'/);
+  assert.match(routes, /import \{ isClassAssignedToTeacher, normalizeClassAccessLabel \} from '\.\/classAccess\.ts'/);
   assert.doesNotMatch(routes, /target\.includes\(c\) \|\| c\.includes\(target\)/);
 });
 
