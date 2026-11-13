@@ -30,6 +30,7 @@ import {
 } from './auth.ts';
 import { buildStudentParentClaimFilter } from './parentAccess.ts';
 import { isClassAssignedToTeacher } from './classAccess.ts';
+import { canAssignTeacherHomework } from './teacherHomeworkAccess.ts';
 import {
   detectInquiryIntent,
   verifyInquiryParent,
@@ -11927,14 +11928,25 @@ router.post('/teacher/homework', authenticateToken, requireExactRole(['teacher']
       return res.status(404).json({ error: 'Teacher profile not linked.' });
     }
 
+    const cleanClassName = sanitizePlainText(class_name, 120);
+    const cleanSection = sanitizePlainText(section, 60);
+    const cleanSubject = sanitizePlainText(subject, 120);
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter(Boolean)));
+    const authorizedScope = await canAssignTeacherHomework(
+      teacher, teacherIds, cleanClassName, cleanSection, cleanSubject
+    );
+    if (!authorizedScope) {
+      return res.status(403).json({ error: 'Access denied: Homework must match your assigned class, section, and subject.' });
+    }
+
     const homeworkId = `hwk_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const created = await HomeworkModel.create({
       homework_id: homeworkId,
-      title: String(title).trim(),
-      description: String(description).trim(),
-      class_name: String(class_name).trim(),
-      section: String(section).trim(),
-      subject: String(subject).trim(),
+      title: sanitizePlainText(title, 180),
+      description: sanitizePlainText(description, 4000),
+      class_name: cleanClassName,
+      section: cleanSection,
+      subject: cleanSubject,
       teacher_id: teacher.id,
       teacher_name: teacher.name,
       assigned_date: new Date().toISOString().split('T')[0],
