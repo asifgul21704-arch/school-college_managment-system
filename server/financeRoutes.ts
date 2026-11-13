@@ -135,7 +135,7 @@ financeRouter.put('/expenses/:id', async (req: AuthenticatedRequest, res: Respon
     if (updates.amount !== undefined && (!Number.isFinite(updates.amount) || updates.amount < 0.01)) return res.status(400).json({ error: 'Expense amount must be at least PKR 0.01.' });
     if (updates.expense_date !== undefined && !isValidIsoDate(updates.expense_date)) return res.status(400).json({ error: 'Expense date must use a real calendar date in YYYY-MM-DD format.' });
     updates.updated_at = new Date().toISOString();
-    const row = await ExpenseModel.findOneAndUpdate({ record_id: req.params.id }, { $set: updates }, { new: true, runValidators: true }).lean();
+    const row = await ExpenseModel.findOneAndUpdate({ record_id: req.params.id }, { $set: updates }, { returnDocument: 'after', runValidators: true }).lean();
     if (!row) return res.status(404).json({ error: 'Expense record not found.' });
     await audit(req, 'FINANCE_EXPENSE_UPDATED', 'Expense', req.params.id, 'Updated expense record.');
     return res.json({ ...row, id: row.record_id });
@@ -256,7 +256,7 @@ financeRouter.post('/payroll/:id/payment', async (req: AuthenticatedRequest, res
         $push: { payment_history: { amount: roundedAmount, payment_date: paymentDate, payment_method: method, recorded_by: req.user?.id || 'unknown', recorded_at: now, idempotency_key: idempotencyKey } },
         $set: { payment_date: paymentDate, payment_method: method, status: getPayrollStatus(Number(existing.net_salary), nextPaid), updated_at: now },
       },
-      { new: true, runValidators: true }
+      { returnDocument: 'after', runValidators: true }
     );
     if (!updated) {
       const latest = await PayrollModel.findOne({ record_id: req.params.id }).select('payment_history').lean();
