@@ -99,6 +99,7 @@ async function startServer() {
       const allowedDefaultOrigins = [
         'https://school-college-managment-system.vercel.app',
         'https://school-college_managment-system.vercel.app',
+        'https://school-collegemanagment-system.vercel.app',
       ];
       const configuredOrigins = process.env.CORS_ORIGIN
         ? process.env.CORS_ORIGIN.split(',')
@@ -109,7 +110,7 @@ async function startServer() {
       const normalizedOrigin = origin ? origin.trim().replace(/\/+$/, '').toLowerCase() : '';
       const isAllowedVercelOrigin =
         Boolean(normalizedOrigin) &&
-        (/^https:\/\/school-college[-_]managment[-_]system.*\.vercel\.app$/i.test(normalizedOrigin) ||
+        (/^https:\/\/school-college[-_]?managment[-_]?system.*\.vercel\.app$/i.test(normalizedOrigin) ||
           allowedDefaultOrigins.includes(normalizedOrigin));
 
       const isExplicitOrigin =
