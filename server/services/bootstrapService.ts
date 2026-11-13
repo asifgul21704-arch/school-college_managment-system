@@ -171,39 +171,3 @@ export async function bootstrapInitialSuperAdmin(params: {
     throw err;
   }
 }
-
-/**
- * Ensures the initial Super Admin account exists when running against a fresh database with 0 administrators.
- */
-export async function ensureDefaultSuperAdminIfEmpty(): Promise<void> {
-  try {
-    const count = await UserModel.countDocuments({ role: 'super_admin' });
-    if (count > 0) return;
-
-    await bootstrapInitialSuperAdmin({
-      email: 'admin@shawanschool.edu.pk',
-      password: 'AdminPassword123!',
-      name: 'Principal & Chief Administrator',
-      phone: '+92 300 1234567',
-      source: 'cli',
-    });
-    console.log('[MongoDB] Fresh database detected. Initial Super Admin account created: admin@shawanschool.edu.pk');
-
-    const officeCount = await UserModel.countDocuments({ email: 'office@shawanschool.edu.pk' });
-    if (officeCount === 0) {
-      const officeHash = await bcrypt.hash('AdminPassword123!', 12);
-      await UserModel.create({
-        record_id: 'usr_admin_office',
-        email: 'office@shawanschool.edu.pk',
-        password_hash: officeHash,
-        name: 'Academic Affairs Officer',
-        role: 'admin',
-        phone: '+92 300 7654321',
-        status: 'active',
-      }).catch(() => {});
-    }
-  } catch (err: any) {
-    if (err instanceof BootstrapConflictError) return;
-    console.warn('[MongoDB] Super Admin auto-initialization note:', err?.message || String(err));
-  }
-}
