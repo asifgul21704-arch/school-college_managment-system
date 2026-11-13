@@ -979,6 +979,38 @@ test('real MongoDB: teacher dashboards and attendance are scoped to exact assign
     linked_id: 'TEACHER-SCOPE-PROFILE-1',
   });
 
+  const teacherAiOverview = await request('/teacher/ai/query', teacherToken, {
+    method: 'POST',
+    body: { prompt: 'How many students are enrolled in my assigned classes?' },
+  });
+  assert.equal(teacherAiOverview.status, 200, JSON.stringify(teacherAiOverview.body));
+  assert.match(teacherAiOverview.body.text, /Total Students Across Your Classes:\*\* 1/);
+  assert.doesNotMatch(teacherAiOverview.body.text, /Unassigned Section Student|Different Class Student/);
+
+  const assignedStudentAiAction = await request('/teacher/ai/query', teacherToken, {
+    method: 'POST',
+    body: { prompt: 'Mark Absent for Assigned Section Student' },
+  });
+  assert.equal(assignedStudentAiAction.status, 200, JSON.stringify(assignedStudentAiAction.body));
+  assert.equal(assignedStudentAiAction.body.requiresConfirmation, true);
+  assert.equal(assignedStudentAiAction.body.pendingAction.payload.student_id, 'TEACHER-SCOPE-STUDENT-A');
+
+  const unassignedStudentAiAction = await request('/teacher/ai/query', teacherToken, {
+    method: 'POST',
+    body: { prompt: 'Mark Absent for Unassigned Section Student' },
+  });
+  assert.equal(unassignedStudentAiAction.status, 200, JSON.stringify(unassignedStudentAiAction.body));
+  assert.notEqual(unassignedStudentAiAction.body.requiresConfirmation, true);
+  assert.doesNotMatch(unassignedStudentAiAction.body.text, /Unassigned Section Student/);
+
+  const teacherAiLowAttendance = await request('/teacher/ai/query', teacherToken, {
+    method: 'POST',
+    body: { prompt: 'Show students with low attendance below 75%' },
+  });
+  assert.equal(teacherAiLowAttendance.status, 200, JSON.stringify(teacherAiLowAttendance.body));
+  assert.match(teacherAiLowAttendance.body.text, /Assigned Section Student/);
+  assert.doesNotMatch(teacherAiLowAttendance.body.text, /Unassigned Section Student|Different Class Student/);
+
   const stats = await request('/dashboard/stats', teacherToken);
   assert.equal(stats.status, 200, JSON.stringify(stats.body));
   assert.equal(stats.body.totalStudents, 1);
