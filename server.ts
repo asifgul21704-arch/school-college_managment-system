@@ -261,7 +261,6 @@ async function startServer() {
       (async () => {
         try {
           await connectDB();
-          await ensureDefaultSuperAdminIfEmpty();
           if (disableAutoSeed) {
             console.log(
               '[MongoDB] Automatic startup seed/migration skipped (Atlas/seed safety guard active).'
