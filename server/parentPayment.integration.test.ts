@@ -10,13 +10,16 @@ import { StudentModel } from './models/Student.ts';
 import { FeeModel } from './models/Fee.ts';
 import { FeePaymentModel } from './models/FeePayment.ts';
 import { NotificationModel } from './models/Notification.ts';
+import { TeacherModel } from './models/Teacher.ts';
+import { TeacherAssignmentModel } from './models/TeacherAssignment.ts';
+import { AttendanceModel } from './models/Attendance.ts';
 
 const TEST_DATABASE_NAME = 'school_management_integration_test';
 const mongoUri = process.env.MONGODB_TEST_URI || '';
 let server: any;
 let baseUrl = '';
 
-function authToken(user: { id: string; email: string; role: 'parent' | 'super_admin'; name: string; linked_id?: string; linked_student_ids?: string[] }) {
+function authToken(user: { id: string; email: string; role: 'parent' | 'super_admin' | 'teacher'; name: string; linked_id?: string; linked_student_ids?: string[] }) {
   return generateToken({ ...user, linked_student_ids: user.linked_student_ids || [] });
 }
 
@@ -847,4 +850,171 @@ test('real MongoDB: failed approval releases its lock and can be safely retried 
   storedFee = await FeeModel.findOne({ voucher_id: 'RECOVERY-VOUCHER-1' }).lean();
   assert.equal(storedFee?.paid_amount, 1500);
   assert.equal(storedFee?.payment_history.length, 1);
+});
+
+
+test('real MongoDB: teacher dashboards and attendance are scoped to exact assigned class sections', async () => {
+  const teacherUser = await UserModel.create({
+    record_id: 'TEACHER-SCOPE-USER-1',
+    email: 'teacher.scope@example.test',
+    password_hash: 'integration-only-hash',
+    name: 'Scoped Teacher',
+    role: 'teacher',
+    status: 'active',
+    linked_id: 'TEACHER-SCOPE-PROFILE-1',
+  });
+  await TeacherModel.create({
+    record_id: 'TEACHER-SCOPE-PROFILE-1',
+    user_id: teacherUser.record_id,
+    name: 'Scoped Teacher',
+    subject: 'Mathematics',
+    classes: ['Class 5'],
+    status: 'Active',
+    email: teacherUser.email,
+  });
+  await TeacherAssignmentModel.create({
+    record_id: 'TEACHER-SCOPE-ASG-1',
+    teacher_id: 'TEACHER-SCOPE-PROFILE-1',
+    teacher_name: 'Scoped Teacher',
+    class_name: 'Class 5',
+    section: 'A',
+    subject: 'Mathematics',
+    academic_session: '2026-2027',
+  });
+
+  await StudentModel.create([
+    {
+      record_id: 'TEACHER-SCOPE-STUDENT-A',
+      admission_no: 'TEACHER-SCOPE-ADM-A',
+      roll_no: 'SCOPE-A',
+      full_name: 'Assigned Section Student',
+      father_name: 'Scope Guardian',
+      gender: 'Male',
+      class_name: 'Class 5',
+      section: 'A',
+      academic_status: 'Active',
+    },
+    {
+      record_id: 'TEACHER-SCOPE-STUDENT-B',
+      admission_no: 'TEACHER-SCOPE-ADM-B',
+      roll_no: 'SCOPE-B',
+      full_name: 'Unassigned Section Student',
+      father_name: 'Scope Guardian',
+      gender: 'Female',
+      class_name: 'Class 5',
+      section: 'B',
+      academic_status: 'Active',
+    },
+    {
+      record_id: 'TEACHER-SCOPE-STUDENT-10',
+      admission_no: 'TEACHER-SCOPE-ADM-10',
+      roll_no: 'SCOPE-10',
+      full_name: 'Different Class Student',
+      father_name: 'Scope Guardian',
+      gender: 'Male',
+      class_name: 'Class 10',
+      section: 'A',
+      academic_status: 'Active',
+    },
+  ]);
+
+  const today = new Date().toISOString().split('T')[0];
+  await AttendanceModel.create([
+    {
+      record_id: 'TEACHER-SCOPE-ATT-A',
+      student_id: 'TEACHER-SCOPE-STUDENT-A',
+      student_name: 'Assigned Section Student',
+      class_name: 'Class 5',
+      section: 'A',
+      date: today,
+      status: 'Present',
+      marked_by: 'Integration Fixture',
+    },
+    {
+      record_id: 'TEACHER-SCOPE-ATT-B',
+      student_id: 'TEACHER-SCOPE-STUDENT-B',
+      student_name: 'Unassigned Section Student',
+      class_name: 'Class 5',
+      section: 'B',
+      date: today,
+      status: 'Absent',
+      marked_by: 'Integration Fixture',
+    },
+    {
+      record_id: 'TEACHER-SCOPE-ATT-10',
+      student_id: 'TEACHER-SCOPE-STUDENT-10',
+      student_name: 'Different Class Student',
+      class_name: 'Class 10',
+      section: 'A',
+      date: today,
+      status: 'Absent',
+      marked_by: 'Integration Fixture',
+    },
+  ]);
+
+  const teacherToken = authToken({
+    id: teacherUser.record_id!,
+    email: teacherUser.email,
+    role: 'teacher',
+    name: teacherUser.name,
+    linked_id: 'TEACHER-SCOPE-PROFILE-1',
+  });
+
+  const stats = await request('/dashboard/stats', teacherToken);
+  assert.equal(stats.status, 200, JSON.stringify(stats.body));
+  assert.equal(stats.body.totalStudents, 1);
+  assert.equal(stats.body.totalTeachers, 0);
+  assert.equal(stats.body.totalParents, 0);
+  assert.equal(stats.body.totalClasses, 1);
+  assert.equal(stats.body.totalSections, 1);
+  assert.equal(stats.body.todayMarked, 1);
+  assert.equal(stats.body.presentToday, 1);
+  assert.equal(stats.body.absentToday, 0);
+  assert.equal(stats.body.totalPendingFee, 0);
+  assert.deepEqual(stats.body.recentFees, []);
+
+  const teacherDashboard = await request('/teacher/dashboard', teacherToken);
+  assert.equal(teacherDashboard.status, 200, JSON.stringify(teacherDashboard.body));
+  assert.equal(teacherDashboard.body.totalStudents, 1);
+  assert.deepEqual(
+    teacherDashboard.body.recentActivity.attendance.map((entry: any) => entry.student_id),
+    ['TEACHER-SCOPE-STUDENT-A']
+  );
+
+  const studentList = await request('/students', teacherToken);
+  assert.equal(studentList.status, 200);
+  assert.deepEqual(studentList.body.map((student: any) => student.id), ['TEACHER-SCOPE-STUDENT-A']);
+
+  const attendanceList = await request('/attendance', teacherToken);
+  assert.equal(attendanceList.status, 200);
+  assert.deepEqual(
+    attendanceList.body.map((entry: any) => entry.student_id).sort(),
+    ['TEACHER-SCOPE-STUDENT-A']
+  );
+
+  const deniedAttendanceWrite = await request('/teacher/attendance', teacherToken, {
+    method: 'POST',
+    body: {
+      date: today,
+      class_name: 'Class 5',
+      section: 'B',
+      records: [{ student_id: 'TEACHER-SCOPE-STUDENT-B', status: 'Present' }],
+    },
+  });
+  assert.equal(deniedAttendanceWrite.status, 403);
+  const unassignedAttendance = await AttendanceModel.findOne({ student_id: 'TEACHER-SCOPE-STUDENT-B', date: today }).lean();
+  assert.equal(unassignedAttendance?.status, 'Absent');
+
+  const allowedAttendanceWrite = await request('/teacher/attendance', teacherToken, {
+    method: 'POST',
+    body: {
+      date: today,
+      class_name: 'Class 5',
+      section: 'A',
+      records: [{ student_id: 'TEACHER-SCOPE-STUDENT-A', status: 'Late' }],
+    },
+  });
+  assert.equal(allowedAttendanceWrite.status, 200, JSON.stringify(allowedAttendanceWrite.body));
+  const updatedAttendance = await AttendanceModel.findOne({ student_id: 'TEACHER-SCOPE-STUDENT-A', date: today }).lean();
+  assert.equal(updatedAttendance?.status, 'Late');
 });
