@@ -12278,14 +12278,15 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
       const unrestrictedSections = classAssignments.length === 0 ||
         classAssignments.some(assignment => !String(assignment.section || '').trim());
       const classPattern = new RegExp(
-        \`^(?:(?:class|grade)\\s*[-:]?\\s*)?\${escapeRegexLiteral(normalizeClassAccessLabel(className))}$\`,
+        '^(?:(?:class|grade)\\s*[-:]?\\s*)?' +
+        escapeRegexLiteral(normalizeClassAccessLabel(className)) + '$',
         'i'
       );
       if (unrestrictedSections) return [{ class_name: { $regex: classPattern } }];
       const sectionPatterns = Array.from(new Set(classAssignments.map(assignment =>
-        String(assignment.section || '').trim().replace(/^section\\s*/i, '')
+        String(assignment.section || '').trim().replace(/^section\s*/i, '')
       ).filter(Boolean))).map(section =>
-        new RegExp(\`^(?:section\\s*)?\${escapeRegexLiteral(section)}$\`, 'i')
+        new RegExp('^(?:section\\s*)?' + escapeRegexLiteral(section) + '$', 'i')
       );
       return sectionPatterns.length
         ? [{ class_name: { $regex: classPattern }, section: { $in: sectionPatterns } }]
