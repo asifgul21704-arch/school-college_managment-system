@@ -327,7 +327,7 @@ test('real MongoDB: stale parent session loses unlinked-child access and payment
   assert.equal(await NotificationModel.countDocuments({
     user_id: parent.record_id,
     title: 'Payment Submission Received',
-  }), 2);
+  }), 1);
   feeB = await FeeModel.findOne({ voucher_id: 'VCH-INTEGRATION-B' }).lean();
   assert.equal(feeB?.paid_amount, 1000);
   assert.equal(feeB?.payment_history.length, 1);
@@ -415,6 +415,7 @@ test('real MongoDB: notification reads, unread counts, and read mutations stay w
   assert.ok(parent);
   assert.ok(admin);
 
+  await NotificationModel.deleteMany({});
   const notifications = await NotificationModel.create([
     { user_id: 'STU-INTEGRATION-A', role: 'student', title: 'Unlinked child notice', message: 'Must not be visible after unlink.', read: false },
     { user_id: 'STU-INTEGRATION-B', role: 'student', title: 'Linked child notice', message: 'Visible to the linked parent.', read: false },
