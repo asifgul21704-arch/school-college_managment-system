@@ -12352,6 +12352,8 @@ router.post('/teacher/ai/execute-action', authenticateToken, requireExactRole(['
       return res.status(404).json({ error: 'Teacher profile not linked to user account.' });
     }
 
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+    const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
     const { actionType, payload, confirmed } = req.body || {};
     if (!confirmed) {
       return res.status(400).json({ error: 'Explicit confirmation required to execute sensitive teacher action.' });
@@ -12374,8 +12376,13 @@ router.post('/teacher/ai/execute-action', authenticateToken, requireExactRole(['
       const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
 
       const assignedClasses = teacher.classes || [];
-      if (!isClassAssignedToTeacher(assignedClasses, studentDoc.class_name)) {
-        return res.status(403).json({ error: `Access denied: You are not assigned to class "${studentDoc.class_name}".` });
+      const studentSection = String(studentDoc.section || 'A');
+      const requestedSection = sanitizePlainText(section || studentSection, 60) || 'A';
+      if (
+        !isTeacherAssignedToClassSection(assignedClasses, assignmentScopes, studentDoc.class_name, studentSection) ||
+        normalizeClassAccessLabel(requestedSection) !== normalizeClassAccessLabel(studentSection)
+      ) {
+        return res.status(403).json({ error: 'Access denied: Student is outside your assigned class and section.' });
       }
 
       const idAliases = Array.from(
@@ -12431,8 +12438,23 @@ router.post('/teacher/ai/execute-action', authenticateToken, requireExactRole(['
       const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
 
       const assignedClasses = teacher.classes || [];
-      if (!isClassAssignedToTeacher(assignedClasses, studentDoc.class_name)) {
-        return res.status(403).json({ error: `Access denied: You are not assigned to class "${studentDoc.class_name}".` });
+      const studentSection = String(studentDoc.section || 'A');
+      if (!isTeacherAssignedToClassSection(
+        assignedClasses, assignmentScopes, studentDoc.class_name, studentSection
+      )) {
+        return res.status(403).json({ error: 'Access denied: Student is outside your assigned class and section.' });
+      }
+
+      const cleanSubj = sanitizePlainText(subject_name || teacher.subject || 'Subject', 120) || 'Subject';
+      const matchingAssignments = assignmentScopes.filter(assignment =>
+        isTeacherAssignedToClassSection(
+          [assignment.class_name], [assignment], studentDoc.class_name, studentSection
+        )
+      );
+      if (!isTeacherSubjectAssigned(
+        teacher.subject, matchingAssignments.map(assignment => assignment.subject), cleanSubj
+      )) {
+        return res.status(403).json({ error: 'Access denied: Subject is outside your teaching assignment.' });
       }
 
       const tm = Number(total_marks || 100);
@@ -12441,7 +12463,6 @@ router.post('/teacher/ai/execute-action', authenticateToken, requireExactRole(['
         return res.status(400).json({ error: 'Invalid marks values.' });
       }
 
-      const cleanSubj = sanitizePlainText(subject_name || teacher.subject || 'Subject', 120) || 'Subject';
       const cleanExamId = sanitizePlainText(exam_id || 'ex_term1', 80) || 'ex_term1';
       const pct = (om / tm) * 100;
       let grade = 'F';
