@@ -204,7 +204,7 @@ test('teacher dashboard unread count cannot aggregate every teacher private noti
 
 test('teacher homework creation is limited to assigned class, section, and subject', () => {
   const start = routes.indexOf("router.post('/teacher/homework'");
-  const end = routes.indexOf('// 20.7', start);
+  const end = routes.indexOf('\n});', start) + 4;
   assert.ok(start >= 0 && end > start);
   const route = routes.slice(start, end);
   assert.match(route, /isClassAssignedToTeacher\(teacher\.classes \|\| \[\], cleanClassName\)/);
