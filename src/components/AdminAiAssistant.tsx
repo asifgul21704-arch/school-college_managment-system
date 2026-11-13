@@ -267,9 +267,9 @@ export const AdminAiAssistant = ({ initialPrompt, onPromptConsumed }: AdminAiAss
   const adminDisplayName = user?.name || 'Administrator';
 
   return (
-    <div className="flex flex-col min-h-[560px] lg:h-[calc(100vh-120px)] bg-white border border-neutral-200 rounded-2xl overflow-hidden shadow-xs">
+    <div className="ssc-ai-panel flex flex-col min-h-[560px] lg:h-[calc(100vh-120px)] bg-white border border-neutral-200 rounded-2xl overflow-hidden shadow-sm">
       {/* Top Header */}
-      <div className="px-4 sm:px-6 py-4 bg-white border-b border-neutral-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="ssc-ai-header px-4 sm:px-6 py-4 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-10 h-10 rounded-xl bg-emerald-900 text-white flex items-center justify-center shrink-0">
             <Sparkles className="w-5 h-5" />

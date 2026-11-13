@@ -641,9 +641,9 @@ export const TeacherPortal: React.FC<TeacherPortalProps> = ({ onBackToWebsite })
   ];
 
   return (
-    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-neutral-100 flex flex-col text-neutral-900">
+    <div className="ssc-portal-shell ssc-teacher-shell min-h-screen w-full max-w-full overflow-x-hidden flex flex-col text-neutral-900">
       {/* Top Navigation Bar */}
-      <header className="bg-emerald-950 text-white border-b border-emerald-900 py-2.5 px-3 sm:px-8 flex items-center justify-between gap-2 sticky top-0 z-40 shadow-xs">
+      <header className="ssc-portal-topbar text-white border-b py-2.5 px-3 sm:px-8 flex items-center justify-between gap-2 sticky top-0 z-40 shadow-sm">
         <div className="flex items-center gap-2.5 min-w-0">
           <button
             type="button"
@@ -695,6 +695,30 @@ export const TeacherPortal: React.FC<TeacherPortalProps> = ({ onBackToWebsite })
 
       {/* Main Container */}
       <main id="main-content" className="max-w-7xl mx-auto w-full px-3 sm:px-6 lg:px-8 py-6 sm:py-8 flex-1">
+        <aside className="ssc-role-sidebar" aria-label="Teacher portal navigation">
+          <div className="ssc-role-sidebar-brand"><span className="ssc-brand-mark"><GraduationCap size={19}/></span><div><strong>Teacher Panel</strong><small>Faculty workspace</small></div></div>
+          <nav className="ssc-role-nav">
+            {[
+              {id:'overview',label:'Dashboard',icon:BookOpen},
+              {id:'classes',label:'My Classes',icon:Users},
+              {id:'students',label:'My Students',icon:GraduationCap},
+              {id:'attendance',label:'Attendance',icon:Calendar},
+              {id:'marks',label:'Marks & Results',icon:Award},
+              {id:'timetable',label:'Timetable',icon:Clock},
+              {id:'homework',label:'Homework',icon:FileText},
+              {id:'tasks',label:'Duties & Tasks',icon:ClipboardList},
+              {id:'profile',label:'My Profile',icon:UserIcon},
+              {id:'notices',label:'Announcements',icon:Bell},
+              {id:'notifications',label:'Notifications',icon:CheckCheck},
+              {id:'ai',label:'AI Assistant',icon:Sparkles},
+            ].map(item => {
+              const Icon = item.icon;
+              return <button type="button" key={item.id} onClick={() => setActiveTab(item.id as typeof activeTab)} className={`ssc-role-nav-item ${activeTab === item.id ? 'active' : ''}`}><Icon size={17}/><span>{item.label}</span></button>;
+            })}
+          </nav>
+          <div className="ssc-sidebar-foot"><span className="ssc-online-dot"/> Faculty workspace</div>
+        </aside>
+        <div className="ssc-role-content min-w-0 space-y-5">
         {portalError && (
           <div
             role="alert"
@@ -2862,7 +2886,8 @@ export const TeacherPortal: React.FC<TeacherPortalProps> = ({ onBackToWebsite })
             )}
           </div>
         )}
-      </main>
+              </div>
+</main>
     </div>
   );
 };

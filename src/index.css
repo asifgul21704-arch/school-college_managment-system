@@ -79,3 +79,113 @@
     background-color: #ffffff !important;
   }
 }
+
+/* Premium Shawan administrative dashboard */
+.ssc-overview {
+  color: #17233d;
+  padding: 1px;
+}
+.ssc-panel {
+  min-width: 0;
+  border: 1px solid #e5eaf5;
+  border-radius: 20px;
+  background: rgba(255,255,255,.94);
+  box-shadow: 0 8px 28px rgba(30,64,120,.055);
+}
+.ssc-panel-title { color:#142747; font-size:15px; font-weight:800; letter-spacing:-.025em; }
+.ssc-panel-subtitle { color:#8290a8; font-size:11px; margin-top:3px; }
+.ssc-stat-card {
+  display:flex; align-items:center; gap:13px; min-width:0; padding:16px;
+  border:1px solid #e7edf7; border-radius:18px; background:#fff;
+  box-shadow:0 5px 20px rgba(34,64,112,.045); transition:transform .2s ease,box-shadow .2s ease;
+}
+.ssc-stat-card:hover { transform:translateY(-2px); box-shadow:0 10px 26px rgba(34,64,112,.09); }
+.ssc-icon-tile { display:grid; place-items:center; width:42px; height:42px; flex:0 0 42px; border-radius:14px; }
+.ssc-icon-tile.blue { color:#2563eb; background:#e8f1ff; }
+.ssc-icon-tile.mint { color:#059669; background:#e1f8f0; }
+.ssc-icon-tile.violet { color:#7c3aed; background:#f0eaff; }
+.ssc-icon-tile.amber { color:#d97706; background:#fff2dc; }
+.ssc-primary-btn,.ssc-secondary-btn {
+  display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:39px;
+  border-radius:11px; padding:9px 14px; font-size:12px; font-weight:750; cursor:pointer;
+  transition:transform .18s ease,background .18s ease,box-shadow .18s ease;
+}
+.ssc-primary-btn { color:#fff; background:#1769e8; box-shadow:0 5px 14px rgba(23,105,232,.2); }
+.ssc-primary-btn:hover { background:#1059cb; transform:translateY(-1px); }
+.ssc-secondary-btn { color:#344563; background:#fff; border:1px solid #e2e8f2; }
+.ssc-secondary-btn:hover { background:#f6f9ff; }
+.ssc-soft-pill { display:inline-flex; align-items:center; gap:5px; border-radius:999px; padding:6px 10px; color:#2563eb; background:#edf4ff; font-size:10px; font-weight:750; }
+.ssc-action-tile { display:flex; align-items:center; gap:10px; min-width:0; padding:11px; border:1px solid #edf0f6; border-radius:14px; background:#fff; text-align:left; transition:background .18s ease,border-color .18s ease,transform .18s ease; }
+.ssc-action-tile:hover { background:#f7faff; border-color:#cbdcf8; transform:translateY(-1px); }
+@media (max-width:640px) {
+  .ssc-stat-card { padding:13px; gap:10px; }
+  .ssc-icon-tile { width:38px; height:38px; flex-basis:38px; }
+  .ssc-primary-btn,.ssc-secondary-btn { padding:8px 10px; font-size:11px; }
+  .ssc-panel { border-radius:16px; }
+}
+
+.ssc-portal-shell { background:#f1f5ff; color:#17233d; }
+.ssc-portal-topbar { background:#102b57; border-color:#1d467a; }
+.ssc-portal-shell main { background:transparent; }
+.ssc-ai-panel { border-color:#e2e9f6; border-radius:20px; box-shadow:0 10px 32px rgba(24,55,105,.07); }
+.ssc-ai-header { background:linear-gradient(105deg,#f7f9ff,#fff); border-color:#e8edf7; }
+
+/* Shared premium portal design system */
+.ssc-admin-shell { background:#f1f5fb; color:#17233d; }
+.ssc-admin-mobilebar { background:#102b57; border-color:#1d467a; }
+.ssc-admin-sidebar { background:#102b57; border-color:#1d467a; box-shadow:8px 0 30px rgba(16,43,87,.08); }
+.ssc-admin-sidebar .border-neutral-800 { border-color:rgba(255,255,255,.10); }
+.ssc-admin-sidebar .bg-neutral-900 { background:rgba(255,255,255,.07); }
+.ssc-admin-sidebar [class~="hover:bg-neutral-900"]:hover { background:rgba(255,255,255,.10); }
+.ssc-admin-sidebar .bg-emerald-900 { background:#1769e8; }
+.ssc-admin-sidebar .text-emerald-400 { color:#8bd8ff; }
+.ssc-admin-sidebar .text-emerald-300 { color:#a7e2ff; }
+.ssc-admin-main { background:#f1f5fb; }
+.ssc-module-card {
+  display:flex; align-items:center; gap:12px; min-width:0; padding:14px;
+  border:1px solid #e7edf7; border-radius:16px; background:#fff; text-align:left;
+  box-shadow:0 4px 16px rgba(34,64,112,.035);
+  transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease;
+}
+.ssc-module-card:hover { transform:translateY(-2px); border-color:#c8d9f5; box-shadow:0 9px 22px rgba(34,64,112,.08); }
+.ssc-portal-shell { background:#f1f5ff; color:#17233d; }
+.ssc-portal-topbar { background:#102b57; border-color:#1d467a; }
+.ssc-portal-shell main { max-width:none; display:grid; grid-template-columns:248px minmax(0,1fr); align-items:start; gap:22px; padding:24px clamp(12px,3vw,36px); }
+.ssc-role-sidebar {
+  position:sticky; top:82px; min-width:0; overflow:hidden; border:1px solid #e2e9f6;
+  border-radius:20px; background:#fff; box-shadow:0 8px 26px rgba(24,55,105,.055);
+}
+.ssc-role-sidebar-brand { display:flex; align-items:center; gap:11px; padding:18px 16px; border-bottom:1px solid #edf1f7; }
+.ssc-brand-mark { display:grid; place-items:center; width:40px; height:40px; border-radius:13px; color:#fff; background:linear-gradient(145deg,#1769e8,#19a5c7); }
+.ssc-role-sidebar-brand strong { display:block; color:#142747; font-size:13px; font-weight:850; }
+.ssc-role-sidebar-brand small { display:block; margin-top:3px; color:#8290a8; font-size:10px; }
+.ssc-role-nav { display:flex; flex-direction:column; gap:4px; padding:12px; }
+.ssc-role-nav-item {
+  display:flex; align-items:center; gap:11px; width:100%; min-height:42px; padding:9px 11px;
+  border:1px solid transparent; border-radius:11px; color:#65738d; background:transparent;
+  text-align:left; font-size:12px; font-weight:650; transition:all .16s ease; cursor:pointer;
+}
+.ssc-role-nav-item:hover { color:#1d4f91; background:#f4f8ff; }
+.ssc-role-nav-item.active { color:#145bc4; background:#edf4ff; border-color:#dce9ff; font-weight:800; }
+.ssc-role-nav-item em { margin-left:auto; min-width:20px; padding:2px 6px; border-radius:99px; color:#fff; background:#e45c6c; text-align:center; font-size:10px; font-style:normal; }
+.ssc-sidebar-foot { display:flex; align-items:center; gap:8px; padding:13px 16px; border-top:1px solid #edf1f7; color:#8b98ad; font-size:10px; }
+.ssc-online-dot { width:7px; height:7px; border-radius:50%; background:#10b981; box-shadow:0 0 0 3px #d9f8eb; }
+.ssc-role-content { min-width:0; }
+.ssc-student-shell .ssc-role-content > .bg-white,
+.ssc-teacher-shell .ssc-role-content > .bg-white { border-color:#e4eaf4; border-radius:18px; box-shadow:0 6px 22px rgba(24,55,105,.045); }
+.ssc-ai-panel { border-color:#e2e9f6; border-radius:20px; box-shadow:0 10px 32px rgba(24,55,105,.07); }
+.ssc-ai-header { background:linear-gradient(105deg,#f7f9ff,#fff); border-color:#e8edf7; }
+@media (max-width:1023px) {
+  .ssc-portal-shell main { grid-template-columns:1fr; gap:14px; }
+  .ssc-role-sidebar { position:static; }
+  .ssc-role-sidebar-brand { display:none; }
+  .ssc-role-nav { flex-direction:row; overflow-x:auto; padding:9px; gap:6px; }
+  .ssc-role-nav-item { width:auto; flex:0 0 auto; min-height:38px; padding:8px 11px; white-space:nowrap; }
+  .ssc-sidebar-foot { display:none; }
+}
+@media (max-width:640px) {
+  .ssc-portal-shell main { padding:12px; }
+  .ssc-role-sidebar { border-radius:14px; }
+  .ssc-role-nav-item { font-size:11px; }
+  .ssc-module-card { padding:11px; }
+}
