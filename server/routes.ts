@@ -3924,7 +3924,7 @@ router.get('/teachers', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/teachers/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/teachers/:id', authenticateToken, requireRole(['super_admin', 'admin', 'teacher']), async (req: AuthenticatedRequest, res: Response) => {
   if (!isValidCmsIdParam(req.params.id)) {
     return res.status(400).json({ error: 'Invalid teacher ID format' });
   }
