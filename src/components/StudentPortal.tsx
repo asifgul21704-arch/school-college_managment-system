@@ -952,9 +952,9 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
   ];
 
   return (
-    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-neutral-100 flex flex-col">
+    <div className="ssc-portal-shell min-h-screen w-full max-w-full overflow-x-hidden flex flex-col">
       {/* Portal Top Bar */}
-      <header className="bg-emerald-950 text-white border-b border-emerald-900 py-2.5 px-3 sm:px-8 flex items-center justify-between gap-2 sticky top-0 z-40 shadow-xs">
+      <header className="ssc-portal-topbar text-white border-b py-2.5 px-3 sm:px-8 flex items-center justify-between gap-2 sticky top-0 z-40 shadow-sm">
         <div className="flex items-center gap-2.5 min-w-0">
           <button
             type="button"
