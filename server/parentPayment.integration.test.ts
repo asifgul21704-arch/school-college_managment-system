@@ -13,6 +13,8 @@ import { NotificationModel } from './models/Notification.ts';
 import { TeacherModel } from './models/Teacher.ts';
 import { TeacherAssignmentModel } from './models/TeacherAssignment.ts';
 import { AttendanceModel } from './models/Attendance.ts';
+import { ExamModel } from './models/Exam.ts';
+import { ResultModel } from './models/Result.ts';
 
 const TEST_DATABASE_NAME = 'school_management_integration_test';
 const mongoUri = process.env.MONGODB_TEST_URI || '';
@@ -1017,4 +1019,81 @@ test('real MongoDB: teacher dashboards and attendance are scoped to exact assign
   assert.equal(allowedAttendanceWrite.status, 200, JSON.stringify(allowedAttendanceWrite.body));
   const updatedAttendance = await AttendanceModel.findOne({ student_id: 'TEACHER-SCOPE-STUDENT-A', date: today }).lean();
   assert.equal(updatedAttendance?.status, 'Late');
+
+  const exam = await ExamModel.create({
+    title: 'Teacher Scope Regression Exam',
+    term: 'Term 1',
+    academic_year: '2026-2027',
+    start_date: today,
+    end_date: today,
+    classes: ['Class 5'],
+    status: 'Ongoing',
+  });
+  const examId = exam._id.toString();
+
+  const wrongSectionMarks = await request('/results', teacherToken, {
+    method: 'POST',
+    body: {
+      exam_id: examId,
+      student_id: 'TEACHER-SCOPE-STUDENT-B',
+      subjects: [{ subject_name: 'Mathematics', total_marks: 100, obtained_marks: 85 }],
+    },
+  });
+  assert.equal(wrongSectionMarks.status, 403);
+  assert.equal(await ResultModel.countDocuments({ exam_id: examId, student_id: 'TEACHER-SCOPE-STUDENT-B' }), 0);
+
+  const wrongSubjectMarks = await request('/results', teacherToken, {
+    method: 'POST',
+    body: {
+      exam_id: examId,
+      student_id: 'TEACHER-SCOPE-STUDENT-A',
+      subjects: [{ subject_name: 'Science', total_marks: 100, obtained_marks: 85 }],
+    },
+  });
+  assert.equal(wrongSubjectMarks.status, 403);
+  assert.equal(await ResultModel.countDocuments({ exam_id: examId, student_id: 'TEACHER-SCOPE-STUDENT-A' }), 0);
+
+  const allowedMarks = await request('/results', teacherToken, {
+    method: 'POST',
+    body: {
+      exam_id: examId,
+      student_id: 'TEACHER-SCOPE-STUDENT-A',
+      subjects: [{ subject_name: 'Mathematics', total_marks: 100, obtained_marks: 85 }],
+    },
+  });
+  assert.equal(allowedMarks.status, 201, JSON.stringify(allowedMarks.body));
+  assert.equal(allowedMarks.body.subjects[0].subject_name, 'Mathematics');
+
+  const unassignedSectionResult = await ResultModel.create({
+    record_id: 'TEACHER-SCOPE-RESULT-B',
+    exam_id: examId,
+    exam_title: 'Teacher Scope Regression Exam',
+    student_id: 'TEACHER-SCOPE-STUDENT-B',
+    student_name: 'Unassigned Section Student',
+    class_name: 'Class 5',
+    section: 'B',
+    subjects: [{ subject_name: 'Mathematics', total_marks: 100, obtained_marks: 80, grade: 'A' }],
+    total_marks: 100,
+    obtained_marks: 80,
+    percentage: 80,
+    overall_grade: 'A',
+    published: true,
+  });
+
+  const deniedDelete = await request('/results/TEACHER-SCOPE-RESULT-B', teacherToken, { method: 'DELETE' });
+  assert.equal(deniedDelete.status, 403);
+  const deniedPublish = await request('/results/TEACHER-SCOPE-RESULT-B/publish', teacherToken, {
+    method: 'PATCH',
+    body: { published: false },
+  });
+  assert.equal(deniedPublish.status, 403);
+  const protectedResult = await ResultModel.findById(unassignedSectionResult._id).lean();
+  assert.ok(protectedResult);
+  assert.equal(protectedResult?.published, true);
+
+  const deniedFeeCreation = await request('/fees', teacherToken, {
+    method: 'POST',
+    body: { student_id: 'TEACHER-SCOPE-STUDENT-A', fee_month: 'December', year: 2026, tuition_fee: 1000 },
+  });
+  assert.equal(deniedFeeCreation.status, 403);
 });
