@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import { isProductionEnvironment } from './runtime.ts';
 
 let envInitialized = false;
 
@@ -11,7 +12,7 @@ export function loadLocalEnvIfNeeded(): void {
 
   // Production deployments (e.g., Railway) inject environment variables directly via process.env
   // and must never depend on or be overridden by a local .env file.
-  if (process.env.NODE_ENV === 'production') {
+  if (isProductionEnvironment()) {
     return;
   }
 
