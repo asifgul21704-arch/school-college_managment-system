@@ -2230,8 +2230,14 @@ router.post('/parents/find-child', sensitiveActionRateLimiter, authenticateToken
       return res.status(404).json({ error: 'Parent account not found' });
     }
 
-    const allStudents = (await StudentModel.find().lean()).map(toStudentDto);
-    const matches = allStudents.filter(s => {
+    const canonicalUserId = userDoc.record_id || userDoc._id.toString();
+    const currentOwnerIds = [canonicalUserId, userDoc._id.toString()].filter((value, index, values) => value && values.indexOf(value) === index);
+    // Only discover unclaimed students or children already owned by this parent.
+    // Never expose a student record that belongs to a different guardian.
+    const eligibleStudents = (await StudentModel.find({
+      parent_user_id: { $in: [null, '', ...currentOwnerIds] },
+    }).lean()).map(toStudentDto);
+    const matches = eligibleStudents.filter(s => {
       if (!isStudentNameMatch(s.full_name, cleanStudent)) return false;
       if (!isStudentClassMatch(s.class_name, cleanClass)) return false;
       if (!isStudentRollMatch(s.roll_no, cleanRoll)) return false;
@@ -2248,7 +2254,6 @@ router.post('/parents/find-child', sensitiveActionRateLimiter, authenticateToken
       });
     }
 
-    const canonicalUserId = userDoc.record_id || userDoc._id.toString();
     const alreadyLinkedIds = await getLinkedStudentIdsForParent({
       id: canonicalUserId,
       email: userDoc.email,
