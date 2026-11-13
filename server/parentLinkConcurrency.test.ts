@@ -253,3 +253,45 @@ test('teacher portal read and write routes enforce section-level assignment chec
     assert.match(routes.slice(start, end), /isTeacherAssignedToClassSection/);
   }
 });
+
+test('teacher class overview only counts and lists assigned sections', () => {
+  const start = routes.indexOf("router.get('/teacher/classes'");
+  const end = routes.indexOf('\n});', start) + 4;
+  assert.ok(start >= 0 && end > start);
+  const route = routes.slice(start, end);
+  assert.match(route, /getTeacherAssignmentScopes\(teacherIds\)/);
+  assert.match(route, /studentsInClass[\s\S]*isTeacherAssignedToClassSection/);
+  assert.match(route, /mongoSections[\s\S]*isTeacherAssignedToClassSection/);
+  assert.match(route, /todayAttendanceMarked[\s\S]*isTeacherAssignedToClassSection/);
+});
+
+test('teacher timetable uses exact owner matching rather than partial name matching', () => {
+  const start = routes.indexOf("router.get('/teacher/timetable'");
+  const end = routes.indexOf('\n});', start) + 4;
+  assert.ok(start >= 0 && end > start);
+  const route = routes.slice(start, end);
+  assert.match(route, /=== String\(teacher\.name \|\| ''\)\.trim\(\)\.toLowerCase\(\)/);
+  assert.doesNotMatch(route, /\.includes\(teacher\.name/);
+});
+
+test('teacher AI query scopes student, attendance, and result data to assigned sections', () => {
+  const start = routes.indexOf("router.post('/teacher/ai/query'");
+  const end = routes.indexOf('\n});', start) + 4;
+  assert.ok(start >= 0 && end > start);
+  const route = routes.slice(start, end);
+  assert.match(route, /getTeacherAssignmentScopes\(teacherIds\)/);
+  assert.match(route, /const teacherStudents = allStudents\.filter[\s\S]*isTeacherAssignedToClassSection/);
+  assert.match(route, /filter\(a => isTeacherAssignedToClassSection/);
+  assert.match(route, /filter\(r => isTeacherAssignedToClassSection/);
+});
+
+test('teacher AI confirmed actions revalidate live section and subject assignments', () => {
+  const start = routes.indexOf("router.post('/teacher/ai/execute-action'");
+  const end = routes.indexOf('\n});', start) + 4;
+  assert.ok(start >= 0 && end > start);
+  const route = routes.slice(start, end);
+  assert.match(route, /isTeacherAssignedToClassSection/);
+  assert.match(route, /isTeacherSubjectAssigned/);
+  assert.match(route, /Student is outside your assigned class and section/);
+  assert.match(route, /Subject is outside your teaching assignment/);
+});
