@@ -1,8 +1,44 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { buildStudentParentClaimFilter } from './parentAccess.ts';
 
 const routes = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
+
+test('parent claim filter permits only unclaimed or same-owner student records', () => {
+  assert.deepEqual(buildStudentParentClaimFilter('student-mongo-id', 'parent-record-id', 'parent-mongo-id'), {
+    _id: 'student-mongo-id',
+    parent_user_id: { $in: [null, '', 'parent-record-id', 'parent-mongo-id'] },
+  });
+  assert.deepEqual(buildStudentParentClaimFilter('student-mongo-id', 'parent-record-id', 'parent-record-id'), {
+    _id: 'student-mongo-id',
+    parent_user_id: { $in: [null, '', 'parent-record-id'] },
+  });
+  assert.deepEqual(buildStudentParentClaimFilter('', '', ''), { _id: null });
+});
+
+test('both parent linking endpoints use one atomic conditional ownership update', () => {
+  const helperStart = routes.indexOf('async function claimStudentForParent');
+  const helperEnd = routes.indexOf('async function persistParentStudentLink', helperStart);
+  assert.ok(helperStart >= 0 && helperEnd > helperStart);
+  const helper = routes.slice(helperStart, helperEnd);
+  assert.match(helper, /StudentModel\.findOneAndUpdate\(/);
+  assert.match(helper, /buildStudentParentClaimFilter\(studentDoc\._id, canonicalUserId, mongoUserId\)/);
+  assert.match(helper, /\$set: \{ parent_user_id: canonicalUserId \}/);
+
+  const firstStart = routes.indexOf("router.post('/parents/link-student'");
+  const secondStart = routes.indexOf("router.post('/parents/confirm-link-child'");
+  const unlinkStart = routes.indexOf("router.post('/parents/unlink-child'");
+  assert.ok(firstStart >= 0 && secondStart > firstStart && unlinkStart > secondStart);
+  const firstFlow = routes.slice(firstStart, secondStart);
+  const secondFlow = routes.slice(secondStart, unlinkStart);
+  assert.match(firstFlow, /claimStudentForParent\(studentDoc, canonicalUserId, userDoc\._id\.toString\(\)\)/);
+  assert.match(secondFlow, /claimStudentForParent\(studentDoc, canonicalUserId, userDoc\._id\.toString\(\)\)/);
+  assert.match(firstFlow, /persistParentStudentLink\(userDoc, studentDoc, canonicalStudentId, canonicalUserId\)/);
+  assert.match(secondFlow, /persistParentStudentLink\(userDoc, studentDoc, canonicalStudentId, canonicalUserId\)/);
+  assert.doesNotMatch(firstFlow, /studentDoc\.save\(\)/);
+  assert.doesNotMatch(secondFlow, /studentDoc\.save\(\)/);
+});
 
 test('link persistence failure verifies database state before releasing claimed ownership', () => {
   const helperStart = routes.indexOf('async function persistParentStudentLink');
