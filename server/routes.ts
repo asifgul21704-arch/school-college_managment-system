@@ -6874,6 +6874,7 @@ router.put('/fees/:id/pay', authenticateToken, requireRole(['super_admin', 'admi
     const paymentDocPayload: Record<string, any> = {
       fee_id: canonicalVoucherId,
       student_id: feeDoc.student_id,
+      payment_reference: receipt_no,
       receipt_no,
       ...(cleanTxnId ? { transaction_id: cleanTxnId } : {}),
       date: paymentRecord.date,
