@@ -71,3 +71,23 @@ test('online gateway requests cannot be marked paid without provider verificatio
   assert.match(guard, /verified payment gateway integration/);
   assert.doesNotMatch(guard, /FeePaymentModel\.create/);
 });
+
+test('parent payment initiation is restricted to parent and student roles', () => {
+  const start = routes.indexOf("router.post('/parent/payments/initiate'");
+  const end = routes.indexOf("// 4. Parent Payment History", start);
+  assert.ok(start >= 0 && end > start);
+  const route = routes.slice(start, end);
+  assert.match(route, /requireRole\(['parent', 'student'\]\)/);
+});
+
+test('manual payment approval is locked and checks the exact voucher balance before marking paid', () => {
+  const start = routes.indexOf("router.post('/admin/payments/:id/approve'");
+  const end = routes.indexOf("// 7. Admin Reject Manual Payment", start);
+  assert.ok(start >= 0 && end > start);
+  const route = routes.slice(start, end);
+  assert.match(route, /status: 'Pending Verification', verification_status: 'Pending'/);
+  assert.match(route, /\$set: \{ status: 'Processing' \}/);
+  assert.match(route, /pending_amount: currentPending, paid_amount: currentPaid/);
+  assert.ok(route.indexOf('FeeModel.findOneAndUpdate') < route.indexOf("status: 'Paid',"));
+  assert.match(route, /status: 'Pending Verification'/);
+});
