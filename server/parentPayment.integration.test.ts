@@ -1432,7 +1432,7 @@ test('real MongoDB: finance reports, expense CRUD, and idempotent payroll paymen
       status: 'Paid',
       verification_status: 'Verified',
       student_name: 'Finance Collection Student',
-      class_name: 'Class 5',
+      class_name: 'Finance Integration Class',
       fee_month: 'November',
       year: 2026,
     },
@@ -1447,12 +1447,12 @@ test('real MongoDB: finance reports, expense CRUD, and idempotent payroll paymen
       status: 'Pending Verification',
       verification_status: 'Pending',
       student_name: 'Finance Collection Student',
-      class_name: 'Class 5',
+      class_name: 'Finance Integration Class',
       fee_month: 'November',
       year: 2026,
     },
   ]);
-  const verifiedCollections = await request('/finance/collections?month=2026-11', adminToken);
+  const verifiedCollections = await request('/finance/collections?month=2026-11&class_name=Finance%20Integration%20Class', adminToken);
   assert.equal(verifiedCollections.status, 200);
   assert.deepEqual(verifiedCollections.body.map((row: any) => row.receipt_no), ['FINANCE-REC-VERIFIED']);
   const invalidCollectionMonth = await request('/finance/collections?month=2026-13', adminToken);
