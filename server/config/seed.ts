@@ -31,6 +31,7 @@ import {
   DEFAULT_SCHOOL_SETTINGS,
   DataMigrationModel,
 } from '../models/index.ts';
+import { isProductionEnvironment } from './runtime.ts';
 
 /**
  * Seeds and migrates data from data/db.json into MongoDB Atlas collections.
@@ -40,7 +41,7 @@ export function isLocalSeedBlocked(): boolean {
   const rawMongoUri = String(process.env.MONGODB_URI || '').trim();
   const isAtlasClusterUri =
     rawMongoUri.startsWith('mongodb+srv://') || rawMongoUri.includes('.mongodb.net');
-  const isProd = process.env.NODE_ENV === 'production';
+  const isProd = isProductionEnvironment();
 
   // 1. MongoDB Atlas clusters NEVER seed from local db.json unless ALLOW_PRODUCTION_SEED === 'true'
   if (isAtlasClusterUri) {
