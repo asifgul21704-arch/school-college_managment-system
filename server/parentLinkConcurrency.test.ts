@@ -398,3 +398,13 @@ test('public teacher directory excludes private identity and contact fields', ()
   assert.match(route, /qualification: t\.qualification/);
   assert.match(route, /subject: t\.subject/);
 });
+
+test('full teacher profile endpoint is limited to admins and the teacher role', () => {
+  const start = routes.indexOf("router.get('/teachers/:id'");
+  const end = routes.indexOf('\n});', start) + 4;
+  assert.ok(start >= 0 && end > start);
+  const route = routes.slice(start, end);
+  assert.match(route, /requireRole\(\['super_admin', 'admin', 'teacher'\]\)/);
+  assert.match(route, /You may only view your own teacher profile/);
+  assert.match(route, /Personnel staff profiles are restricted/);
+});
