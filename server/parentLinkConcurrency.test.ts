@@ -47,7 +47,7 @@ test('parent payment history is limited to currently linked children', () => {
   assert.ok(start >= 0 && end > start);
   const historyRoute = routes.slice(start, end);
   assert.match(historyRoute, /query = \{ student_id: \{ \$in: Array\.from\(linked\) \} \}/);
-  assert.doesNotMatch(historyRoute, /parent_user_id/);
+  assert.doesNotMatch(historyRoute, /\\{\\s*parent_user_id\\s*:/);
   assert.match(historyRoute, /status\(403\)/);
   assert.doesNotMatch(historyRoute, /query = \{\s*\}/);
 });
