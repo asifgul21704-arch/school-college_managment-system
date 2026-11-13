@@ -1175,7 +1175,7 @@ export const api = {
   },
   createFinancePayroll: (data: { staff_id: string; staff_name: string; designation: string; salary_month: number; salary_year: number; basic_salary: number; allowances?: number; deductions?: number; notes?: string }) =>
     request<PayrollRecord>('/finance/payroll', { method: 'POST', body: JSON.stringify(data) }),
-  recordFinanceSalaryPayment: (id: string, data: { amount: number; payment_date: string; payment_method: string }) =>
+  recordFinanceSalaryPayment: (id: string, data: { amount: number; payment_date: string; payment_method: string; idempotency_key: string }) =>
     request<PayrollRecord>(`/finance/payroll/${id}/payment`, { method: 'POST', body: JSON.stringify(data) }),
 
   getPublicHomework: (params?: { class_name?: string; section?: string }) => {
