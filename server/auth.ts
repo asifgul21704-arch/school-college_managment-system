@@ -434,6 +434,10 @@ export async function resolveLiveUserFromDecoded(decoded: any): Promise<any | nu
 }
 
 export async function authenticateToken(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  // Authenticated school records contain personal and financial data; never allow shared/browser caching.
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   const token = extractTokenFromRequest(req);
 
   if (!token) {

@@ -28,6 +28,9 @@ import {
   setSessionCookie,
   clearSessionCookie,
 } from './auth.ts';
+import { buildStudentParentClaimFilter } from './parentAccess.ts';
+import { isClassAssignedToTeacher, normalizeClassAccessLabel } from './classAccess.ts';
+import { canAssignTeacherHomework, getTeacherAssignmentScopes, isTeacherAssignedToClassSection, isTeacherSubjectAssigned } from './teacherHomeworkAccess.ts';
 import {
   detectInquiryIntent,
   verifyInquiryParent,
@@ -124,7 +127,10 @@ import {
   SmtpDeliveryError,
 } from './services/passwordResetEmailService.ts';
 
+import { financeRouter } from './financeRoutes.ts';
+
 export const router = express.Router();
+router.use('/finance', financeRouter);
 
 // Concurrency lock for in-flight fee payment operations per voucher ID (single-process fast guard, paired with DB atomic filter)
 const activePaymentLocks = new Set<string>();
@@ -515,16 +521,6 @@ async function getLinkedStudentIdsForParent(user: {
   }
 
   return ids;
-}
-
-function isClassAssignedToTeacher(assignedClasses: string[], targetClassName: string): boolean {
-  const target = String(targetClassName || '').trim().toLowerCase();
-  if (!target) return false;
-  return assignedClasses.some(raw => {
-    const c = String(raw || '').trim().toLowerCase();
-    if (!c) return false;
-    return c === target || target.includes(c) || c.includes(target);
-  });
 }
 
 async function getAuthenticatedTeacherMongo(req: AuthenticatedRequest): Promise<TeacherDto | null> {
@@ -1779,6 +1775,7 @@ router.post('/auth/register-parent', authRateLimiter, async (req: Request, res: 
     const newUserId = `usr_${ts}_${randSuffix}`;
     const linkedStudentIds: string[] = [];
     const linkedStudentDtos: StudentDto[] = [];
+    let pendingStudentDoc: any = null;
 
     // Optional child linking during signup requires BOTH matching admission_no AND child_dob
     if (child_admission_no && String(child_admission_no).trim()) {
@@ -1799,9 +1796,7 @@ router.post('/auth/register-parent', authRateLimiter, async (req: Request, res: 
       }
       const sid = studentDoc.record_id || studentDoc._id.toString();
       linkedStudentIds.push(sid);
-      studentDoc.parent_user_id = newUserId;
-      await studentDoc.save();
-      linkedStudentDtos.push(toStudentDto(studentDoc));
+      pendingStudentDoc = studentDoc;
     }
 
     const cleanName = sanitizePlainText(full_name, 150);
@@ -1821,17 +1816,41 @@ router.post('/auth/register-parent', authRateLimiter, async (req: Request, res: 
       status: 'active',
     });
 
-    await ParentModel.create({
-      record_id: `prt_${newUserId}`,
-      user_id: newUserId,
-      name: cleanName,
-      father_name: cleanName,
-      phone: cleanPhone,
-      email: cleanEmail,
-      address: cleanAddress,
-      occupation: cleanOccupation,
-      linked_students: linkedStudentIds,
-    });
+    if (pendingStudentDoc) {
+      const claimedStudent = await claimStudentForParent(
+        pendingStudentDoc, newUserId, createdUser._id.toString()
+      );
+      if (!claimedStudent) {
+        await UserModel.deleteOne({ _id: createdUser._id });
+        return res.status(409).json({
+          error: 'This student is already linked to another parent account. Please contact the school administration.',
+        });
+      }
+      linkedStudentDtos.push(toStudentDto(claimedStudent));
+    }
+
+    try {
+      await ParentModel.create({
+        record_id: `prt_${newUserId}`,
+        user_id: newUserId,
+        name: cleanName,
+        father_name: cleanName,
+        phone: cleanPhone,
+        email: cleanEmail,
+        address: cleanAddress,
+        occupation: cleanOccupation,
+        linked_students: linkedStudentIds,
+      });
+    } catch (parentCreateError) {
+      if (pendingStudentDoc) {
+        await StudentModel.updateOne(
+          { _id: pendingStudentDoc._id, parent_user_id: newUserId },
+          { $set: { parent_user_id: '' } }
+        ).catch(() => {});
+      }
+      await UserModel.deleteOne({ _id: createdUser._id }).catch(() => {});
+      throw parentCreateError;
+    }
 
     const userDto = toUserDto(createdUser);
     await recordMongoAudit(
@@ -2099,6 +2118,14 @@ async function fetchLinkedStudentsForParentUser(userId: string, email?: string):
   return docs.map(toStudentDto);
 }
 
+async function claimStudentForParent(studentDoc: any, canonicalUserId: string, mongoUserId: string): Promise<any | null> {
+  return StudentModel.findOneAndUpdate(
+    buildStudentParentClaimFilter(studentDoc._id, canonicalUserId, mongoUserId),
+    { $set: { parent_user_id: canonicalUserId } },
+    { new: true, runValidators: true }
+  );
+}
+
 // Parent link student endpoint (secure verification by Admission No and Date of Birth)
 router.post('/parents/link-student', sensitiveActionRateLimiter, authenticateToken, requireRole(['parent']), async (req: AuthenticatedRequest, res: Response) => {
   const { admission_no, dob } = req.body || {};
@@ -2130,16 +2157,21 @@ router.post('/parents/link-student', sensitiveActionRateLimiter, authenticateTok
     const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
     const canonicalUserId = userDoc.record_id || userDoc._id.toString();
 
-    const nextLinked = Array.isArray(userDoc.linked_student_ids) ? [...userDoc.linked_student_ids] : [];
-    if (!nextLinked.includes(canonicalStudentId)) {
-      nextLinked.push(canonicalStudentId);
+    const claimedStudent = await claimStudentForParent(studentDoc, canonicalUserId, userDoc._id.toString());
+    if (!claimedStudent) {
+      return res.status(409).json({
+        error: 'This student is already linked to another parent account. Please contact school administration.',
+      });
     }
-    userDoc.linked_student_ids = nextLinked;
-    userDoc.linked_id = canonicalStudentId;
-    await userDoc.save();
 
-    studentDoc.parent_user_id = canonicalUserId;
-    await studentDoc.save();
+    await UserModel.findOneAndUpdate(
+      { _id: userDoc._id },
+      {
+        $addToSet: { linked_student_ids: canonicalStudentId },
+        $set: { linked_id: canonicalStudentId },
+      },
+      { new: true, runValidators: true }
+    );
 
     await ParentModel.findOneAndUpdate(
       { $or: [{ user_id: canonicalUserId }, { email: userDoc.email.toLowerCase() }] },
@@ -2168,7 +2200,7 @@ router.post('/parents/link-student', sensitiveActionRateLimiter, authenticateTok
     const linkedStudents = await fetchLinkedStudentsForParentUser(canonicalUserId, userDoc.email);
     return res.json({
       message: `Successfully linked ${studentDoc.full_name} (${studentDoc.admission_no}) to parent account`,
-      student: toStudentDto(studentDoc),
+      student: toStudentDto(claimedStudent),
       linked_students: linkedStudents,
     });
   } catch (err: any) {
@@ -2198,8 +2230,14 @@ router.post('/parents/find-child', sensitiveActionRateLimiter, authenticateToken
       return res.status(404).json({ error: 'Parent account not found' });
     }
 
-    const allStudents = (await StudentModel.find().lean()).map(toStudentDto);
-    const matches = allStudents.filter(s => {
+    const canonicalUserId = userDoc.record_id || userDoc._id.toString();
+    const currentOwnerIds = [canonicalUserId, userDoc._id.toString()].filter((value, index, values) => value && values.indexOf(value) === index);
+    // Only discover unclaimed students or children already owned by this parent.
+    // Never expose a student record that belongs to a different guardian.
+    const eligibleStudents = (await StudentModel.find({
+      parent_user_id: { $in: [null, '', ...currentOwnerIds] },
+    }).lean()).map(toStudentDto);
+    const matches = eligibleStudents.filter(s => {
       if (!isStudentNameMatch(s.full_name, cleanStudent)) return false;
       if (!isStudentClassMatch(s.class_name, cleanClass)) return false;
       if (!isStudentRollMatch(s.roll_no, cleanRoll)) return false;
@@ -2216,7 +2254,6 @@ router.post('/parents/find-child', sensitiveActionRateLimiter, authenticateToken
       });
     }
 
-    const canonicalUserId = userDoc.record_id || userDoc._id.toString();
     const alreadyLinkedIds = await getLinkedStudentIdsForParent({
       id: canonicalUserId,
       email: userDoc.email,
@@ -2279,16 +2316,21 @@ router.post('/parents/confirm-link-child', sensitiveActionRateLimiter, authentic
     const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
     const canonicalUserId = userDoc.record_id || userDoc._id.toString();
 
-    const nextLinked = Array.isArray(userDoc.linked_student_ids) ? [...userDoc.linked_student_ids] : [];
-    if (!nextLinked.includes(canonicalStudentId)) {
-      nextLinked.push(canonicalStudentId);
+    const claimedStudent = await claimStudentForParent(studentDoc, canonicalUserId, userDoc._id.toString());
+    if (!claimedStudent) {
+      return res.status(409).json({
+        error: 'This student is already linked to another parent account. Please contact school administration.',
+      });
     }
-    userDoc.linked_student_ids = nextLinked;
-    userDoc.linked_id = canonicalStudentId;
-    await userDoc.save();
 
-    studentDoc.parent_user_id = canonicalUserId;
-    await studentDoc.save();
+    await UserModel.findOneAndUpdate(
+      { _id: userDoc._id },
+      {
+        $addToSet: { linked_student_ids: canonicalStudentId },
+        $set: { linked_id: canonicalStudentId },
+      },
+      { new: true, runValidators: true }
+    );
 
     await ParentModel.findOneAndUpdate(
       { $or: [{ user_id: canonicalUserId }, { email: userDoc.email.toLowerCase() }] },
@@ -2318,7 +2360,7 @@ router.post('/parents/confirm-link-child', sensitiveActionRateLimiter, authentic
     return res.json({
       success: true,
       message: `Successfully linked ${studentDoc.full_name} to your parent account!`,
-      student: toStudentDto(studentDoc),
+      student: toStudentDto(claimedStudent),
       linked_students: allLinked,
     });
   } catch (err: any) {
@@ -2366,16 +2408,27 @@ router.post('/parents/unlink-child', authenticateToken, requireRole(['parent']),
     ]);
 
     const filteredIds = (userDoc.linked_student_ids || []).filter((id: string) => !idsToPull.has(id));
-    userDoc.linked_student_ids = filteredIds;
-    if (!userDoc.linked_id || idsToPull.has(userDoc.linked_id)) {
-      userDoc.linked_id = filteredIds.length > 0 ? filteredIds[0] : '';
-    }
-    await userDoc.save();
+    const nextActiveChildId =
+      !userDoc.linked_id || idsToPull.has(userDoc.linked_id)
+        ? filteredIds[0] || ''
+        : userDoc.linked_id;
 
-    if (studentDoc.parent_user_id === canonicalUserId) {
-      studentDoc.parent_user_id = '';
-      await studentDoc.save();
-    }
+    await UserModel.updateOne(
+      { _id: userDoc._id },
+      {
+        $pull: { linked_student_ids: { $in: Array.from(idsToPull) } },
+        $set: { linked_id: nextActiveChildId },
+      }
+    );
+
+    // Conditional update prevents a stale unlink request from clearing a new parent's claim.
+    await StudentModel.updateOne(
+      {
+        _id: studentDoc._id,
+        parent_user_id: { $in: [canonicalUserId, userDoc._id.toString()] },
+      },
+      { $set: { parent_user_id: '' } }
+    );
 
     await ParentModel.updateMany(
       { $or: [{ user_id: canonicalUserId }, { email: userDoc.email.toLowerCase() }] },
@@ -2395,7 +2448,7 @@ router.post('/parents/unlink-child', authenticateToken, requireRole(['parent']),
       success: true,
       message: `Successfully unlinked ${studentDoc.full_name} from your account.`,
       linked_students: remainingLinked,
-      active_child_id: userDoc.linked_id || undefined,
+      active_child_id: nextActiveChildId || undefined,
     });
   } catch (err: any) {
     return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to unlink child') });
@@ -2744,18 +2797,31 @@ router.post('/admin/parent-links/link', authenticateToken, requireRole(['super_a
     const canonicalParentId = parentUser.record_id || parentUser._id.toString();
     const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
 
-    const nextLinked = Array.isArray(parentUser.linked_student_ids) ? [...parentUser.linked_student_ids] : [];
-    if (!nextLinked.includes(canonicalStudentId)) {
-      nextLinked.push(canonicalStudentId);
+    // Admin linking must obey the same atomic one-parent ownership claim as self-service linking.
+    const claimedStudent = await claimStudentForParent(studentDoc, canonicalParentId, parentUser._id.toString());
+    if (!claimedStudent) {
+      return res.status(409).json({
+        error: 'This student is already linked to another parent account. Unlink the existing relationship before assigning a new parent.',
+      });
     }
-    parentUser.linked_student_ids = nextLinked;
-    if (!parentUser.linked_id) {
-      parentUser.linked_id = canonicalStudentId;
-    }
-    await parentUser.save();
 
-    studentDoc.parent_user_id = canonicalParentId;
-    await studentDoc.save();
+    const updatedParent = await UserModel.findOneAndUpdate(
+      { _id: parentUser._id, role: 'parent' },
+      {
+        $addToSet: { linked_student_ids: canonicalStudentId },
+        ...(!parentUser.linked_id ? { $set: { linked_id: canonicalStudentId } } : {}),
+      },
+      { new: true, runValidators: true }
+    );
+    if (!updatedParent) {
+      if (!studentDoc.parent_user_id) {
+        await StudentModel.updateOne(
+          { _id: studentDoc._id, parent_user_id: canonicalParentId },
+          { $set: { parent_user_id: '' } }
+        );
+      }
+      return res.status(404).json({ error: 'Parent account not found.' });
+    }
 
     await ParentModel.findOneAndUpdate(
       { $or: [{ user_id: canonicalParentId }, { email: parentUser.email.toLowerCase() }] },
@@ -2778,12 +2844,12 @@ router.post('/admin/parent-links/link', authenticateToken, requireRole(['super_a
       'Admin Linked Student to Parent',
       'ParentLink',
       canonicalStudentId,
-      `Parent: ${parentUser.name}, Student: ${studentDoc.full_name}`
+      `Parent: ${parentUser.name}, Student: ${claimedStudent.full_name}`
     );
 
     return res.json({
       success: true,
-      message: `Linked student ${studentDoc.full_name} to parent ${parentUser.name}`,
+      message: `Linked student ${claimedStudent.full_name} to parent ${parentUser.name}`,
     });
   } catch (err: any) {
     return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to link student to parent') });
@@ -2908,9 +2974,14 @@ router.get('/dashboard/stats', authenticateToken, requireRole(['super_admin', 'a
   try {
     const isTeacher = req.user?.role === 'teacher';
     const today = new Date().toISOString().split('T')[0];
+    const teacher = isTeacher ? await getAuthenticatedTeacherMongo(req) : null;
+    const teacherIds = teacher
+      ? Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))))
+      : [];
+    const assignmentScopes = teacher ? await getTeacherAssignmentScopes(teacherIds) : [];
 
     const [
-      totalStudents,
+      studentCountOrDocs,
       totalTeachers,
       totalParents,
       totalClasses,
@@ -2922,21 +2993,24 @@ router.get('/dashboard/stats', authenticateToken, requireRole(['super_admin', 'a
       publishedAnnCount,
       unreadMessages,
       recentAnnDocs,
-      todayAttendanceDocs,
+      attendanceDocs,
       allFeeDocs,
     ] = await Promise.all([
-      StudentModel.countDocuments(),
-      TeacherModel.countDocuments(),
-      UserModel.countDocuments({ role: 'parent' }),
-      ClassModel.countDocuments(),
-      SectionModel.countDocuments(),
-      AdmissionModel.countDocuments({ status: { $in: ['Pending', 'Under Review'] } }),
-      AdmissionModel.countDocuments({ status: 'Approved' }),
+      isTeacher ? StudentModel.find().lean() : StudentModel.countDocuments(),
+      isTeacher ? Promise.resolve(0) : TeacherModel.countDocuments(),
+      isTeacher ? Promise.resolve(0) : UserModel.countDocuments({ role: 'parent' }),
+      isTeacher ? Promise.resolve(0) : ClassModel.countDocuments(),
+      isTeacher ? Promise.resolve(0) : SectionModel.countDocuments(),
+      isTeacher ? Promise.resolve(0) : AdmissionModel.countDocuments({ status: { $in: ['Pending', 'Under Review'] } }),
+      isTeacher ? Promise.resolve(0) : AdmissionModel.countDocuments({ status: 'Approved' }),
       isTeacher
         ? Promise.resolve([])
         : AdmissionModel.find().sort({ created_at: -1, _id: -1 }).limit(5).lean(),
       SchoolEventModel.countDocuments({ status: 'Upcoming' }),
-      AnnouncementModel.countDocuments({ published: { $ne: false } }),
+      AnnouncementModel.countDocuments({
+        published: { $ne: false },
+        ...(isTeacher ? { audience: { $in: ['All', 'Teachers', 'Public'] } } : {}),
+      }),
       isTeacher ? Promise.resolve(0) : ContactMessageModel.countDocuments({ read: false }),
       AnnouncementModel.find({
         published: { $ne: false },
@@ -2951,14 +3025,41 @@ router.get('/dashboard/stats', authenticateToken, requireRole(['super_admin', 'a
         : FeeModel.find().sort({ created_at: -1, _id: -1 }).lean(),
     ]);
 
-    const recentAdmissions = recentDocs.map(toAdmissionDto);
-    const totalAnnouncements = publishedAnnCount;
-    const activeAnnouncements = publishedAnnCount;
-    const recentAnnouncements = recentAnnDocs.map(toAnnouncementDto);
+    let totalStudents: number;
+    let totalMarkedToday: number;
+    let presentToday: number;
+    let absentStudentsToday: number;
+    let scopedTotalClasses = totalClasses as number;
+    let scopedTotalSections = totalSections as number;
 
-    const totalMarkedToday = todayAttendanceDocs.length;
-    const presentToday = todayAttendanceDocs.filter(a => a.status === 'Present').length;
-    const absentStudentsToday = todayAttendanceDocs.filter(a => a.status === 'Absent').length;
+    if (isTeacher) {
+      const assignedStudents = (Array.isArray(studentCountOrDocs) ? studentCountOrDocs : [])
+        .map(toStudentDto)
+        .filter(student => teacher && isTeacherAssignedToClassSection(
+          teacher.classes || [], assignmentScopes, student.class_name, student.section || 'A'
+        ));
+      totalStudents = assignedStudents.length;
+      scopedTotalClasses = new Set(assignedStudents.map(student => student.class_name.trim().toLowerCase()).filter(Boolean)).size;
+      scopedTotalSections = new Set(assignedStudents.map(student =>
+        `${student.class_name.trim().toLowerCase()}::${(student.section || 'A').trim().toLowerCase()}`
+      )).size;
+      const assignedAttendance = attendanceDocs.filter(attendance => teacher && isTeacherAssignedToClassSection(
+        teacher.classes || [], assignmentScopes, String(attendance.class_name || ''), String(attendance.section || 'A')
+      ));
+      totalMarkedToday = assignedAttendance.length;
+      presentToday = assignedAttendance.filter(attendance => attendance.status === 'Present').length;
+      absentStudentsToday = assignedAttendance.filter(attendance => attendance.status === 'Absent').length;
+    } else {
+      totalStudents = Number(studentCountOrDocs) || 0;
+      totalMarkedToday = attendanceDocs.length;
+      presentToday = attendanceDocs.filter(attendance => attendance.status === 'Present').length;
+      absentStudentsToday = attendanceDocs.filter(attendance => attendance.status === 'Absent').length;
+    }
+
+    const recentAdmissions = recentDocs.map(toAdmissionDto);
+    const totalAnnouncements = Number(publishedAnnCount) || 0;
+    const activeAnnouncements = totalAnnouncements;
+    const recentAnnouncements = recentAnnDocs.map(toAnnouncementDto);
     const attendanceRate = totalMarkedToday > 0 ? Math.round((presentToday / totalMarkedToday) * 100) : 100;
 
     const totalPendingFee = isTeacher ? 0 : allFeeDocs.reduce((acc, f) => acc + (Number(f.pending_amount) || 0), 0);
@@ -2969,8 +3070,8 @@ router.get('/dashboard/stats', authenticateToken, requireRole(['super_admin', 'a
       totalStudents,
       totalTeachers,
       totalParents,
-      totalClasses,
-      totalSections,
+      totalClasses: scopedTotalClasses,
+      totalSections: scopedTotalSections,
       pendingAdmissions,
       approvedAdmissions,
       todayMarked: totalMarkedToday,
@@ -3224,7 +3325,7 @@ router.put('/settings', authenticateToken, requireRole(['super_admin', 'admin'])
 // 4. STUDENTS MANAGEMENT
 // ==========================================
 
-router.get('/students', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/students', authenticateToken, requireRole(['super_admin', 'admin', 'teacher', 'parent', 'student']), async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   try {
     const { search, class_name, section, status } = req.query;
@@ -3250,13 +3351,21 @@ router.get('/students', authenticateToken, async (req: AuthenticatedRequest, res
     if (req.user?.role === 'teacher') {
       const teacher = await getAuthenticatedTeacherMongo(req);
       const assignedClasses = teacher?.classes || [];
-      if (class_name) {
-        const isAssigned = isClassAssignedToTeacher(assignedClasses, String(class_name));
-        if (!isAssigned) {
-          return res.status(403).json({ error: 'Access denied: You may only view students in your assigned classes.' });
-        }
+      const teacherIds = teacher
+        ? Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))))
+        : [];
+      const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
+      if (class_name && !isClassAssignedToTeacher(assignedClasses, String(class_name))) {
+        return res.status(403).json({ error: 'Access denied: You may only view students in your assigned classes.' });
       }
-      result = result.filter(s => isClassAssignedToTeacher(assignedClasses, s.class_name));
+      if (class_name && section && !isTeacherAssignedToClassSection(
+        assignedClasses, assignmentScopes, String(class_name), String(section)
+      )) {
+        return res.status(403).json({ error: 'Access denied: You are not assigned to this class section.' });
+      }
+      result = result.filter(student => isTeacherAssignedToClassSection(
+        assignedClasses, assignmentScopes, student.class_name, student.section || 'A'
+      ));
     }
 
     if (search) {
@@ -3315,7 +3424,7 @@ router.get('/students', authenticateToken, async (req: AuthenticatedRequest, res
   }
 });
 
-router.get('/students/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/students/:id', authenticateToken, requireRole(['super_admin', 'admin', 'teacher', 'parent', 'student']), async (req: AuthenticatedRequest, res: Response) => {
   if (!isValidCmsIdParam(req.params.id)) {
     return res.status(400).json({ error: 'Invalid student ID format' });
   }
@@ -3343,7 +3452,6 @@ router.get('/students/:id', authenticateToken, async (req: AuthenticatedRequest,
     if (req.user?.role === 'parent') {
       const linkedSet = await getLinkedStudentIdsForParent(req.user);
       const isLinked =
-        student.parent_user_id === req.user.id ||
         linkedSet.has(student.id) ||
         linkedSet.has(studentDoc._id.toString()) ||
         linkedSet.has(student.admission_no);
@@ -3356,9 +3464,15 @@ router.get('/students/:id', authenticateToken, async (req: AuthenticatedRequest,
     if (req.user?.role === 'teacher') {
       const teacher = await getAuthenticatedTeacherMongo(req);
       const assignedClasses = teacher?.classes || [];
-      if (!isClassAssignedToTeacher(assignedClasses, student.class_name)) {
+      const teacherIds = teacher
+        ? Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))))
+        : [];
+      const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
+      if (!isTeacherAssignedToClassSection(
+        assignedClasses, assignmentScopes, student.class_name, student.section || 'A'
+      )) {
         return res.status(403).json({
-          error: 'Access denied: You may only view records for students in your assigned classes.',
+          error: 'Access denied: You may only view records for students in your assigned class section.',
         });
       }
     }
@@ -3849,9 +3963,16 @@ router.get('/teachers', async (req: Request, res: Response) => {
 
     // Redact personal staff phone numbers and private emails on public directory endpoint
     const publicTeachers = teachers.map(t => ({
-      ...t,
-      contact_no: '',
-      email: '',
+      id: t.id,
+      name: t.name,
+      profile_photo: t.profile_photo,
+      qualification: t.qualification,
+      subject: t.subject,
+      specialization: t.specialization,
+      classes: t.classes,
+      experience: t.experience,
+      status: t.status,
+      bio: t.bio,
     }));
     return sendAcademicPaginatedOrArray(req, res, publicTeachers);
   } catch (err: any) {
@@ -3859,7 +3980,7 @@ router.get('/teachers', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/teachers/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/teachers/:id', authenticateToken, requireRole(['super_admin', 'admin', 'teacher']), async (req: AuthenticatedRequest, res: Response) => {
   if (!isValidCmsIdParam(req.params.id)) {
     return res.status(400).json({ error: 'Invalid teacher ID format' });
   }
@@ -5844,7 +5965,7 @@ router.get('/admissions/track/:applicationNo', contactRateLimiter, async (req: R
   }
 });
 
-router.get('/admissions', authenticateToken, requireRole(['super_admin', 'admin', 'teacher']), async (req: AuthenticatedRequest, res: Response) => {
+router.get('/admissions', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
   const { status, class_applying, startDate, endDate, from, to } = req.query;
 
   const rawStart = (startDate ?? from) as string | undefined;
@@ -5918,7 +6039,7 @@ router.get('/admissions', authenticateToken, requireRole(['super_admin', 'admin'
   }
 });
 
-router.put('/admissions/:id/status', authenticateToken, requireRole(['super_admin', 'admin', 'teacher']), async (req: AuthenticatedRequest, res: Response) => {
+router.put('/admissions/:id/status', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
   const { status, remarks } = req.body || {};
   if (!status) {
     return res.status(400).json({ error: 'Status is required' });
@@ -6105,7 +6226,7 @@ router.delete('/admissions/:id', authenticateToken, requireRole(['super_admin', 
 // 8. ATTENDANCE SYSTEM (MONGODB-AUTHORITATIVE)
 // ==========================================
 
-router.get('/attendance', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/attendance', authenticateToken, requireRole(['super_admin', 'admin', 'teacher', 'parent', 'student']), async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   try {
     const { date, class_name, section, student_id } = req.query;
@@ -6165,6 +6286,10 @@ router.get('/attendance', authenticateToken, async (req: AuthenticatedRequest, r
     if (req.user?.role === 'teacher') {
       const teacher = await getAuthenticatedTeacherMongo(req);
       const assignedClasses = teacher?.classes || [];
+      const teacherIds = teacher
+        ? Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))))
+        : [];
+      const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
 
       if (class_name) {
         if (!isClassAssignedToTeacher(assignedClasses, String(class_name))) {
@@ -6175,8 +6300,10 @@ router.get('/attendance', authenticateToken, async (req: AuthenticatedRequest, r
       let studentAliasIds: Set<string> | null = null;
       if (student_id) {
         const st = await findStudentByAnyId(String(student_id));
-        if (!st || !isClassAssignedToTeacher(assignedClasses, st.class_name)) {
-          return res.status(403).json({ error: 'Access denied: You may only view attendance for students in your assigned classes.' });
+        if (!st || !isTeacherAssignedToClassSection(
+          assignedClasses, assignmentScopes, st.class_name, st.section || 'A'
+        )) {
+          return res.status(403).json({ error: 'Access denied: You may only view attendance for students in your assigned class section.' });
         }
         studentAliasIds = new Set<string>(
           [String(student_id), st.record_id, st._id ? st._id.toString() : ''].filter(Boolean) as string[]
@@ -6191,7 +6318,9 @@ router.get('/attendance', authenticateToken, async (req: AuthenticatedRequest, r
 
       let result = docs
         .map(toAttendanceDto)
-        .filter(a => isClassAssignedToTeacher(assignedClasses, a.class_name));
+        .filter(a => isTeacherAssignedToClassSection(
+          assignedClasses, assignmentScopes, a.class_name, a.section || 'A'
+        ));
       if (class_name) result = result.filter(a => a.class_name.toLowerCase() === String(class_name).toLowerCase());
       if (section) result = result.filter(a => a.section.toLowerCase() === String(section).toLowerCase());
       if (studentAliasIds) result = result.filter(a => studentAliasIds!.has(a.student_id));
@@ -6324,18 +6453,26 @@ router.post('/attendance/batch', authenticateToken, requireRole(['super_admin', 
       resolvedEntries.push({ rec, studentDoc, canonicalStudentId, candidateIds });
     }
 
-    // Teacher object-level validation: can only mark attendance for assigned classes
+    // Teacher object-level validation: only the student's current assigned class AND section.
     if (req.user?.role === 'teacher') {
       const teacher = await getAuthenticatedTeacherMongo(req);
-      const assignedClasses = teacher?.classes || [];
+      if (!teacher) {
+        return res.status(404).json({ error: 'Teacher profile not linked.' });
+      }
+      const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+      const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
       for (const { rec, studentDoc } of resolvedEntries) {
-        const targetClass = String(rec.class_name || studentDoc.class_name || '');
+        const studentClass = String(studentDoc.class_name || '');
+        const studentSection = String(studentDoc.section || 'A');
+        const requestedClass = String(rec.class_name || studentClass);
+        const requestedSection = String(rec.section || studentSection);
         if (
-          !isClassAssignedToTeacher(assignedClasses, targetClass) ||
-          !isClassAssignedToTeacher(assignedClasses, studentDoc.class_name)
+          requestedClass.toLowerCase() !== studentClass.toLowerCase() ||
+          requestedSection.toLowerCase() !== studentSection.toLowerCase() ||
+          !isTeacherAssignedToClassSection(teacher.classes || [], assignmentScopes, studentClass, studentSection)
         ) {
           return res.status(403).json({
-            error: `Access denied: You are not assigned to class "${targetClass || studentDoc.class_name}".`,
+            error: 'Access denied: You may only mark attendance for students in your currently assigned class section.',
           });
         }
       }
@@ -6409,7 +6546,7 @@ router.post('/attendance/batch', authenticateToken, requireRole(['super_admin', 
   }
 });
 
-router.get('/attendance/student/:studentId', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/attendance/student/:studentId', authenticateToken, requireRole(['super_admin', 'admin', 'teacher', 'parent', 'student']), async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   try {
     const targetId = String(req.params.studentId || '').trim();
@@ -6454,11 +6591,15 @@ router.get('/attendance/student/:studentId', authenticateToken, async (req: Auth
     if (req.user?.role === 'teacher') {
       const teacher = await getAuthenticatedTeacherMongo(req);
       const assignedClasses = teacher?.classes || [];
-      const isClassAssigned = Boolean(
-        targetStudent && isClassAssignedToTeacher(assignedClasses, targetStudent.class_name)
-      );
-      if (!isClassAssigned) {
-        return res.status(403).json({ error: 'Access denied: You may only view attendance for students in your assigned classes.' });
+      const teacherIds = teacher
+        ? Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))))
+        : [];
+      const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
+      const isAssigned = Boolean(targetStudent && isTeacherAssignedToClassSection(
+        assignedClasses, assignmentScopes, targetStudent.class_name, targetStudent.section || 'A'
+      ));
+      if (!isAssigned) {
+        return res.status(403).json({ error: 'Access denied: You may only view attendance for students in your assigned class section.' });
       }
     }
 
@@ -6490,7 +6631,7 @@ router.get('/attendance/student/:studentId', authenticateToken, async (req: Auth
 // 9. FEE MANAGEMENT (MONGODB-AUTHORITATIVE)
 // ==========================================
 
-router.get('/fees', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/fees', authenticateToken, requireRole(['super_admin', 'admin', 'teacher', 'parent', 'student']), async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   try {
     const { student_id, class_name, status, month } = req.query;
@@ -6797,6 +6938,7 @@ router.put('/fees/:id/pay', authenticateToken, requireRole(['super_admin', 'admi
     const paymentDocPayload: Record<string, any> = {
       fee_id: canonicalVoucherId,
       student_id: feeDoc.student_id,
+      payment_reference: receipt_no,
       receipt_no,
       ...(cleanTxnId ? { transaction_id: cleanTxnId } : {}),
       date: paymentRecord.date,
@@ -6955,7 +7097,7 @@ router.delete('/fees/:id', authenticateToken, requireRole(['super_admin', 'admin
 // ==========================================
 
 // 1. Get Outstanding Fee Summary for Parent or Student
-router.get('/parent/fees/summary', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/parent/fees/summary', authenticateToken, requireRole(['parent', 'student', 'super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   try {
     const user = req.user!;
@@ -7067,7 +7209,7 @@ router.get('/payments/settings', async (_req: Request, res: Response) => {
 });
 
 // 3. Initiate Payment (Parent Portal: Online Gateway Sandbox or Bank Deposit)
-router.post('/parent/payments/initiate', authenticateToken, sensitiveActionRateLimiter, async (req: AuthenticatedRequest, res: Response) => {
+router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent', 'student']), sensitiveActionRateLimiter, async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   const user = req.user!;
   const {
@@ -7097,18 +7239,33 @@ router.post('/parent/payments/initiate', authenticateToken, sensitiveActionRateL
     return res.status(400).json({ error: 'Fee voucher ID is required' });
   }
 
-  // Authorization check: parent must have child linked
+  // Resolve the exact student identity the caller is authorized to pay for.
+  let authorizedStudentAliases = new Set<string>();
+
   if (user.role === 'parent') {
     const linked = await getLinkedStudentIdsForParent(user);
-    if (!linked.has(cleanStudentId)) {
+    const targetStudent = await findStudentByAnyId(cleanStudentId);
+    if (!targetStudent) {
+      return res.status(403).json({ error: 'Access denied: The requested student is not linked to your parent account' });
+    }
+    authorizedStudentAliases = new Set(
+      [cleanStudentId, targetStudent.record_id, targetStudent._id?.toString(), targetStudent.admission_no]
+        .filter(Boolean)
+        .map((value: unknown) => String(value))
+    );
+    if (!Array.from(authorizedStudentAliases).some(id => linked.has(id))) {
       return res.status(403).json({ error: 'Access denied: You can only make payments for your linked children' });
     }
   } else if (user.role === 'student') {
     const studentDoc = await StudentModel.findOne({
       $or: [{ user_id: user.id }, { email: user.email.toLowerCase() }],
     }).lean();
-    const myId = studentDoc?.record_id || studentDoc?._id.toString();
-    if (myId !== cleanStudentId) {
+    authorizedStudentAliases = new Set(
+      [studentDoc?.record_id, studentDoc?._id?.toString(), studentDoc?.admission_no]
+        .filter(Boolean)
+        .map((value: unknown) => String(value))
+    );
+    if (!authorizedStudentAliases.has(cleanStudentId)) {
       return res.status(403).json({ error: 'Access denied: Students can only pay their own fee vouchers' });
     }
   }
@@ -7117,6 +7274,22 @@ router.post('/parent/payments/initiate', authenticateToken, sensitiveActionRateL
     const feeDoc = await FeeModel.findOne(buildFeeLookupFilter(cleanFeeId)).lean();
     if (!feeDoc) {
       return res.status(404).json({ error: 'Fee voucher not found' });
+    }
+    if (!authorizedStudentAliases.has(String(feeDoc.student_id || ''))) {
+      return res.status(403).json({ error: 'Access denied: This fee voucher does not belong to the selected student' });
+    }
+
+    const cleanSlipRef = String(deposit_slip_ref || notes || '').trim();
+    if (cleanSlipRef) {
+      const [existingTxnDoc, existingEmbeddedTxn] = await Promise.all([
+        FeePaymentModel.findOne({ transaction_id: cleanSlipRef }).lean(),
+        FeeModel.findOne({ 'payment_history.transaction_id': cleanSlipRef }).lean(),
+      ]);
+      if (existingTxnDoc || existingEmbeddedTxn) {
+        return res.status(409).json({
+          error: 'Duplicate payment rejected: This deposit slip or transaction reference has already been recorded.',
+        });
+      }
     }
 
     const currentPending = Number(feeDoc.pending_amount) || 0;
@@ -7161,115 +7334,13 @@ router.post('/parent/payments/initiate', authenticateToken, sensitiveActionRateL
       method === 'Raast';
 
     if (isOnlineGateway) {
-      // Instant automated sandbox / live verification & settlement
-      const receiptNo = `REC-${Date.now().toString().slice(-6)}${Math.floor(100 + Math.random() * 900)}`;
-      const nextPaid = currentPaid + paymentAmount;
-      const nextPending = Math.max(0, currentTotal - nextPaid);
-      const nextStatus: FeeVoucherStatus = nextPending === 0 ? 'Paid' : 'Partial';
-
-      const paymentRecord = {
-        receipt_no: receiptNo,
-        date: new Date().toISOString().split('T')[0],
-        amount: paymentAmount,
-        method: (gateway_provider === 'JazzCash' || gateway_provider === 'Easypaisa' || method === 'Easypaisa / JazzCash'
-          ? 'Easypaisa / JazzCash'
-          : 'Bank Transfer') as any,
-        transaction_id: paymentRef,
-        notes: `Online Gateway (${gateway_provider || method}) [Verified Instant Settlement]`,
-      };
-
-      const paymentDoc = await FeePaymentModel.create({
-        fee_id: feeDoc.voucher_id || feeDoc._id.toString(),
-        student_id: feeDoc.student_id,
-        payment_reference: paymentRef,
-        receipt_no: receiptNo,
-        transaction_id: paymentRef,
-        date: new Date().toISOString().split('T')[0],
-        amount: paymentAmount,
-        method: paymentRecord.method,
-        status: 'Paid',
-        verification_status: 'Verified',
-        parent_user_id: user.id,
-        parent_name: parentName,
-        parent_phone: resolvedParentPhone,
-        student_name: feeDoc.student_name,
-        admission_no: feeDoc.student_id,
-        class_name: feeDoc.class_name,
-        fee_month: feeDoc.fee_month,
-        year: feeDoc.year,
-        gateway_provider: gateway_provider || method,
-        notes: notes || 'Instant online payment via school portal',
-        received_by: `Gateway (${gateway_provider || method})`,
-        verified_by_id: user.id,
-        verified_by_name: 'Online Payment Gateway',
-        verified_at: new Date().toISOString(),
-      });
-
-      // Atomically update fee voucher
-      const updatedFee = await FeeModel.findOneAndUpdate(
-        { _id: feeDoc._id, pending_amount: { $gte: paymentAmount } },
-        {
-          $set: {
-            paid_amount: nextPaid,
-            pending_amount: nextPending,
-            status: nextStatus,
-          },
-          $push: { payment_history: paymentRecord },
-        },
-        { returnDocument: 'after' }
-      ).lean();
-
-      // Trigger SMS confirmation
-      const smsResult = await sendPaymentApprovalSms({
-        payment_reference: paymentRef,
-        receipt_no: receiptNo,
-        amount: paymentAmount,
-        parent_name: parentName,
-        parent_phone: resolvedParentPhone,
-        student_name: feeDoc.student_name,
-        class_name: feeDoc.class_name,
-      });
-
-      if (smsResult.sent) {
-        await FeePaymentModel.updateOne(
-          { _id: paymentDoc._id },
-          {
-            $set: {
-              sms_status: smsResult.status,
-              sms_message: smsResult.message,
-              sms_sent_at: smsResult.timestamp,
-            },
-          }
-        );
-      }
-
-      // Notifications
-      await NotificationModel.create([
-        {
-          role: 'admin',
-          title: 'Fee Payment Received (Online)',
-          message: `Online payment of PKR ${paymentAmount.toLocaleString()} received for ${feeDoc.student_name} (${feeDoc.class_name}). Ref: ${paymentRef}`,
-          link: '/admin',
-        },
-        {
-          user_id: user.id,
-          role: 'parent',
-          title: 'Fee Payment Confirmed',
-          message: `Your payment of PKR ${paymentAmount.toLocaleString()} for ${feeDoc.student_name} has been processed successfully. Receipt No: ${receiptNo}.`,
-          link: '/student-portal',
-        },
-      ]);
-
-      return res.status(201).json({
-        message: 'Payment completed successfully',
-        payment: toFeePaymentDto(paymentDoc),
-        fee: updatedFee ? toFeeDto(updatedFee) : feeDoc,
-        receipt_no: receiptNo,
+      // No payment provider callback/signature verification is configured in this app.
+      // Never create a Paid record or settle a fee from a client-submitted request alone.
+      return res.status(503).json({
+        error: 'Online payments are unavailable until a verified payment gateway integration is configured. Use bank deposit for manual verification.',
       });
     } else {
       // Manual Bank Deposit / Wire Transfer (Requires Admin Verification)
-      const cleanSlipRef = String(deposit_slip_ref || notes || '').trim();
-
       const paymentDoc = await FeePaymentModel.create({
         fee_id: feeDoc.voucher_id || feeDoc._id.toString(),
         student_id: feeDoc.student_id,
@@ -7345,6 +7416,13 @@ router.post('/parent/payments/initiate', authenticateToken, sensitiveActionRateL
       });
     }
   } catch (err: any) {
+    // The unique transaction_id index is the final guard when two requests submit
+    // the same deposit slip concurrently after both pass the preflight lookup.
+    if (err?.code === 11000) {
+      return res.status(409).json({
+        error: 'Duplicate payment rejected: This deposit slip or transaction reference has already been recorded.',
+      });
+    }
     return sendRouteError(res, err, 'Failed to process fee payment');
   }
 });
@@ -7357,22 +7435,20 @@ router.get('/parent/payments/history', authenticateToken, async (req: Authentica
     let query: Record<string, any> = {};
 
     if (user.role === 'parent') {
+      // Historical payments remain visible only while the parent currently owns the link.
+      // Never authorize by payment.parent_user_id: that value survives child unlinking.
       const linked = await getLinkedStudentIdsForParent(user);
-      const studentIds = Array.from(linked);
-      query = {
-        $or: [
-          { parent_user_id: user.id },
-          { student_id: { $in: studentIds } },
-        ],
-      };
+      query = { student_id: { $in: Array.from(linked) } };
     } else if (user.role === 'student') {
       const studentDoc = await StudentModel.findOne({
         $or: [{ user_id: user.id }, { email: user.email.toLowerCase() }],
       }).lean();
-      const myId = studentDoc?.record_id || studentDoc?._id.toString();
-      query = { student_id: myId };
+      const ownStudentIds = studentDoc
+        ? [studentDoc.record_id, studentDoc._id?.toString()].filter(Boolean)
+        : [];
+      query = { student_id: { $in: ownStudentIds } };
     } else {
-      query = {};
+      return res.status(403).json({ error: 'Access denied: Payment history is available only to parents and students.' });
     }
 
     const paymentDocs = await FeePaymentModel.find(query).sort({ created_at: -1 }).limit(100).lean();
@@ -7455,19 +7531,37 @@ router.get('/admin/payments', authenticateToken, requireRole(['super_admin', 'ad
 router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   const paymentId = String(req.params.id || '').trim();
+  let paymentLocked = false;
+  let feeBalanceApplied = false;
+
+  const releasePaymentLock = async (id: unknown) => {
+    await FeePaymentModel.updateOne(
+      { _id: id, status: 'Processing', verification_status: 'Pending' },
+      { $set: { status: 'Pending Verification' } }
+    );
+  };
 
   try {
-    const paymentDoc = await FeePaymentModel.findById(paymentId);
-    if (!paymentDoc) {
-      return res.status(404).json({ error: 'Payment record not found' });
-    }
+    // Compare-and-set lock: only one administrator can approve a pending payment.
+    const paymentDoc = await FeePaymentModel.findOneAndUpdate(
+      { _id: paymentId, status: 'Pending Verification', verification_status: 'Pending' },
+      { $set: { status: 'Processing' } },
+      { new: true }
+    );
 
-    if (paymentDoc.verification_status === 'Verified' || paymentDoc.status === 'Paid') {
-      return res.status(400).json({ error: 'This payment has already been verified and marked as Paid.' });
+    if (!paymentDoc) {
+      const existingPayment = await FeePaymentModel.findById(paymentId).lean();
+      if (!existingPayment) {
+        return res.status(404).json({ error: 'Payment record not found' });
+      }
+      return res.status(409).json({ error: 'This payment is already being processed or has already been reviewed.' });
     }
+    paymentLocked = true;
 
     const feeDoc = await FeeModel.findOne(buildFeeLookupFilter(paymentDoc.fee_id)).lean();
     if (!feeDoc) {
+      await releasePaymentLock(paymentDoc._id);
+      paymentLocked = false;
       return res.status(404).json({ error: 'Associated fee voucher not found in database' });
     }
 
@@ -7476,6 +7570,8 @@ router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['supe
     const currentTotal = Number(feeDoc.total_amount) || 0;
 
     if (paymentDoc.amount > currentPending) {
+      await releasePaymentLock(paymentDoc._id);
+      paymentLocked = false;
       return res.status(400).json({
         error: `Approved payment amount (PKR ${paymentDoc.amount.toLocaleString()}) exceeds current remaining balance (PKR ${currentPending.toLocaleString()}).`,
       });
@@ -7495,19 +7591,9 @@ router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['supe
       notes: `Bank Deposit Approved by ${req.user!.name} (Ref: ${paymentDoc.payment_reference})`,
     };
 
-    // Update payment document
-    paymentDoc.status = 'Paid';
-    paymentDoc.verification_status = 'Verified';
-    paymentDoc.receipt_no = receiptNo;
-    paymentDoc.verified_by_id = req.user!.id;
-    paymentDoc.verified_by_name = req.user!.name;
-    paymentDoc.verified_at = new Date().toISOString();
-    paymentDoc.received_by = req.user!.name;
-    await paymentDoc.save();
-
-    // Atomically update fee voucher
+    // Optimistic balance check prevents stale concurrent approvals from overwriting totals.
     const updatedFee = await FeeModel.findOneAndUpdate(
-      { _id: feeDoc._id, pending_amount: { $gte: paymentDoc.amount } },
+      { _id: feeDoc._id, pending_amount: currentPending, paid_amount: currentPaid },
       {
         $set: {
           paid_amount: nextPaid,
@@ -7519,20 +7605,49 @@ router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['supe
       { returnDocument: 'after' }
     ).lean();
 
+    if (!updatedFee) {
+      await releasePaymentLock(paymentDoc._id);
+      paymentLocked = false;
+      return res.status(409).json({
+        error: 'Voucher balance changed during approval. Payment remains pending; refresh and review the latest balance.',
+      });
+    }
+    feeBalanceApplied = true;
+
+    // Finalize only after the voucher balance has been updated successfully.
+    const approvedPayment = await FeePaymentModel.findOneAndUpdate(
+      { _id: paymentDoc._id, status: 'Processing', verification_status: 'Pending' },
+      {
+        $set: {
+          status: 'Paid',
+          verification_status: 'Verified',
+          receipt_no: receiptNo,
+          verified_by_id: req.user!.id,
+          verified_by_name: req.user!.name,
+          verified_at: new Date().toISOString(),
+          received_by: req.user!.name,
+        },
+      },
+      { new: true }
+    );
+    if (!approvedPayment) {
+      throw new Error('Fee balance was updated but payment finalization failed; manual reconciliation is required.');
+    }
+
     // Send SMS Confirmation to parent
     const smsResult = await sendPaymentApprovalSms({
-      payment_reference: paymentDoc.payment_reference,
+      payment_reference: approvedPayment.payment_reference,
       receipt_no: receiptNo,
-      amount: paymentDoc.amount,
-      parent_name: paymentDoc.parent_name,
-      parent_phone: paymentDoc.parent_phone,
-      student_name: paymentDoc.student_name || feeDoc.student_name,
-      class_name: paymentDoc.class_name || feeDoc.class_name,
+      amount: approvedPayment.amount,
+      parent_name: approvedPayment.parent_name,
+      parent_phone: approvedPayment.parent_phone,
+      student_name: approvedPayment.student_name || feeDoc.student_name,
+      class_name: approvedPayment.class_name || feeDoc.class_name,
     });
 
     if (smsResult.sent) {
       await FeePaymentModel.updateOne(
-        { _id: paymentDoc._id },
+        { _id: approvedPayment._id },
         {
           $set: {
             sms_status: smsResult.status,
@@ -7544,12 +7659,12 @@ router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['supe
     }
 
     // Notify Parent in-app
-    if (paymentDoc.parent_user_id) {
+    if (approvedPayment.parent_user_id) {
       await NotificationModel.create({
-        user_id: paymentDoc.parent_user_id,
+        user_id: approvedPayment.parent_user_id,
         role: 'parent',
         title: 'Fee Payment Approved & Receipt Issued',
-        message: `Your deposit of PKR ${paymentDoc.amount.toLocaleString()} for ${paymentDoc.student_name || feeDoc.student_name} has been verified. Official Receipt: ${receiptNo}.`,
+        message: `Your deposit of PKR ${approvedPayment.amount.toLocaleString()} for ${approvedPayment.student_name || feeDoc.student_name} has been verified. Official Receipt: ${receiptNo}.`,
         link: '/student-portal',
       });
     }
@@ -7558,17 +7673,22 @@ router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['supe
       req.user!,
       'Approved Fee Payment',
       'FeePayment',
-      paymentDoc.payment_reference,
-      `Verified deposit of PKR ${paymentDoc.amount} for ${paymentDoc.student_name}. Receipt: ${receiptNo}`
+      approvedPayment.payment_reference,
+      `Verified deposit of PKR ${approvedPayment.amount} for ${approvedPayment.student_name}. Receipt: ${receiptNo}`
     );
 
     return res.json({
       message: 'Payment verified and approved successfully',
-      payment: toFeePaymentDto(paymentDoc),
-      fee: updatedFee ? toFeeDto(updatedFee) : feeDoc,
+      payment: toFeePaymentDto(approvedPayment),
+      fee: toFeeDto(updatedFee),
       receipt_no: receiptNo,
     });
   } catch (err: any) {
+    // Before voucher settlement, release the lock so a transient failure can be retried.
+    // After settlement, keep Processing if finalization failed to prevent duplicate crediting.
+    if (paymentLocked && !feeBalanceApplied) {
+      await releasePaymentLock(paymentId).catch(() => {});
+    }
     return sendRouteError(res, err, 'Failed to approve payment');
   }
 });
@@ -7585,22 +7705,28 @@ router.post('/admin/payments/:id/reject', authenticateToken, requireRole(['super
   }
 
   try {
-    const paymentDoc = await FeePaymentModel.findById(paymentId);
+    // Compare-and-set transition prevents duplicate rejection SMS and notifications.
+    const paymentDoc = await FeePaymentModel.findOneAndUpdate(
+      { _id: paymentId, status: 'Pending Verification', verification_status: 'Pending' },
+      {
+        $set: {
+          status: 'Rejected',
+          verification_status: 'Rejected',
+          rejection_reason: cleanReason,
+          verified_by_id: req.user!.id,
+          verified_by_name: req.user!.name,
+          verified_at: new Date().toISOString(),
+        },
+      },
+      { new: true }
+    );
     if (!paymentDoc) {
-      return res.status(404).json({ error: 'Payment record not found' });
+      const existingPayment = await FeePaymentModel.findById(paymentId).lean();
+      if (!existingPayment) {
+        return res.status(404).json({ error: 'Payment record not found' });
+      }
+      return res.status(409).json({ error: 'This payment is already being processed or has already been reviewed.' });
     }
-
-    if (paymentDoc.verification_status === 'Verified' || paymentDoc.status === 'Paid') {
-      return res.status(400).json({ error: 'Cannot reject an already verified and settled payment.' });
-    }
-
-    paymentDoc.status = 'Rejected';
-    paymentDoc.verification_status = 'Rejected';
-    paymentDoc.rejection_reason = cleanReason;
-    paymentDoc.verified_by_id = req.user!.id;
-    paymentDoc.verified_by_name = req.user!.name;
-    paymentDoc.verified_at = new Date().toISOString();
-    await paymentDoc.save();
 
     // Send Rejection SMS to Parent
     const smsResult = await sendPaymentRejectionSms(
@@ -8349,7 +8475,7 @@ router.delete('/exams/:id', authenticateToken, requireRole(['super_admin', 'admi
   }
 });
 
-router.get('/results', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/results', authenticateToken, requireRole(['super_admin', 'admin', 'teacher', 'parent', 'student']), async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   try {
     const { exam_id, student_id, class_name } = req.query;
@@ -8423,6 +8549,10 @@ router.get('/results', authenticateToken, async (req: AuthenticatedRequest, res:
     if (req.user?.role === 'teacher') {
       const teacher = await getAuthenticatedTeacherMongo(req);
       const assignedClasses = teacher?.classes || [];
+      const teacherIds = teacher
+        ? Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))))
+        : [];
+      const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
 
       if (class_name) {
         if (!isClassAssignedToTeacher(assignedClasses, String(class_name))) {
@@ -8432,15 +8562,19 @@ router.get('/results', authenticateToken, async (req: AuthenticatedRequest, res:
 
       if (student_id) {
         const targetStudent = await findStudentByAnyId(String(student_id));
-        if (!targetStudent || !isClassAssignedToTeacher(assignedClasses, targetStudent.class_name)) {
-          return res.status(403).json({ error: 'Access denied: You may only view results for students in your assigned classes.' });
+        if (!targetStudent || !isTeacherAssignedToClassSection(
+          assignedClasses, assignmentScopes, targetStudent.class_name, targetStudent.section || 'A'
+        )) {
+          return res.status(403).json({ error: 'Access denied: You may only view results for students in your assigned class section.' });
         }
       }
 
       const docs = await ResultModel.find().sort({ created_at: -1, _id: -1 }).lean();
       let result = docs
         .map(toResultDto)
-        .filter(r => isClassAssignedToTeacher(assignedClasses, r.class_name));
+        .filter(r => isTeacherAssignedToClassSection(
+          assignedClasses, assignmentScopes, r.class_name, r.section || 'A'
+        ));
       if (exam_id) result = result.filter(r => r.exam_id === String(exam_id));
       if (resolvedStudentAliases) result = result.filter(r => resolvedStudentAliases!.has(r.student_id));
       if (class_name) result = result.filter(r => r.class_name.toLowerCase() === String(class_name).toLowerCase());
@@ -8511,11 +8645,31 @@ router.post('/results', authenticateToken, requireRole(['super_admin', 'admin', 
 
     if (req.user?.role === 'teacher') {
       const teacher = await getAuthenticatedTeacherMongo(req);
-      const assignedClasses = teacher?.classes || [];
-      if (!isClassAssignedToTeacher(assignedClasses, studentDoc.class_name)) {
+      if (!teacher) {
+        return res.status(404).json({ error: 'Teacher profile not linked.' });
+      }
+      const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+      const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
+      const studentSection = studentDoc.section || 'A';
+      if (!isTeacherAssignedToClassSection(teacher.classes || [], assignmentScopes, studentDoc.class_name, studentSection)) {
         return res.status(403).json({
-          error: `Access denied: You are not assigned to class "${studentDoc.class_name}".`,
+          error: 'Access denied: You are not assigned to this student section.',
         });
+      }
+
+      const matchingAssignments = assignmentScopes.filter(assignment =>
+        isTeacherAssignedToClassSection(
+          [assignment.class_name], [assignment], studentDoc.class_name, studentSection
+        )
+      );
+      const allowedSubjects = matchingAssignments.map(assignment => assignment.subject);
+      for (const subjectEntry of subjects) {
+        const subjectName = sanitizePlainText(subjectEntry?.subject_name || subjectEntry?.subject || '', 120);
+        if (!isTeacherSubjectAssigned(teacher.subject, allowedSubjects, subjectName)) {
+          return res.status(403).json({
+            error: `Access denied: You are not authorized to record marks for subject "${subjectName}".`,
+          });
+        }
       }
     }
 
@@ -8644,10 +8798,35 @@ router.delete('/results/:id', authenticateToken, requireRole(['super_admin', 'ad
 
     if (req.user?.role === 'teacher') {
       const teacher = await getAuthenticatedTeacherMongo(req);
-      const assignedClasses = teacher?.classes || [];
-      if (!isClassAssignedToTeacher(assignedClasses, existing.class_name)) {
+      if (!teacher) {
+        return res.status(404).json({ error: 'Teacher profile not linked.' });
+      }
+      const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+      const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
+      const linkedStudent = await findStudentByAnyId(String(existing.student_id || ''));
+      const storedSection = String(existing.section || 'A');
+      const currentSection = String(linkedStudent?.section || 'A');
+      const storedScopeAllowed = isTeacherAssignedToClassSection(
+        teacher.classes || [], assignmentScopes, String(existing.class_name || ''), storedSection
+      );
+      const currentScopeAllowed = Boolean(linkedStudent) && isTeacherAssignedToClassSection(
+        teacher.classes || [], assignmentScopes, String(linkedStudent?.class_name || ''), currentSection
+      );
+      const matchingAssignments = assignmentScopes.filter(assignment =>
+        isTeacherAssignedToClassSection(
+          [assignment.class_name], [assignment], String(existing.class_name || ''), storedSection
+        )
+      );
+      const allowedSubjects = matchingAssignments.map(assignment => assignment.subject);
+      const resultSubjects: string[] = Array.isArray(existing.subjects)
+        ? existing.subjects.map((subject: any) => String(subject.subject_name || '')).filter(Boolean)
+        : [];
+      const subjectsAllowed = resultSubjects.length > 0 && resultSubjects.every(subject =>
+        isTeacherSubjectAssigned(teacher.subject, allowedSubjects, subject)
+      );
+      if (!storedScopeAllowed || !currentScopeAllowed || !subjectsAllowed) {
         return res.status(403).json({
-          error: `Access denied: You are not assigned to class "${existing.class_name}".`,
+          error: 'Access denied: You may only manage results for your currently assigned class section and subjects.',
         });
       }
     }
@@ -8682,10 +8861,35 @@ router.patch('/results/:id/publish', authenticateToken, requireRole(['super_admi
 
     if (req.user?.role === 'teacher') {
       const teacher = await getAuthenticatedTeacherMongo(req);
-      const assignedClasses = teacher?.classes || [];
-      if (!isClassAssignedToTeacher(assignedClasses, existing.class_name)) {
+      if (!teacher) {
+        return res.status(404).json({ error: 'Teacher profile not linked.' });
+      }
+      const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+      const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
+      const linkedStudent = await findStudentByAnyId(String(existing.student_id || ''));
+      const storedSection = String(existing.section || 'A');
+      const currentSection = String(linkedStudent?.section || 'A');
+      const storedScopeAllowed = isTeacherAssignedToClassSection(
+        teacher.classes || [], assignmentScopes, String(existing.class_name || ''), storedSection
+      );
+      const currentScopeAllowed = Boolean(linkedStudent) && isTeacherAssignedToClassSection(
+        teacher.classes || [], assignmentScopes, String(linkedStudent?.class_name || ''), currentSection
+      );
+      const matchingAssignments = assignmentScopes.filter(assignment =>
+        isTeacherAssignedToClassSection(
+          [assignment.class_name], [assignment], String(existing.class_name || ''), storedSection
+        )
+      );
+      const allowedSubjects = matchingAssignments.map(assignment => assignment.subject);
+      const resultSubjects: string[] = Array.isArray(existing.subjects)
+        ? existing.subjects.map((subject: any) => String(subject.subject_name || '')).filter(Boolean)
+        : [];
+      const subjectsAllowed = resultSubjects.length > 0 && resultSubjects.every(subject =>
+        isTeacherSubjectAssigned(teacher.subject, allowedSubjects, subject)
+      );
+      if (!storedScopeAllowed || !currentScopeAllowed || !subjectsAllowed) {
         return res.status(403).json({
-          error: `Access denied: You are not assigned to class "${existing.class_name}".`,
+          error: 'Access denied: You may only manage results for your currently assigned class section and subjects.',
         });
       }
     }
@@ -9745,19 +9949,33 @@ async function resolveNotificationAllowedUserIds(
   return baseIds;
 }
 
+function buildNotificationVisibilityFilter(
+  userRole: UserRole,
+  allowedUserIds: string[]
+): Record<string, any> {
+  const clauses: Record<string, any>[] = [
+    { user_id: { $in: allowedUserIds } },
+    { role: 'all' },
+  ];
+
+  // Role-wide administrative notices are shared only with administrators.
+  // Parent/teacher/student notices are private unless explicitly targeted by user_id.
+  if (userRole === 'super_admin' || userRole === 'admin') {
+    clauses.push({ role: 'admin' });
+  }
+
+  return { $or: clauses };
+}
+
 router.get('/notifications', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   try {
     const userRole = req.user!.role;
     const allowedUserIds = await resolveNotificationAllowedUserIds(req.user!);
 
-    const notifs = await NotificationModel.find({
-      $or: [
-        { user_id: { $in: allowedUserIds } },
-        { role: userRole },
-        { role: 'all' },
-      ],
-    })
+    const notifs = await NotificationModel.find(
+      buildNotificationVisibilityFilter(userRole, allowedUserIds)
+    )
       .sort({ created_at: -1 })
       .limit(50)
       .lean();
@@ -9781,11 +9999,7 @@ router.get('/notifications/unread-count', authenticateToken, async (req: Authent
 
     const count = await NotificationModel.countDocuments({
       read: false,
-      $or: [
-        { user_id: { $in: allowedUserIds } },
-        { role: userRole },
-        { role: 'all' },
-      ],
+      ...buildNotificationVisibilityFilter(userRole, allowedUserIds),
     });
 
     return res.json({ unreadCount: count });
@@ -9800,27 +10014,23 @@ router.put('/notifications/:id/read', authenticateToken, async (req: Authenticat
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({ error: 'Invalid notification ID format' });
     }
-    const notif = await NotificationModel.findById(req.params.id);
-    if (!notif) {
-      return res.status(404).json({ error: 'Notification not found' });
-    }
-
     const userRole = req.user!.role;
     const allowedUserIds = await resolveNotificationAllowedUserIds(req.user!);
+    const notif = await NotificationModel.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        ...buildNotificationVisibilityFilter(userRole, allowedUserIds),
+      },
+      { $set: { read: true } },
+      { new: true }
+    );
 
-    const isAdmin = userRole === 'super_admin' || userRole === 'admin';
-    const isAuthorized =
-      isAdmin ||
-      allowedUserIds.includes(notif.user_id) ||
-      notif.role === userRole ||
-      notif.role === 'all';
-
-    if (!isAuthorized) {
+    if (!notif) {
+      const exists = await NotificationModel.exists({ _id: req.params.id });
+      if (!exists) return res.status(404).json({ error: 'Notification not found' });
       return res.status(403).json({ error: 'Access denied: You may only mark your own notifications as read.' });
     }
 
-    notif.read = true;
-    await notif.save();
     return res.json(notif);
   } catch (err: any) {
     return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to update notification') });
@@ -9836,11 +10046,7 @@ router.put('/notifications/mark-all-read', authenticateToken, async (req: Authen
     await NotificationModel.updateMany(
       {
         read: false,
-        $or: [
-          { user_id: { $in: allowedUserIds } },
-          { role: userRole },
-          { role: 'all' },
-        ],
+        ...buildNotificationVisibilityFilter(userRole, allowedUserIds),
       },
       { $set: { read: true } }
     );
@@ -10325,9 +10531,12 @@ router.get('/documents/:filename', sensitiveActionRateLimiter, authenticateToken
 
     const user = req.user!;
     const isAdmin = user.role === 'super_admin' || user.role === 'admin';
-    let authorized = isAdmin || docMeta.uploaded_by_user_id === user.id;
+    const isStudentScopedDocument = Boolean(docMeta.student_id);
+    let authorized = isAdmin;
 
-    if (!authorized && docMeta.student_id) {
+    if (!authorized && isStudentScopedDocument) {
+      // A parent must still have the live child link; being the historical uploader
+      // must not preserve access after unlinking.
       if (user.role === 'student') {
         const ownDoc = user.linked_id
           ? await findStudentByAnyId(user.linked_id)
@@ -10337,13 +10546,18 @@ router.get('/documents/:filename', sensitiveActionRateLimiter, authenticateToken
             user.linked_id,
             ownDoc?.record_id,
             ownDoc?._id ? ownDoc._id.toString() : '',
+            ownDoc?.admission_no,
           ].filter(Boolean) as string[]
         );
         authorized = ownIds.has(docMeta.student_id);
       } else if (user.role === 'parent') {
         const linkedSet = await getLinkedStudentIdsForParent(user);
         authorized = linkedSet.has(docMeta.student_id);
+      } else if (user.role === 'teacher') {
+        authorized = docMeta.uploaded_by_user_id === user.id;
       }
+    } else if (!authorized) {
+      authorized = docMeta.uploaded_by_user_id === user.id;
     }
 
     if (!authorized) {
@@ -10621,9 +10835,8 @@ router.post('/portal/ai/query', aiRateLimiter, authenticateToken, requireRole(['
       return res.status(403).json({ error: 'Access denied: You may only query your own authorized academic records.' });
     }
 
-    const allStudentsDocs = await StudentModel.find().lean();
-    const allStudents: StudentDto[] = allStudentsDocs.map(toStudentDto);
-
+    // Resolve only the authenticated user's own records. Do not load the school-wide
+    // student directory for portal requests.
     // ====================================================
     // STUDENT PORTAL AI
     // ====================================================
@@ -10639,16 +10852,7 @@ router.post('/portal/ai/query', aiRateLimiter, authenticateToken, requireRole(['
         new Set([student.id, studentDoc.record_id, studentDoc._id ? studentDoc._id.toString() : ''].filter(Boolean))
       );
 
-      // Prevent querying other students by name or roll number (using word boundary check)
-      const otherStudents = allStudents.filter(s => s.id !== student.id);
-      for (const other of otherStudents) {
-        const otherFirst = other.full_name.split(' ')[0].toLowerCase();
-        const otherWordRegex = new RegExp(`\\b${escapeRegexLiteral(otherFirst)}\\b`, 'i');
-        if (otherFirst.length > 2 && otherWordRegex.test(lower) && !student.full_name.toLowerCase().includes(otherFirst)) {
-          return res.status(403).json({ error: 'Access denied: You may only query your own student records.' });
-        }
-      }
-
+      // All subsequent student data queries are scoped to this authenticated student's aliases.
       await recordMongoAudit(req.user!, 'Queried Student Portal AI', 'Student', student.id, `Query: "${prompt.substring(0, 60)}"`);
 
       // 1. Attendance & Absences
@@ -10787,32 +10991,34 @@ router.post('/portal/ai/query', aiRateLimiter, authenticateToken, requireRole(['
     // ====================================================
     if (userRole === 'parent') {
       const parentStudentIds = await getLinkedStudentIdsForParent(req.user!);
-      const linkedStudents = allStudents.filter(s => parentStudentIds.has(s.id));
+      const parentIds = Array.from(parentStudentIds).filter(Boolean);
+      const linkedStudentDocs = parentIds.length
+        ? await StudentModel.find({
+            $or: [
+              { record_id: { $in: parentIds } },
+              { id: { $in: parentIds } },
+              { user_id: { $in: parentIds } },
+              { admission_no: { $in: parentIds } },
+              ...(parentIds.every(id => mongoose.isValidObjectId(id))
+                ? [{ _id: { $in: parentIds } }]
+                : []),
+            ],
+          }).lean()
+        : [];
+      const linkedStudents: StudentDto[] = linkedStudentDocs.map(toStudentDto);
       if (linkedStudents.length === 0) {
         return res.status(404).json({ error: 'No linked children found for this parent account.' });
       }
 
-      // Check if user is inquiring about an unrelated student by name (word boundary check)
-      const unlinkedStudents = allStudents.filter(s => !parentStudentIds.has(s.id));
-      for (const unlinked of unlinkedStudents) {
-        const unlinkedFirst = unlinked.full_name.split(' ')[0].toLowerCase();
-        const unlinkedWordRegex = new RegExp(`\\b${escapeRegexLiteral(unlinkedFirst)}\\b`, 'i');
-        if (unlinkedFirst.length > 2 && unlinkedWordRegex.test(lower)) {
-          const isAlsoLinkedName = linkedStudents.some(ls => ls.full_name.toLowerCase().includes(unlinkedFirst));
-          if (!isAlsoLinkedName) {
-            return res.status(403).json({ error: 'Access denied: You may only query records for your linked child.' });
-          }
-        }
-      }
-
       await recordMongoAudit(req.user!, 'Queried Parent Portal AI', 'Parent', req.user!.id, `Query: "${prompt.substring(0, 60)}"`);
 
+      const linkedDocsByDtoId = new Map(
+        linkedStudentDocs.map((doc: any) => [String(doc.record_id || doc.id || doc._id), doc])
+      );
       const getChildAliases = (childDto: StudentDto): Set<string> => {
-        const rawDoc = allStudentsDocs.find(
-          (d: any) => (d.record_id || d._id.toString()) === childDto.id || d._id.toString() === childDto.id
-        );
+        const rawDoc: any = linkedDocsByDtoId.get(childDto.id);
         return new Set<string>(
-          [childDto.id, rawDoc?.record_id, rawDoc?._id ? rawDoc._id.toString() : ''].filter(Boolean) as string[]
+          [childDto.id, rawDoc?.id, rawDoc?.record_id, rawDoc?._id ? rawDoc._id.toString() : ''].filter(Boolean) as string[]
         );
       };
 
@@ -11003,10 +11209,16 @@ router.get('/teacher/dashboard', authenticateToken, requireExactRole(['teacher']
       ResultModel.find().sort({ created_at: -1, _id: -1 }).lean(),
       TeacherAssignmentModel.find({ teacher_id: { $in: teacherIds } }).lean(),
       TeacherTaskModel.find({ teacher_id: { $in: teacherIds } }).sort({ due_date: 1 }).lean(),
-      NotificationModel.countDocuments({
-        $or: [{ user_id: req.user!.id }, { user_id: teacher.id }, { role: 'teacher' }],
-        read: false,
-      }).catch(() => 0),
+      (async () => {
+        const allowedNotificationUserIds = await resolveNotificationAllowedUserIds(req.user!);
+        if (!allowedNotificationUserIds.includes(teacher.id)) {
+          allowedNotificationUserIds.push(teacher.id);
+        }
+        return NotificationModel.countDocuments({
+          read: false,
+          ...buildNotificationVisibilityFilter(req.user!.role, allowedNotificationUserIds),
+        });
+      })().catch(() => 0),
     ]);
 
     const assignments = assignmentDocs.map(toTeacherAssignmentDto);
@@ -11023,21 +11235,20 @@ router.get('/teacher/dashboard', authenticateToken, requireExactRole(['teacher']
 
     const assignedStudents = allStudentDocs
       .map(toStudentDto)
-      .filter(s => isClassAssignedToTeacher(mergedClasses, s.class_name));
+      .filter(s => isTeacherAssignedToClassSection(mergedClasses, assignments, s.class_name, s.section));
 
     const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const todayDay = daysOfWeek[new Date().getDay()];
     const todayDate = new Date().toISOString().split('T')[0];
 
     const teacherTimetable = allTtDocs.map(toTimetableDto).filter(t =>
-      t.teacher_name.toLowerCase().includes(teacher.name.toLowerCase()) ||
-      teacher.name.toLowerCase().includes(t.teacher_name.toLowerCase())
+      String(t.teacher_name || '').trim().toLowerCase() === String(teacher.name || '').trim().toLowerCase()
     );
     const todayTimetable = teacherTimetable.filter(t => t.day.toLowerCase() === todayDay.toLowerCase());
 
     const assignedAttendance = allAttDocs
       .map(toAttendanceDto)
-      .filter(a => isClassAssignedToTeacher(mergedClasses, a.class_name));
+      .filter(a => isTeacherAssignedToClassSection(mergedClasses, assignments, a.class_name, a.section));
 
     const markedClasses: string[] = [];
     const pendingClasses: string[] = [];
@@ -11057,7 +11268,7 @@ router.get('/teacher/dashboard', authenticateToken, requireExactRole(['teacher']
 
     const recentResults = allResDocs
       .map(toResultDto)
-      .filter(r => isClassAssignedToTeacher(mergedClasses, r.class_name))
+      .filter(r => isTeacherAssignedToClassSection(mergedClasses, assignments, r.class_name, r.section))
       .slice(0, 5);
 
     const tasks = taskDocs.map(toTeacherTaskDto);
@@ -11199,6 +11410,8 @@ router.get('/teacher/classes', authenticateToken, requireExactRole(['teacher']),
 
     const todayDate = new Date().toISOString().split('T')[0];
     const assignedClasses = teacher.classes || [];
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+    const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
     const [allClassDocs, allSectionDocs, allStudentDocs, todayAttDocs] = await Promise.all([
       ClassModel.find().lean(),
       SectionModel.find().sort({ created_at: 1, _id: 1 }).lean(),
@@ -11209,15 +11422,26 @@ router.get('/teacher/classes', authenticateToken, requireExactRole(['teacher']),
     const classList = assignedClasses.map(className => {
       const classInfo = allClassDocs.find((c: any) => c.name.toLowerCase() === className.toLowerCase());
       const studentsInClass = allStudentDocs.filter(
-        (s: any) => (s.class_name || '').toLowerCase() === className.toLowerCase()
+        (student: any) =>
+          (student.class_name || '').toLowerCase() === className.toLowerCase() &&
+          isTeacherAssignedToClassSection(
+            assignedClasses, assignmentScopes, String(student.class_name || ''), String(student.section || 'A')
+          )
       );
       const mongoSections = allSectionDocs
-        .filter((sec: any) => sec.class_name.toLowerCase() === className.toLowerCase())
+        .filter((sec: any) =>
+          sec.class_name.toLowerCase() === className.toLowerCase() &&
+          isTeacherAssignedToClassSection(assignedClasses, assignmentScopes, className, String(sec.name || 'A'))
+        )
         .map((sec: any) => sec.name);
       const studentSections = studentsInClass.map((s: any) => s.section).filter(Boolean);
       const sections = Array.from(new Set([...mongoSections, ...studentSections]));
       const todayAttendanceMarked = todayAttDocs.some(
-        (a: any) => (a.class_name || '').toLowerCase() === className.toLowerCase()
+        (attendance: any) =>
+          (attendance.class_name || '').toLowerCase() === className.toLowerCase() &&
+          isTeacherAssignedToClassSection(
+            assignedClasses, assignmentScopes, className, String(attendance.section || 'A')
+          )
       );
 
       return {
@@ -11248,6 +11472,8 @@ router.get('/teacher/students', authenticateToken, requireExactRole(['teacher'])
 
     const { class_name, section, search } = req.query;
     const assignedClasses = teacher.classes || [];
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+    const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
 
     if (class_name) {
       const isAssigned = isClassAssignedToTeacher(assignedClasses, String(class_name));
@@ -11258,7 +11484,9 @@ router.get('/teacher/students', authenticateToken, requireExactRole(['teacher'])
 
     const allStudentDocs = await StudentModel.find().sort({ created_at: 1, _id: 1 }).lean();
     let matchedDocs = allStudentDocs.filter(doc =>
-      isClassAssignedToTeacher(assignedClasses, String(doc.class_name || ''))
+      isTeacherAssignedToClassSection(
+        assignedClasses, assignmentScopes, String(doc.class_name || ''), String(doc.section || '')
+      )
     );
 
     if (class_name) {
@@ -11339,6 +11567,8 @@ router.get('/teacher/attendance', authenticateToken, requireExactRole(['teacher'
 
     const { class_name, section, date, filter, start_date, end_date } = req.query;
     const assignedClasses = teacher.classes || [];
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+    const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
 
     if (class_name) {
       const isAssigned = isClassAssignedToTeacher(assignedClasses, String(class_name));
@@ -11350,7 +11580,7 @@ router.get('/teacher/attendance', authenticateToken, requireExactRole(['teacher'
     const allAttDocs = await AttendanceModel.find().sort({ date: -1, created_at: -1, _id: -1 }).lean();
     let records = allAttDocs
       .map(toAttendanceDto)
-      .filter(a => isClassAssignedToTeacher(assignedClasses, a.class_name));
+      .filter(a => isTeacherAssignedToClassSection(assignedClasses, assignmentScopes, a.class_name, a.section));
 
     if (class_name) {
       records = records.filter(a => a.class_name.toLowerCase() === String(class_name).toLowerCase());
@@ -11420,9 +11650,11 @@ router.post('/teacher/attendance', authenticateToken, requireExactRole(['teacher
     }
 
     const assignedClasses = teacher.classes || [];
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+    const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
     const isAssigned = isClassAssignedToTeacher(assignedClasses, String(class_name));
     if (!isAssigned) {
-      return res.status(403).json({ error: `Access denied: You are not assigned to class "${class_name}".` });
+      return res.status(403).json({ error: 'Access denied: You are not assigned to this class.' });
     }
 
     const resolvedEntries: Array<{ studentDoc: any; canonicalStudentId: string; rec: any }> = [];
@@ -11431,9 +11663,24 @@ router.post('/teacher/attendance', authenticateToken, requireExactRole(['teacher
         return res.status(400).json({ error: `Invalid attendance status "${rec.status}".` });
       }
       const studentDoc = await findStudentByAnyId(String(rec.student_id || ''));
-      if (!studentDoc || studentDoc.class_name.toLowerCase() !== String(class_name).trim().toLowerCase()) {
+      if (!studentDoc) {
+        return res.status(403).json({ error: 'Access denied: Student is not in your assigned class.' });
+      }
+      const studentSection = String(studentDoc.section || 'A');
+      const requestedSection = sanitizePlainText(section || rec.section || studentSection, 60) || 'A';
+      const studentClassMatches = isClassAssignedToTeacher([studentDoc.class_name], String(class_name));
+      const teacherHasSection = isTeacherAssignedToClassSection(
+        assignedClasses, assignmentScopes, studentDoc.class_name, studentSection
+      );
+      const requestedSectionMatches = isTeacherAssignedToClassSection(
+        [studentDoc.class_name],
+        [{ class_name: studentDoc.class_name, section: studentSection, subject: '' }],
+        studentDoc.class_name,
+        requestedSection
+      );
+      if (!studentClassMatches || !teacherHasSection || !requestedSectionMatches) {
         return res.status(403).json({
-          error: `Access denied: Student "${rec.student_name || rec.student_id}" does not belong to assigned class "${class_name}".`,
+          error: 'Access denied: Student does not belong to your assigned class and section.',
         });
       }
       resolvedEntries.push({
@@ -11536,6 +11783,8 @@ router.get('/teacher/results', authenticateToken, requireExactRole(['teacher']),
 
     const { exam_id, class_name, subject } = req.query;
     const assignedClasses = teacher.classes || [];
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+    const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
 
     if (class_name) {
       const isAssigned = isClassAssignedToTeacher(assignedClasses, String(class_name));
@@ -11547,7 +11796,7 @@ router.get('/teacher/results', authenticateToken, requireExactRole(['teacher']),
     const allResDocs = await ResultModel.find().sort({ created_at: -1, _id: -1 }).lean();
     let results = allResDocs
       .map(toResultDto)
-      .filter(r => isClassAssignedToTeacher(assignedClasses, r.class_name));
+      .filter(r => isTeacherAssignedToClassSection(assignedClasses, assignmentScopes, r.class_name, r.section));
 
     if (exam_id) results = results.filter(r => r.exam_id === String(exam_id));
     if (class_name) results = results.filter(r => r.class_name.toLowerCase() === String(class_name).toLowerCase());
@@ -11617,41 +11866,30 @@ router.post('/teacher/results', authenticateToken, requireExactRole(['teacher'])
     const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
 
     const assignedClasses = teacher.classes || [];
-    const isAssigned = isClassAssignedToTeacher(assignedClasses, studentDoc.class_name);
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+    const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
+    const isAssigned = isTeacherAssignedToClassSection(
+      assignedClasses, assignmentScopes, studentDoc.class_name, studentDoc.section || 'A'
+    );
     if (!isAssigned) {
-      return res.status(403).json({ error: `Access denied: You are not assigned to class "${studentDoc.class_name}".` });
+      return res.status(403).json({ error: 'Access denied: You are not assigned to this student section.' });
     }
-
-    const teacherIdAliases = Array.from(new Set([teacher.id].filter(Boolean)));
-    const assignmentSubjects = await TeacherAssignmentModel.find({
-      teacher_id: { $in: teacherIdAliases },
-      class_name: { $regex: new RegExp(`^${escapeRegexLiteral(studentDoc.class_name)}$`, 'i') },
-    })
-      .select('subject')
-      .lean();
-    const allowedSubjNames = [
-      teacher.subject,
-      ...assignmentSubjects.map((a: any) => String(a.subject || '')),
-    ]
-      .filter(Boolean)
-      .map(s => s.toLowerCase());
 
     const cleanSubjectName = sanitizePlainText(subject_name, 120);
     const reqSubjLower = cleanSubjectName.toLowerCase();
-    const isSubjectAllowed = allowedSubjNames.some(
-      tSubj =>
-        tSubj.includes(reqSubjLower) ||
-        reqSubjLower.includes(tSubj) ||
-        tSubj.split('&').some(part => part.trim().length > 2 && reqSubjLower.includes(part.trim())) ||
-        reqSubjLower.split(' ').some(word => word.length > 3 && tSubj.includes(word))
+    const matchingAssignments = assignmentScopes.filter(assignment =>
+      isTeacherAssignedToClassSection(
+        [assignment.class_name], [assignment], studentDoc.class_name, studentDoc.section || 'A'
+      )
     );
-
+    const isSubjectAllowed = isTeacherSubjectAssigned(
+      teacher.subject, matchingAssignments.map(assignment => assignment.subject), cleanSubjectName
+    );
     if (!isSubjectAllowed) {
       return res.status(403).json({
-        error: `Access denied: You are not authorized to record marks for "${cleanSubjectName}". Assigned subject: "${teacher.subject}".`,
+        error: 'Access denied: You are not authorized to record marks for this subject.',
       });
     }
-
     const tm = Number(total_marks !== undefined ? total_marks : 100);
     const om = Number(obtained_marks);
 
@@ -11794,8 +12032,7 @@ router.get('/teacher/timetable', authenticateToken, requireExactRole(['teacher']
 
     const ttDocs = await TimetableModel.find().sort({ created_at: 1, _id: 1 }).lean();
     const timetable = ttDocs.map(toTimetableDto).filter(t =>
-      t.teacher_name.toLowerCase().includes(teacher.name.toLowerCase()) ||
-      teacher.name.toLowerCase().includes(t.teacher_name.toLowerCase())
+      String(t.teacher_name || '').trim().toLowerCase() === String(teacher.name || '').trim().toLowerCase()
     );
 
     const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -11893,8 +12130,10 @@ router.get('/teacher/homework', authenticateToken, requireExactRole(['teacher'])
       return res.status(404).json({ error: 'Teacher profile not linked.' });
     }
 
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+    const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
     const filter: Record<string, any> = {
-      $or: [{ teacher_id: teacher.id }, { teacher_id: req.user?.linked_id || '' }],
+      teacher_id: { $in: teacherIds },
     };
 
     if (req.query.class_name && typeof req.query.class_name === 'string') {
@@ -11905,7 +12144,12 @@ router.get('/teacher/homework', authenticateToken, requireExactRole(['teacher'])
     }
 
     const docs = await HomeworkModel.find(filter).sort({ due_date: -1, created_at: -1 }).lean();
-    return res.json({ homework: docs.map(toHomeworkDto) });
+    const authorizedDocs = docs.filter(doc =>
+      isTeacherAssignedToClassSection(
+        teacher.classes || [], assignmentScopes, String(doc.class_name || ''), String(doc.section || 'A')
+      )
+    );
+    return res.json({ homework: authorizedDocs.map(toHomeworkDto) });
   } catch (err: any) {
     return sendRouteError(res, err, 'Failed to fetch homework');
   }
@@ -11924,14 +12168,25 @@ router.post('/teacher/homework', authenticateToken, requireExactRole(['teacher']
       return res.status(404).json({ error: 'Teacher profile not linked.' });
     }
 
+    const cleanClassName = sanitizePlainText(class_name, 120);
+    const cleanSection = sanitizePlainText(section, 60);
+    const cleanSubject = sanitizePlainText(subject, 120);
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+    const authorizedScope = await canAssignTeacherHomework(
+      teacher, teacherIds, cleanClassName, cleanSection, cleanSubject
+    );
+    if (!authorizedScope) {
+      return res.status(403).json({ error: 'Access denied: Homework must match your assigned class, section, and subject.' });
+    }
+
     const homeworkId = `hwk_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const created = await HomeworkModel.create({
       homework_id: homeworkId,
-      title: String(title).trim(),
-      description: String(description).trim(),
-      class_name: String(class_name).trim(),
-      section: String(section).trim(),
-      subject: String(subject).trim(),
+      title: sanitizePlainText(title, 180),
+      description: sanitizePlainText(description, 4000),
+      class_name: cleanClassName,
+      section: cleanSection,
+      subject: cleanSubject,
       teacher_id: teacher.id,
       teacher_name: teacher.name,
       assigned_date: new Date().toISOString().split('T')[0],
@@ -11968,11 +12223,23 @@ router.delete('/teacher/homework/:id', authenticateToken, requireExactRole(['tea
       return res.status(404).json({ error: 'Teacher profile not linked.' });
     }
 
-    const deleted = await HomeworkModel.findOneAndDelete({
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+    const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
+    const ownedHomework = await HomeworkModel.findOne({
       $or: [{ homework_id: hwId }, ...(isValidObjectId(hwId) ? [{ _id: hwId }] : [])],
-      teacher_id: { $in: [teacher.id, req.user?.linked_id || ''] },
-    });
+      teacher_id: { $in: teacherIds },
+    }).lean();
 
+    if (!ownedHomework || !isTeacherAssignedToClassSection(
+      teacher.classes || [], assignmentScopes, String(ownedHomework.class_name || ''), String(ownedHomework.section || 'A')
+    )) {
+      return res.status(404).json({ error: 'Homework not found or unauthorized' });
+    }
+
+    const deleted = await HomeworkModel.findOneAndDelete({
+      _id: ownedHomework._id,
+      teacher_id: { $in: teacherIds },
+    });
     if (!deleted) {
       return res.status(404).json({ error: 'Homework not found or unauthorized' });
     }
@@ -12017,6 +12284,38 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
 
     const lower = prompt.toLowerCase().trim();
     const assignedClasses = teacher.classes || [];
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+    const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
+    // Build a MongoDB-level scope so records outside the teacher's current
+    // class/section assignments are never loaded into the AI request context.
+    const assignedClassNames = Array.from(new Set([
+      ...assignedClasses,
+      ...assignmentScopes.map(assignment => assignment.class_name),
+    ].map(value => String(value || '').trim()).filter(Boolean)));
+    const teacherScopeClauses = assignedClassNames.flatMap(className => {
+      const classAssignments = assignmentScopes.filter(assignment =>
+        isClassAssignedToTeacher([assignment.class_name], className)
+      );
+      const unrestrictedSections = classAssignments.length === 0 ||
+        classAssignments.some(assignment => !String(assignment.section || '').trim());
+      const classPattern = new RegExp(
+        '^(?:(?:class|grade)\\s*[-:]?\\s*)?' +
+        escapeRegexLiteral(normalizeClassAccessLabel(className)) + '$',
+        'i'
+      );
+      if (unrestrictedSections) return [{ class_name: { $regex: classPattern } }];
+      const sectionPatterns = Array.from(new Set(classAssignments.map(assignment =>
+        String(assignment.section || '').trim().replace(/^section\s*/i, '')
+      ).filter(Boolean))).map(section =>
+        new RegExp('^(?:section\\s*)?' + escapeRegexLiteral(section) + '$', 'i')
+      );
+      return sectionPatterns.length
+        ? [{ class_name: { $regex: classPattern }, section: { $in: sectionPatterns } }]
+        : [];
+    });
+    const teacherScopeFilter = teacherScopeClauses.length
+      ? { $or: teacherScopeClauses }
+      : { _id: { $exists: false } };
 
     const forbiddenTerms = [
       'salary', 'salaries', 'staff pay', 'password', 'passwords', 'jwt', 'secret',
@@ -12028,37 +12327,31 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
       });
     }
 
-    const allStudentDocs = await StudentModel.find().lean();
-    const allStudents: StudentDto[] = allStudentDocs.map(toStudentDto);
-
-    const otherStudents = allStudents.filter(
-      s => !isClassAssignedToTeacher(assignedClasses, s.class_name)
-    );
-    for (const other of otherStudents) {
-      const otherFirst = other.full_name.split(' ')[0].toLowerCase();
-      const otherWordRegex = new RegExp(`\\b${escapeRegexLiteral(otherFirst)}\\b`, 'i');
-      if (otherFirst.length > 2 && otherWordRegex.test(lower)) {
-        const inTeacherClass = allStudents.some(
-          s =>
-            isClassAssignedToTeacher(assignedClasses, s.class_name) &&
-            s.full_name.toLowerCase().includes(otherFirst)
-        );
-        if (!inTeacherClass) {
-          return res.status(403).json({
-            error: 'Access denied: You may only query records for students enrolled in your assigned classes.',
-          });
-        }
-      }
-    }
+    const teacherStudentDocs = await StudentModel.find(teacherScopeFilter).lean();
+    const teacherStudents: StudentDto[] = teacherStudentDocs
+      .map(toStudentDto)
+      .filter(student => isTeacherAssignedToClassSection(
+        assignedClasses, assignmentScopes, student.class_name, student.section || 'A'
+      ));
 
     await recordMongoAudit(req.user!, 'Queried Teacher AI', 'TeacherAI', teacher.id, `Query: "${prompt.substring(0, 60)}"`);
 
-    const teacherStudents = allStudents.filter(s =>
-      isClassAssignedToTeacher(assignedClasses, s.class_name)
-    );
+    // Match complete name tokens, not substrings: "Unassigned" must never
+    // accidentally match a student whose first name is "Assigned".
+    const promptTokens: string[] = lower.match(/[a-z0-9]+/g) || [];
+    const containsStudentName = (student: StudentDto): boolean => {
+      const nameTokens: string[] = student.full_name.toLowerCase().match(/[a-z0-9]+/g) || [];
+      const firstName = nameTokens[0];
+      if (!firstName) return false;
+      if (promptTokens.includes(firstName)) return true;
+      if (nameTokens.length > promptTokens.length) return false;
+      return promptTokens.some((_, index) =>
+        nameTokens.every((token, offset) => promptTokens[index + offset] === token)
+      );
+    };
 
     if (lower.startsWith('mark ') || (lower.includes('mark') && (lower.includes('absent') || lower.includes('present') || lower.includes('leave')))) {
-      const matched = teacherStudents.filter(s => lower.includes(s.full_name.toLowerCase()) || lower.includes(s.full_name.split(' ')[0].toLowerCase()));
+      const matched = teacherStudents.filter(containsStudentName);
       if (matched.length === 1) {
         const targetStudent = matched[0];
         let status = 'Absent';
@@ -12088,7 +12381,7 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
     }
 
     if (lower.includes('enter') && lower.includes('marks')) {
-      const matched = teacherStudents.filter(s => lower.includes(s.full_name.toLowerCase()) || lower.includes(s.full_name.split(' ')[0].toLowerCase()));
+      const matched = teacherStudents.filter(containsStudentName);
       if (matched.length === 1) {
         const targetStudent = matched[0];
         const numMatch = lower.match(/\b\d{1,3}\b/);
@@ -12115,20 +12408,27 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
       }
     }
 
-    const words = lower
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .split(/\s+/)
+    const words: string[] = (lower.match(/[a-z0-9]+/g) || [])
       .filter(w => w.length >= 3 && !['what', 'show', 'attendance', 'result', 'marks', 'about', 'student', 'class'].includes(w));
     let candidates: StudentDto[] = [];
     for (const w of words) {
-      const matches = teacherStudents.filter(s => s.full_name.toLowerCase().includes(w));
+      const matches = teacherStudents.filter(s => {
+        const nameTokens: string[] = s.full_name.toLowerCase().match(/[a-z0-9]+/g) || [];
+        return nameTokens.includes(w);
+      });
       if (matches.length > 1) {
         candidates = matches;
         break;
       }
     }
     if (candidates.length > 1) {
-      const exactFullMatches = candidates.filter(c => lower.includes(c.full_name.toLowerCase()));
+      const exactFullMatches = candidates.filter(c => {
+        const nameTokens: string[] = c.full_name.toLowerCase().match(/[a-z0-9]+/g) || [];
+        return nameTokens.length > 0 && nameTokens.length <= promptTokens.length &&
+          promptTokens.some((_, index) =>
+            nameTokens.every((token, offset) => promptTokens[index + offset] === token)
+          );
+      });
       if (exactFullMatches.length !== 1) {
         return res.json({
           disambiguationRequired: true,
@@ -12150,17 +12450,20 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
       reply += `* **Academic Status:** ${teacher.status} (${teacher.experience} experience)\n\n`;
       reply += `**Class Breakdown:**\n`;
       for (const className of assignedClasses) {
-        const count = allStudents.filter(s => s.class_name.toLowerCase() === className.toLowerCase()).length;
+        const count = teacherStudents.filter(s => s.class_name.toLowerCase() === className.toLowerCase()).length;
         reply += `* **${className}:** ${count} enrolled students\n`;
       }
       return res.json({ text: reply, toolUsed: 'getMyAssignedClasses' });
     }
 
     if (lower.includes('timetable') || lower.includes('schedule') || lower.includes('period') || lower.includes('next class')) {
-      const ttDocs = await TimetableModel.find().sort({ created_at: 1, _id: 1 }).lean();
+      const ttDocs = await TimetableModel.find({
+        teacher_name: {
+          $regex: new RegExp('^\\s*' + escapeRegexLiteral(teacher.name) + '\\s*$', 'i'),
+        },
+      }).sort({ created_at: 1, _id: 1 }).lean();
       const teacherTimetable = ttDocs.map(toTimetableDto).filter(t =>
-        t.teacher_name.toLowerCase().includes(teacher.name.toLowerCase()) ||
-        teacher.name.toLowerCase().includes(t.teacher_name.toLowerCase())
+        String(t.teacher_name || '').trim().toLowerCase() === String(teacher.name || '').trim().toLowerCase()
       );
       let reply = `### 🕒 Weekly Teaching Schedule: ${teacher.name}\n`;
       if (teacherTimetable.length === 0) {
@@ -12177,7 +12480,7 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
       let reply = `### 👥 Student Enrollment in Your Assigned Classes\n`;
       let totalAssigned = 0;
       for (const c of assignedClasses) {
-        const count = allStudents.filter(s => s.class_name.toLowerCase() === c.toLowerCase()).length;
+        const count = teacherStudents.filter(s => s.class_name.toLowerCase() === c.toLowerCase()).length;
         totalAssigned += count;
         reply += `* **${c}:** **${count}** students\n`;
       }
@@ -12186,12 +12489,15 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
     }
 
     if ((lower.includes('below') && lower.includes('75')) || lower.includes('low attendance') || lower.includes('warning attendance')) {
-      const allAttDocs = await AttendanceModel.find().select('student_id status class_name').lean();
+      const allAttDocs = await AttendanceModel.find(teacherScopeFilter).select('student_id status class_name section').lean();
       let reply = `### ⚠️ Low Attendance Warning in Your Classes (<75%)\n`;
       let lowCount = 0;
       for (const c of assignedClasses) {
-        const classStudentDocs = allStudentDocs.filter(
-          (doc: any) => String(doc.class_name || '').toLowerCase() === c.toLowerCase()
+        const classStudentDocs = teacherStudentDocs.filter((doc: any) =>
+          String(doc.class_name || '').toLowerCase() === c.toLowerCase() &&
+          isTeacherAssignedToClassSection(
+            assignedClasses, assignmentScopes, String(doc.class_name || ''), String(doc.section || 'A')
+          )
         );
         for (const doc of classStudentDocs) {
           const s = toStudentDto(doc);
@@ -12214,10 +12520,12 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
 
     if (lower.includes('absent') || lower.includes('attendance today') || lower.includes('attendance percentage')) {
       const today = new Date().toISOString().split('T')[0];
-      const todayAttDocs = await AttendanceModel.find({ date: today }).lean();
+      const todayAttDocs = await AttendanceModel.find({ date: today, ...teacherScopeFilter }).lean();
       const todayAtt = todayAttDocs
         .map(toAttendanceDto)
-        .filter(a => isClassAssignedToTeacher(assignedClasses, a.class_name));
+        .filter(a => isTeacherAssignedToClassSection(
+          assignedClasses, assignmentScopes, a.class_name, a.section || 'A'
+        ));
       const absents = todayAtt.filter(a => a.status === 'Absent');
       const presents = todayAtt.filter(a => a.status === 'Present');
       const total = todayAtt.length;
@@ -12237,10 +12545,12 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
     }
 
     if (lower.includes('result') || lower.includes('mark') || lower.includes('score') || lower.includes('performance') || lower.includes('below 50')) {
-      const allResDocs = await ResultModel.find().sort({ created_at: -1, _id: -1 }).lean();
+      const allResDocs = await ResultModel.find(teacherScopeFilter).sort({ created_at: -1, _id: -1 }).lean();
       const classResults = allResDocs
         .map(toResultDto)
-        .filter(r => isClassAssignedToTeacher(assignedClasses, r.class_name));
+        .filter(r => isTeacherAssignedToClassSection(
+          assignedClasses, assignmentScopes, r.class_name, r.section || 'A'
+        ));
 
       let reply = `### 🏆 Examination Academic Performance\n`;
       if (classResults.length === 0) {
@@ -12259,7 +12569,7 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
 
     if (lower.includes('pending') || lower.includes('task') || lower.includes('attendance task')) {
       const today = new Date().toISOString().split('T')[0];
-      const todayAttDocs = await AttendanceModel.find({ date: today }).select('class_name').lean();
+      const todayAttDocs = await AttendanceModel.find({ date: today, ...teacherScopeFilter }).select('class_name section').lean();
       const pending: string[] = [];
       const marked: string[] = [];
       for (const c of assignedClasses) {
@@ -12302,6 +12612,8 @@ router.post('/teacher/ai/execute-action', authenticateToken, requireExactRole(['
       return res.status(404).json({ error: 'Teacher profile not linked to user account.' });
     }
 
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+    const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
     const { actionType, payload, confirmed } = req.body || {};
     if (!confirmed) {
       return res.status(400).json({ error: 'Explicit confirmation required to execute sensitive teacher action.' });
@@ -12324,8 +12636,13 @@ router.post('/teacher/ai/execute-action', authenticateToken, requireExactRole(['
       const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
 
       const assignedClasses = teacher.classes || [];
-      if (!isClassAssignedToTeacher(assignedClasses, studentDoc.class_name)) {
-        return res.status(403).json({ error: `Access denied: You are not assigned to class "${studentDoc.class_name}".` });
+      const studentSection = String(studentDoc.section || 'A');
+      const requestedSection = sanitizePlainText(section || studentSection, 60) || 'A';
+      if (
+        !isTeacherAssignedToClassSection(assignedClasses, assignmentScopes, studentDoc.class_name, studentSection) ||
+        normalizeClassAccessLabel(requestedSection) !== normalizeClassAccessLabel(studentSection)
+      ) {
+        return res.status(403).json({ error: 'Access denied: Student is outside your assigned class and section.' });
       }
 
       const idAliases = Array.from(
@@ -12381,8 +12698,23 @@ router.post('/teacher/ai/execute-action', authenticateToken, requireExactRole(['
       const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
 
       const assignedClasses = teacher.classes || [];
-      if (!isClassAssignedToTeacher(assignedClasses, studentDoc.class_name)) {
-        return res.status(403).json({ error: `Access denied: You are not assigned to class "${studentDoc.class_name}".` });
+      const studentSection = String(studentDoc.section || 'A');
+      if (!isTeacherAssignedToClassSection(
+        assignedClasses, assignmentScopes, studentDoc.class_name, studentSection
+      )) {
+        return res.status(403).json({ error: 'Access denied: Student is outside your assigned class and section.' });
+      }
+
+      const cleanSubj = sanitizePlainText(subject_name || teacher.subject || 'Subject', 120) || 'Subject';
+      const matchingAssignments = assignmentScopes.filter(assignment =>
+        isTeacherAssignedToClassSection(
+          [assignment.class_name], [assignment], studentDoc.class_name, studentSection
+        )
+      );
+      if (!isTeacherSubjectAssigned(
+        teacher.subject, matchingAssignments.map(assignment => assignment.subject), cleanSubj
+      )) {
+        return res.status(403).json({ error: 'Access denied: Subject is outside your teaching assignment.' });
       }
 
       const tm = Number(total_marks || 100);
@@ -12391,7 +12723,6 @@ router.post('/teacher/ai/execute-action', authenticateToken, requireExactRole(['
         return res.status(400).json({ error: 'Invalid marks values.' });
       }
 
-      const cleanSubj = sanitizePlainText(subject_name || teacher.subject || 'Subject', 120) || 'Subject';
       const cleanExamId = sanitizePlainText(exam_id || 'ex_term1', 80) || 'ex_term1';
       const pct = (om / tm) * 100;
       let grade = 'F';

@@ -40,14 +40,16 @@ interface Message {
   auditLogId?: string;
 }
 
-export const AdminAiAssistant: React.FC = () => {
+interface AdminAiAssistantProps { initialPrompt?: string; onPromptConsumed?: () => void; }
+
+export const AdminAiAssistant = ({ initialPrompt, onPromptConsumed }: AdminAiAssistantProps) => {
   const { user } = useAuth();
 
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
       sender: 'assistant',
-      text: `### Shawan School & College Admin AI Assistant\n\nQuery live school collections with role-authorized verification.\n\n* **Faculty Records:** Request complete teacher profiles, qualifications, or assigned classes (e.g. *"Give me the complete record of teacher Muhammad Ali"*)\n* **Student Dossiers:** Inspect student profiles, guardian contacts, attendance rates, or fee ledgers (e.g. *"Show me Ahmad Khan's complete student profile"*)\n* **Operational Audits:** Filter low attendance, check today's absentees, or list unpaid fee vouchers\n* **Controlled Actions:** Draft fee reminders or prepare parent SMS alerts with mandatory administrator confirmation\n\nSelect a suggested inquiry below or enter a question:`,
+      text: `### Shawan School & College Admin AI Assistant\n\nQuery live school collections with role-authorized verification.\n\n* **Faculty Records:** Request complete teacher profiles, qualifications, or assigned classes (e.g. *"Give me the complete record of teacher Muhammad Ali"*)\n* **Student Dossiers:** Inspect student profiles, guardian contacts, attendance rates, or fee ledgers (e.g. *"Show me Ahmad Khan's complete student profile"*)\n* **Operational Audits:** Filter low attendance, check today's absentees, or list unpaid fee vouchers\n* **Controlled Actions:** Prepare parent alert drafts with administrator confirmation; SMS delivery remains disabled until a verified gateway is connected\n\nSelect a suggested inquiry below or enter a question:`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       toolUsed: 'systemInit',
     },
@@ -203,6 +205,18 @@ export const AdminAiAssistant: React.FC = () => {
     }
   };
 
+  const consumedPromptRef = useRef('');
+  useEffect(() => {
+    if (!initialPrompt) {
+      consumedPromptRef.current = '';
+      return;
+    }
+    if (consumedPromptRef.current === initialPrompt) return;
+    consumedPromptRef.current = initialPrompt;
+    void handleSend(initialPrompt);
+    onPromptConsumed?.();
+  }, [initialPrompt]);
+
   const handleConfirmAction = async () => {
     if (!pendingConfirmAction) return;
     setActionExecuting(true);
@@ -220,7 +234,7 @@ export const AdminAiAssistant: React.FC = () => {
       const confirmBotMsg: Message = {
         id: `confirmed-${Date.now()}`,
         sender: 'assistant',
-        text: `### Action Executed & Verified\n\n${res.message}\n\n* **Dispatched Recipients:** ${res.dispatchedCount || 0}\n* **Audit Reference:** \`${res.auditLogId || 'Logged'}\``,
+        text: `### Action Recorded\n\n${res.message}\n\n* **Notification records:** ${res.recordedCount || 0}\n* **SMS dispatched:** ${res.smsDispatched ? 'Yes' : 'No'}\n* **Audit Reference:** \`${res.auditLogId || 'Logged'}\``,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         toolUsed: 'executeConfirmedAction',
       };

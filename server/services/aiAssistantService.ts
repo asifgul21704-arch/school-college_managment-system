@@ -12,6 +12,9 @@ import {
   ResultModel,
   ExamModel,
   SchoolSettingsModel,
+  ExpenseModel,
+  PayrollModel,
+  FeePaymentModel,
 } from '../models/index.ts';
 
 import mongoose from 'mongoose';
@@ -1940,8 +1943,8 @@ export const ControlledSchoolTools = {
         requiresConfirmation: true,
         pendingAction: {
           actionType: 'SEND_SMS_ABSENT',
-          title: `Send Absent Alert SMS (${recipients.length} Parents)`,
-          description: `This will prepare dispatch of automated notifications to parents of ${recipients.length} absent students for ${absentData.date}.`,
+          title: `Record Absent Alert Draft (${recipients.length} Parents)`,
+          description: `This records an administrator-only alert draft for ${recipients.length} absent students dated ${absentData.date}. No SMS or parent-facing notification will be delivered until a verified gateway is connected.`,
           payload: {
             recipients,
             date: absentData.date,
@@ -1968,8 +1971,8 @@ export const ControlledSchoolTools = {
         requiresConfirmation: true,
         pendingAction: {
           actionType: 'SEND_SMS_FEES',
-          title: `Send Fee Reminder SMS (${recipients.length} Parents)`,
-          description: `This will dispatch notifications to parents of ${recipients.length} students with outstanding fees totaling PKR ${feeData.grandTotalDue.toLocaleString()}.`,
+          title: `Record Fee Reminder Draft (${recipients.length} Parents)`,
+          description: `This records an administrator-only fee reminder draft for ${recipients.length} students with outstanding fees totaling PKR ${feeData.grandTotalDue.toLocaleString()}. No SMS or parent-facing notification will be delivered until a verified gateway is connected.`,
           payload: {
             recipients,
             grandTotalDue: feeData.grandTotalDue,
@@ -1985,7 +1988,7 @@ export const ControlledSchoolTools = {
         pendingAction: {
           actionType: 'SEND_SMS_CUSTOM',
           title: 'Send Custom Broadcast Notification',
-          description: 'Dispatch custom administrative notification to recipients.',
+          description: 'Custom broadcast delivery is not connected. This action is not available for execution.',
           payload: { message: customMessage || '' },
           recipientCount: 1,
           previewText: customMessage || '',
@@ -2009,33 +2012,53 @@ export const ControlledSchoolTools = {
       );
     }
 
-    const recipients = payload?.recipients || [];
-    const message = payload?.message || '';
+    const allowedActions = new Set(['SEND_SMS_ABSENT', 'SEND_SMS_FEES']);
+    if (!allowedActions.has(actionType)) {
+      throw new Error('Unsupported AI action. Only reviewed absent and fee reminder actions are allowed.');
+    }
 
-    // Record notification entries in MongoDB
-    for (const r of recipients) {
+    const recipients = payload?.recipients;
+    const message = typeof payload?.message === 'string' ? payload.message.trim() : '';
+    if (!Array.isArray(recipients) || recipients.length === 0 || recipients.length > 500) {
+      throw new Error('A valid recipient list containing 1 to 500 recipients is required.');
+    }
+    if (!message || message.length > 1000) {
+      throw new Error('A non-empty notification message of at most 1000 characters is required.');
+    }
+    for (const recipient of recipients) {
+      const phone = typeof recipient?.phone === 'string' ? recipient.phone.trim() : '';
+      if (!/^\+?[0-9][0-9\s()-]{6,19}$/.test(phone)) {
+        throw new Error('Every notification recipient must have a valid phone number.');
+      }
+      if (typeof recipient?.studentName !== 'string' || !recipient.studentName.trim()) {
+        throw new Error('Every notification recipient must have a valid student name.');
+      }
+    }
+
+    // This records an in-app audit/notification entry only; it does NOT send an SMS.
+    for (const recipient of recipients) {
       await NotificationModel.create({
-        user_id: r.phone || 'parent',
+        user_id: recipient.phone.trim(),
         title: `Administrative Alert: ${actionType}`,
-        message: `${message} [To: ${r.studentName || 'Student'}, Phone: ${r.phone}]`,
+        message: `${message} [To: ${recipient.studentName.trim()}, Phone: ${recipient.phone.trim()}]`,
         type: 'sms',
         read: false,
         created_at: new Date(),
       });
     }
 
-    // Persist to AuditLog
     const auditId = await recordAuditLog(
       context,
-      `AI_ACTION_EXECUTED_${actionType}`,
-      'SMS_GATEWAY',
-      `Admin confirmed and logged notification alert for ${recipients.length} recipients.`
+      `AI_ACTION_RECORDED_${actionType}`,
+      'AI_NOTIFICATION',
+      `Admin confirmed and recorded an in-app notification entry for ${recipients.length} recipients. No SMS was dispatched.`
     );
 
     return {
       success: true,
-      message: `Action recorded and verified! Logged notifications for ${recipients.length} recipient(s). All events recorded in MongoDB AuditLog.`,
-      dispatchedCount: recipients.length,
+      message: `Recorded ${recipients.length} in-app notification entr(y/ies). No SMS was sent; a verified SMS gateway is not connected.`,
+      recordedCount: recipients.length,
+      smsDispatched: false,
       auditLogId: auditId,
     };
   },
@@ -2162,10 +2185,10 @@ export async function processAdminAiQuery(
       context,
       'AI_PREPARE_SMS_ACTION',
       'SMS_ALERT',
-      `Admin initiated sensitive notification for ${isFee ? 'fee reminder' : 'absent alert'}. Confirmation required.`
+      `Admin requested an alert draft for ${isFee ? 'fee reminder' : 'absent alert'}. Confirmation records an audit entry only; no delivery occurs.`
     );
     return {
-      text: `⚠️ **Admin Confirmation Required**\n\nYou have requested to dispatch notifications. In accordance with school safety protocols, this sensitive action requires explicit admin confirmation before processing.\n\nPlease review the details below and confirm to proceed.`,
+      text: `⚠️ **Admin Confirmation Required**\n\nYou have requested an administrative alert draft. Confirming records the draft for audit only; no SMS or parent-facing notification will be delivered because a verified SMS gateway is not connected.\n\nPlease review the details below and confirm to proceed.`,
       toolUsed: 'prepareSmsAction',
       requiresConfirmation: true,
       pendingAction: smsPrep.pendingAction,
@@ -2190,7 +2213,7 @@ export async function processAdminAiQuery(
       `Admin generated fee reminder draft for ${draftRes.unpaidStudentCount} unpaid students.`
     );
     return {
-      text: `### 📋 Prepared Fee Reminder Notification Draft\n\n**Recipients on Record:** ${draftRes.unpaidStudentCount} students with unpaid fees\n**Total Outstanding Dues:** PKR ${draftRes.totalOutstanding.toLocaleString()}\n\n---\n#### 📱 Urdu Template (SMS / WhatsApp):\n\`\`\`\n${draftRes.draftUrdu}\n\`\`\`\n\n#### 🌐 English Template:\n\`\`\`\n${draftRes.draftEnglish}\n\`\`\`\n\n*Action Ready: Say "Send fee reminder SMS alert" to trigger the verified broadcast confirmation dialog.*`,
+      text: `### 📋 Prepared Fee Reminder Notification Draft\n\n**Recipients on Record:** ${draftRes.unpaidStudentCount} students with unpaid fees\n**Total Outstanding Dues:** PKR ${draftRes.totalOutstanding.toLocaleString()}\n\n---\n#### 📱 Urdu Template (SMS / WhatsApp):\n\`\`\`\n${draftRes.draftUrdu}\n\`\`\`\n\n#### 🌐 English Template:\n\`\`\`\n${draftRes.draftEnglish}\n\`\`\`\n\n*To record an administrator-only fee reminder draft, request "Prepare fee reminder alert". No SMS will be sent until a verified gateway is connected.*`,
       toolUsed: 'draftFeeReminders',
       data: draftRes,
       auditLogId: auditId,
@@ -2762,6 +2785,50 @@ export async function processAdminAiQuery(
       text: `### 🏫 Shawan School and College: Administrative Overview\n\n* **Total Active Students:** **${overview.totalStudents}**\n* **Active Faculty Members:** **${overview.totalTeachers}**\n* **Configured Classes:** **${overview.totalClasses}**\n* **Today's Attendance Rate:** **${overview.attendanceRate}%** (${overview.todayPresent}/${overview.todayMarked} marked)\n* **Tuition Fees Collected:** **PKR ${overview.totalCollectedFee.toLocaleString()}**\n* **Total Pending Dues:** **PKR ${overview.totalPendingFee.toLocaleString()}**\n* **New Admissions:** **${overview.approvedAdmissions}** Approved, **${overview.pendingAdmissions}** Pending\n\n*All statistics retrieved via live MongoDB Atlas database aggregation.*`,
       toolUsed: 'getSchoolOverview',
       data: overview,
+      auditLogId: auditId,
+      aiProviderStatus: getAiProviderStatus(),
+    };
+  }
+
+  // ----------------------------------------------------
+  // FINANCE INTELLIGENCE: Expense, payroll and income-vs-expense reports
+  // ----------------------------------------------------
+  if (
+    pLower.includes('income vs expense') ||
+    pLower.includes('expense') ||
+    pLower.includes('payroll') ||
+    pLower.includes('salary')
+  ) {
+    const monthMatch = prompt.match(/\b(20\d{2})-(0?[1-9]|1[0-2])\b/);
+    const now = new Date();
+    const year = monthMatch ? Number(monthMatch[1]) : now.getFullYear();
+    const month = monthMatch ? Number(monthMatch[2]) : now.getMonth() + 1;
+    const periodPrefix = `${year}-${String(month).padStart(2, '0')}`;
+    const [expenseDocs, payrollDocs, paymentDocs] = await Promise.all([
+      ExpenseModel.find({ expense_date: { $regex: `^${periodPrefix}` } }).lean(),
+      PayrollModel.find({ salary_year: year, salary_month: month }).lean(),
+      FeePaymentModel.find({ date: { $regex: `^${periodPrefix}` }, status: 'Paid', verification_status: 'Verified' }).lean(),
+    ]);
+    const operationalExpenses = expenseDocs.filter((row: any) => row.category !== 'Salaries');
+    const expenseTotal = operationalExpenses.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0);
+    const payrollTotal = payrollDocs.reduce((sum: number, row: any) => sum + Number(row.net_salary || 0), 0);
+    const payrollPaid = payrollDocs.reduce((sum: number, row: any) => sum + Number(row.paid_amount || 0), 0);
+    const totalOutflow = expenseTotal + payrollPaid;
+    const payrollRemaining = Math.max(0, payrollTotal - payrollPaid);
+    const collected = paymentDocs.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0);
+    const expenseByCategory = new Map<string, number>();
+    operationalExpenses.forEach((row: any) => expenseByCategory.set(row.category, (expenseByCategory.get(row.category) || 0) + Number(row.amount || 0)));
+    const categoryRows = Array.from(expenseByCategory.entries()).map(([category, amount]) => `| ${category} | PKR ${amount.toLocaleString()} |`).join('\n');
+    const auditId = await recordAuditLog(
+      context,
+      'AI_FINANCE_REPORT',
+      'FINANCE',
+      `Generated live finance report for ${periodPrefix}; ${expenseDocs.length} expense records and ${payrollDocs.length} payroll records.`
+    );
+    return {
+      text: `### Finance Intelligence Report — ${periodPrefix}\n\n* **Verified fee collections:** PKR ${collected.toLocaleString()}\n* **Operating expenses (${operationalExpenses.length} records):** PKR ${expenseTotal.toLocaleString()}\n* **Payroll net salary (${payrollDocs.length} records):** PKR ${payrollTotal.toLocaleString()} (paid PKR ${payrollPaid.toLocaleString()})\n* **Recorded cash outflow (operating expenses + salary paid):** PKR ${totalOutflow.toLocaleString()}\n* **Unpaid payroll balance:** PKR ${payrollRemaining.toLocaleString()}\n* **Operating balance indicator:** PKR ${(collected - totalOutflow).toLocaleString()}\n\n#### Operating expense categories\n| Category | Amount |\n|---|---:|\n${categoryRows || '| No expense records | PKR 0 |'}\n\n*All figures are filtered to ${periodPrefix}. Collections include only Paid + Verified fee transactions. Cash balance is an operational indicator, not an audited profit/loss statement.*`,
+      toolUsed: 'getFinanceIntelligenceReport',
+      data: { period: periodPrefix, verifiedFeeCollections: collected, operationalExpenses: expenseTotal, payrollNet: payrollTotal, payrollPaid, payrollRemaining, totalOutflow, expenseCount: expenseDocs.length, payrollCount: payrollDocs.length },
       auditLogId: auditId,
       aiProviderStatus: getAiProviderStatus(),
     };

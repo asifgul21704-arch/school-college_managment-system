@@ -23,6 +23,9 @@ import {
   PaymentTransaction,
   PaymentSettings,
   OutstandingFeeSummary,
+  ExpenseRecord,
+  PayrollRecord,
+  VerifiedFeeCollectionRecord,
 } from '../types';
 
 const LEGACY_LOCALSTORAGE_TOKEN_KEY = 'shawan_auth_token';
@@ -833,6 +836,8 @@ export const api = {
       success: boolean;
       message: string;
       dispatchedCount?: number;
+      recordedCount?: number;
+      smsDispatched: boolean;
       auditLogId?: string;
     }>('/admin/ai/execute-action', {
       method: 'POST',
@@ -1128,6 +1133,30 @@ export const api = {
     request<{ success: boolean; message: string }>(`/teacher/homework/${id}`, {
       method: 'DELETE',
     }),
+
+  // Finance operations (admin-only API)
+  getFinanceCollections: (params?: { month?: string; class_name?: string }) => {
+    const query = new URLSearchParams(params as Record<string, string>).toString();
+    return request<VerifiedFeeCollectionRecord[]>(`/finance/collections${query ? `?${query}` : ''}`);
+  },
+  getFinanceExpenses: (params?: { from?: string; to?: string; category?: string }) => {
+    const query = new URLSearchParams(params as any).toString();
+    return request<ExpenseRecord[]>(`/finance/expenses${query ? `?${query}` : ''}`);
+  },
+  createFinanceExpense: (data: { title: string; category: string; amount: number; expense_date: string; payment_method: string; reference?: string; notes?: string }) =>
+    request<ExpenseRecord>('/finance/expenses', { method: 'POST', body: JSON.stringify(data) }),
+  updateFinanceExpense: (id: string, data: Record<string, any>) =>
+    request<ExpenseRecord>(`/finance/expenses/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteFinanceExpense: (id: string) =>
+    request<{ success: boolean; message: string }>(`/finance/expenses/${id}`, { method: 'DELETE' }),
+  getFinancePayroll: (params?: { year?: number; month?: number; status?: string }) => {
+    const query = new URLSearchParams(params as any).toString();
+    return request<PayrollRecord[]>(`/finance/payroll${query ? `?${query}` : ''}`);
+  },
+  createFinancePayroll: (data: { staff_id: string; staff_name: string; designation: string; salary_month: number; salary_year: number; basic_salary: number; allowances?: number; deductions?: number; notes?: string }) =>
+    request<PayrollRecord>('/finance/payroll', { method: 'POST', body: JSON.stringify(data) }),
+  recordFinanceSalaryPayment: (id: string, data: { amount: number; payment_date: string; payment_method: string; idempotency_key: string }) =>
+    request<PayrollRecord>(`/finance/payroll/${id}/payment`, { method: 'POST', body: JSON.stringify(data) }),
 
   getPublicHomework: (params?: { class_name?: string; section?: string }) => {
     const query = new URLSearchParams(params as any).toString();
