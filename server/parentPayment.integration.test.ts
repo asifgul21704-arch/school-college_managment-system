@@ -1473,6 +1473,11 @@ test('real MongoDB: finance reports, expense CRUD, and idempotent payroll paymen
   assert.equal(finalPayment.status, 200);
   assert.equal(finalPayment.body.paid_amount, 50000);
   assert.equal(finalPayment.body.status, 'Paid');
+  const replayAfterFullPayment = await request(`/finance/payroll/${encodeURIComponent(payrollId)}/payment`, adminToken, {
+    method: 'POST',
+    body: paymentPayload,
+  });
+  assert.equal(replayAfterFullPayment.status, 409);
 
   const concurrentPayroll = await request('/finance/payroll', adminToken, {
     method: 'POST',
