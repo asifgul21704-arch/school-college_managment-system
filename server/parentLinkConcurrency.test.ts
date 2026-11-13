@@ -91,3 +91,19 @@ test('manual payment approval is locked and checks the exact voucher balance bef
   assert.ok(route.indexOf('FeeModel.findOneAndUpdate') < route.indexOf("status: 'Paid',"));
   assert.match(route, /status: 'Pending Verification'/);
 });
+
+test('fee payment initiation verifies the voucher belongs to the authorized student', () => {
+  const start = routes.indexOf("router.post('/parent/payments/initiate'");
+  const end = routes.indexOf("// 4. Parent Payment History", start);
+  assert.ok(start >= 0 && end > start);
+  const route = routes.slice(start, end);
+  assert.match(route, /authorizedStudentAliases\.has\(String\(feeDoc\.student_id/);
+  assert.match(route, /This fee voucher does not belong to the selected student/);
+});
+
+test('fee summary is not accessible to teacher or other unsupported roles', () => {
+  assert.match(
+    routes,
+    /router\.get\('\/parent\/fees\/summary', authenticateToken, requireRole\(\['parent', 'student', 'super_admin', 'admin'\]\)/
+  );
+});
