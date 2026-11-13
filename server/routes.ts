@@ -11923,8 +11923,10 @@ router.get('/teacher/homework', authenticateToken, requireExactRole(['teacher'])
       return res.status(404).json({ error: 'Teacher profile not linked.' });
     }
 
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+    const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
     const filter: Record<string, any> = {
-      $or: [{ teacher_id: teacher.id }, { teacher_id: req.user?.linked_id || '' }],
+      teacher_id: { $in: teacherIds },
     };
 
     if (req.query.class_name && typeof req.query.class_name === 'string') {
@@ -11935,7 +11937,12 @@ router.get('/teacher/homework', authenticateToken, requireExactRole(['teacher'])
     }
 
     const docs = await HomeworkModel.find(filter).sort({ due_date: -1, created_at: -1 }).lean();
-    return res.json({ homework: docs.map(toHomeworkDto) });
+    const authorizedDocs = docs.filter(doc =>
+      isTeacherAssignedToClassSection(
+        teacher.classes || [], assignmentScopes, String(doc.class_name || ''), String(doc.section || 'A')
+      )
+    );
+    return res.json({ homework: authorizedDocs.map(toHomeworkDto) });
   } catch (err: any) {
     return sendRouteError(res, err, 'Failed to fetch homework');
   }
@@ -12009,11 +12016,23 @@ router.delete('/teacher/homework/:id', authenticateToken, requireExactRole(['tea
       return res.status(404).json({ error: 'Teacher profile not linked.' });
     }
 
-    const deleted = await HomeworkModel.findOneAndDelete({
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+    const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
+    const ownedHomework = await HomeworkModel.findOne({
       $or: [{ homework_id: hwId }, ...(isValidObjectId(hwId) ? [{ _id: hwId }] : [])],
-      teacher_id: { $in: [teacher.id, req.user?.linked_id || ''] },
-    });
+      teacher_id: { $in: teacherIds },
+    }).lean();
 
+    if (!ownedHomework || !isTeacherAssignedToClassSection(
+      teacher.classes || [], assignmentScopes, String(ownedHomework.class_name || ''), String(ownedHomework.section || 'A')
+    )) {
+      return res.status(404).json({ error: 'Homework not found or unauthorized' });
+    }
+
+    const deleted = await HomeworkModel.findOneAndDelete({
+      _id: ownedHomework._id,
+      teacher_id: { $in: teacherIds },
+    });
     if (!deleted) {
       return res.status(404).json({ error: 'Homework not found or unauthorized' });
     }
