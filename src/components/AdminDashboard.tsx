@@ -6573,7 +6573,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     content: form.content.value,
                     category: form.category.value,
                     priority: form.priority.value,
-                    audience: 'All',
+                    audience: form.audience.value,
                   });
                   showNotification('Notice published live!');
                   setShowAddNoticeModal(false);
@@ -6615,6 +6615,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <option value="Urgent">Urgent</option>
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-neutral-700 mb-1">Send notice to</label>
+                <select
+                  name="audience"
+                  defaultValue="Students"
+                  className="w-full text-xs py-2 px-3 border border-neutral-300 rounded-lg"
+                  required
+                >
+                  <option value="Students">Students &amp; Parents only</option>
+                  <option value="Teachers">Teachers only</option>
+                  <option value="All">Everyone (Students, Parents &amp; Teachers)</option>
+                </select>
+                <p className="text-[11px] text-neutral-500 mt-1">Choose the intended audience. Student/parent notices are not shown in the teacher portal.</p>
               </div>
 
               <div>
