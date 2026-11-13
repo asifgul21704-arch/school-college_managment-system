@@ -2293,16 +2293,21 @@ router.post('/parents/confirm-link-child', sensitiveActionRateLimiter, authentic
     const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
     const canonicalUserId = userDoc.record_id || userDoc._id.toString();
 
-    const nextLinked = Array.isArray(userDoc.linked_student_ids) ? [...userDoc.linked_student_ids] : [];
-    if (!nextLinked.includes(canonicalStudentId)) {
-      nextLinked.push(canonicalStudentId);
+    const claimedStudent = await claimStudentForParent(studentDoc, canonicalUserId, userDoc._id.toString());
+    if (!claimedStudent) {
+      return res.status(409).json({
+        error: 'This student is already linked to another parent account. Please contact school administration.',
+      });
     }
-    userDoc.linked_student_ids = nextLinked;
-    userDoc.linked_id = canonicalStudentId;
-    await userDoc.save();
 
-    studentDoc.parent_user_id = canonicalUserId;
-    await studentDoc.save();
+    await UserModel.findOneAndUpdate(
+      { _id: userDoc._id },
+      {
+        $addToSet: { linked_student_ids: canonicalStudentId },
+        $set: { linked_id: canonicalStudentId },
+      },
+      { new: true, runValidators: true }
+    );
 
     await ParentModel.findOneAndUpdate(
       { $or: [{ user_id: canonicalUserId }, { email: userDoc.email.toLowerCase() }] },
