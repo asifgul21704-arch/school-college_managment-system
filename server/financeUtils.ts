@@ -50,3 +50,9 @@ export function calculateFinanceCashPosition(input: {
     netCashIndicator: Number((input.verifiedFeeCollections - totalOutflow).toFixed(2)),
   };
 }
+
+
+/** Stable request keys prevent the same salary payment from being applied twice on retry. */
+export function isValidPaymentIdempotencyKey(value: unknown): boolean {
+  return typeof value === 'string' && /^[a-zA-Z0-9-]{8,100}$/.test(value);
+}
