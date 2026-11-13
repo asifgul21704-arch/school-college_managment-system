@@ -1940,8 +1940,8 @@ export const ControlledSchoolTools = {
         requiresConfirmation: true,
         pendingAction: {
           actionType: 'SEND_SMS_ABSENT',
-          title: `Send Absent Alert SMS (${recipients.length} Parents)`,
-          description: `This will prepare dispatch of automated notifications to parents of ${recipients.length} absent students for ${absentData.date}.`,
+          title: `Record Absent Alert Draft (${recipients.length} Parents)`,
+          description: `This records an administrator-only alert draft for ${recipients.length} absent students dated ${absentData.date}. No SMS or parent-facing notification will be delivered until a verified gateway is connected.`,
           payload: {
             recipients,
             date: absentData.date,
@@ -1968,8 +1968,8 @@ export const ControlledSchoolTools = {
         requiresConfirmation: true,
         pendingAction: {
           actionType: 'SEND_SMS_FEES',
-          title: `Send Fee Reminder SMS (${recipients.length} Parents)`,
-          description: `This will dispatch notifications to parents of ${recipients.length} students with outstanding fees totaling PKR ${feeData.grandTotalDue.toLocaleString()}.`,
+          title: `Record Fee Reminder Draft (${recipients.length} Parents)`,
+          description: `This records an administrator-only fee reminder draft for ${recipients.length} students with outstanding fees totaling PKR ${feeData.grandTotalDue.toLocaleString()}. No SMS or parent-facing notification will be delivered until a verified gateway is connected.`,
           payload: {
             recipients,
             grandTotalDue: feeData.grandTotalDue,
@@ -1985,7 +1985,7 @@ export const ControlledSchoolTools = {
         pendingAction: {
           actionType: 'SEND_SMS_CUSTOM',
           title: 'Send Custom Broadcast Notification',
-          description: 'Dispatch custom administrative notification to recipients.',
+          description: 'Custom broadcast delivery is not connected. This action is not available for execution.',
           payload: { message: customMessage || '' },
           recipientCount: 1,
           previewText: customMessage || '',
