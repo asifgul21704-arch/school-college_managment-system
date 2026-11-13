@@ -7215,6 +7215,19 @@ router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent
       return res.status(403).json({ error: 'Access denied: This fee voucher does not belong to the selected student' });
     }
 
+    const cleanSlipRef = String(deposit_slip_ref || notes || '').trim();
+    if (cleanSlipRef) {
+      const [existingTxnDoc, existingEmbeddedTxn] = await Promise.all([
+        FeePaymentModel.findOne({ transaction_id: cleanSlipRef }).lean(),
+        FeeModel.findOne({ 'payment_history.transaction_id': cleanSlipRef }).lean(),
+      ]);
+      if (existingTxnDoc || existingEmbeddedTxn) {
+        return res.status(409).json({
+          error: 'Duplicate payment rejected: This deposit slip or transaction reference has already been recorded.',
+        });
+      }
+    }
+
     const currentPending = Number(feeDoc.pending_amount) || 0;
     const currentPaid = Number(feeDoc.paid_amount) || 0;
     const currentTotal = Number(feeDoc.total_amount) || 0;
@@ -7264,8 +7277,6 @@ router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent
       });
     } else {
       // Manual Bank Deposit / Wire Transfer (Requires Admin Verification)
-      const cleanSlipRef = String(deposit_slip_ref || notes || '').trim();
-
       const paymentDoc = await FeePaymentModel.create({
         fee_id: feeDoc.voucher_id || feeDoc._id.toString(),
         student_id: feeDoc.student_id,
