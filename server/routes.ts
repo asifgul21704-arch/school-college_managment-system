@@ -3246,7 +3246,7 @@ router.put('/settings', authenticateToken, requireRole(['super_admin', 'admin'])
 // 4. STUDENTS MANAGEMENT
 // ==========================================
 
-router.get('/students', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/students', authenticateToken, requireRole(['super_admin', 'admin', 'teacher', 'parent', 'student']), async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   try {
     const { search, class_name, section, status } = req.query;
@@ -3272,13 +3272,21 @@ router.get('/students', authenticateToken, async (req: AuthenticatedRequest, res
     if (req.user?.role === 'teacher') {
       const teacher = await getAuthenticatedTeacherMongo(req);
       const assignedClasses = teacher?.classes || [];
-      if (class_name) {
-        const isAssigned = isClassAssignedToTeacher(assignedClasses, String(class_name));
-        if (!isAssigned) {
-          return res.status(403).json({ error: 'Access denied: You may only view students in your assigned classes.' });
-        }
+      const teacherIds = teacher
+        ? Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))))
+        : [];
+      const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
+      if (class_name && !isClassAssignedToTeacher(assignedClasses, String(class_name))) {
+        return res.status(403).json({ error: 'Access denied: You may only view students in your assigned classes.' });
       }
-      result = result.filter(s => isClassAssignedToTeacher(assignedClasses, s.class_name));
+      if (class_name && section && !isTeacherAssignedToClassSection(
+        assignedClasses, assignmentScopes, String(class_name), String(section)
+      )) {
+        return res.status(403).json({ error: 'Access denied: You are not assigned to this class section.' });
+      }
+      result = result.filter(student => isTeacherAssignedToClassSection(
+        assignedClasses, assignmentScopes, student.class_name, student.section || 'A'
+      ));
     }
 
     if (search) {
@@ -3337,7 +3345,7 @@ router.get('/students', authenticateToken, async (req: AuthenticatedRequest, res
   }
 });
 
-router.get('/students/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/students/:id', authenticateToken, requireRole(['super_admin', 'admin', 'teacher', 'parent', 'student']), async (req: AuthenticatedRequest, res: Response) => {
   if (!isValidCmsIdParam(req.params.id)) {
     return res.status(400).json({ error: 'Invalid student ID format' });
   }
@@ -3365,7 +3373,6 @@ router.get('/students/:id', authenticateToken, async (req: AuthenticatedRequest,
     if (req.user?.role === 'parent') {
       const linkedSet = await getLinkedStudentIdsForParent(req.user);
       const isLinked =
-        student.parent_user_id === req.user.id ||
         linkedSet.has(student.id) ||
         linkedSet.has(studentDoc._id.toString()) ||
         linkedSet.has(student.admission_no);
@@ -3378,9 +3385,15 @@ router.get('/students/:id', authenticateToken, async (req: AuthenticatedRequest,
     if (req.user?.role === 'teacher') {
       const teacher = await getAuthenticatedTeacherMongo(req);
       const assignedClasses = teacher?.classes || [];
-      if (!isClassAssignedToTeacher(assignedClasses, student.class_name)) {
+      const teacherIds = teacher
+        ? Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))))
+        : [];
+      const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
+      if (!isTeacherAssignedToClassSection(
+        assignedClasses, assignmentScopes, student.class_name, student.section || 'A'
+      )) {
         return res.status(403).json({
-          error: 'Access denied: You may only view records for students in your assigned classes.',
+          error: 'Access denied: You may only view records for students in your assigned class section.',
         });
       }
     }
@@ -6431,7 +6444,7 @@ router.post('/attendance/batch', authenticateToken, requireRole(['super_admin', 
   }
 });
 
-router.get('/attendance/student/:studentId', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/attendance/student/:studentId', authenticateToken, requireRole(['super_admin', 'admin', 'teacher', 'parent', 'student']), async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   try {
     const targetId = String(req.params.studentId || '').trim();
@@ -6476,11 +6489,15 @@ router.get('/attendance/student/:studentId', authenticateToken, async (req: Auth
     if (req.user?.role === 'teacher') {
       const teacher = await getAuthenticatedTeacherMongo(req);
       const assignedClasses = teacher?.classes || [];
-      const isClassAssigned = Boolean(
-        targetStudent && isClassAssignedToTeacher(assignedClasses, targetStudent.class_name)
-      );
-      if (!isClassAssigned) {
-        return res.status(403).json({ error: 'Access denied: You may only view attendance for students in your assigned classes.' });
+      const teacherIds = teacher
+        ? Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))))
+        : [];
+      const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
+      const isAssigned = Boolean(targetStudent && isTeacherAssignedToClassSection(
+        assignedClasses, assignmentScopes, targetStudent.class_name, targetStudent.section || 'A'
+      ));
+      if (!isAssigned) {
+        return res.status(403).json({ error: 'Access denied: You may only view attendance for students in your assigned class section.' });
       }
     }
 
