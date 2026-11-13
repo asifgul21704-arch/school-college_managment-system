@@ -320,6 +320,14 @@ test('real MongoDB: stale parent session loses unlinked-child access and payment
 
   const duplicateApproval = await request(`/admin/payments/${submitted.body.payment.id}/approve`, adminToken, { method: 'POST', body: {} });
   assert.equal(duplicateApproval.status, 409);
+  assert.equal(await NotificationModel.countDocuments({
+    user_id: parent.record_id,
+    title: 'Fee Payment Approved & Receipt Issued',
+  }), 1);
+  assert.equal(await NotificationModel.countDocuments({
+    user_id: parent.record_id,
+    title: 'Payment Submission Received',
+  }), 2);
   feeB = await FeeModel.findOne({ voucher_id: 'VCH-INTEGRATION-B' }).lean();
   assert.equal(feeB?.paid_amount, 1000);
   assert.equal(feeB?.payment_history.length, 1);
@@ -349,6 +357,10 @@ test('real MongoDB: stale parent session loses unlinked-child access and payment
     body: { reason: 'Duplicate rejection must be blocked' },
   });
   assert.equal(duplicateRejection.status, 409);
+  assert.equal(await NotificationModel.countDocuments({
+    user_id: parent.record_id,
+    title: 'Fee Payment Rejected',
+  }), 1);
   feeB = await FeeModel.findOne({ voucher_id: 'VCH-INTEGRATION-B' }).lean();
   assert.equal(feeB?.paid_amount, 1000);
   assert.equal(feeB?.pending_amount, 2000);
