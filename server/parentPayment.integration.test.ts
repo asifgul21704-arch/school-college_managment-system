@@ -39,7 +39,7 @@ async function request(path: string, token: string, init: { method?: string; bod
   const text = await response.text();
   let body: any = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = text; }
-  return { status: response.status, body };
+  return { status: response.status, body, cacheControl: response.headers.get('cache-control') || '' };
 }
 
 before(async () => {
@@ -221,6 +221,7 @@ test('real MongoDB: stale parent session loses unlinked-child access and payment
 
   const initialHistory = await request('/parent/payments/history', parentToken);
   assert.equal(initialHistory.status, 200);
+  assert.match(initialHistory.cacheControl, /no-store/i);
   assert.deepEqual(
     new Set(initialHistory.body.map((payment: any) => payment.student_id)),
     new Set(['STU-INTEGRATION-A', 'STU-INTEGRATION-B'])
