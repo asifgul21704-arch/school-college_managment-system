@@ -209,9 +209,11 @@ financeRouter.post('/payroll/:id/payment', async (req: AuthenticatedRequest, res
     const roundedAmount = Number.isFinite(amount) ? Number(amount.toFixed(2)) : Number.NaN;
     const paymentDate = cleanText(req.body?.payment_date, 10);
     const method = cleanText(req.body?.payment_method, 30);
+    const idempotencyKey = cleanText(req.body?.idempotency_key, 100);
     const methods = ['Cash', 'Bank Transfer', 'Cheque', 'JazzCash', 'Easypaisa', 'Other'];
-    if (!Number.isFinite(roundedAmount) || roundedAmount < 0.01 || !isValidIsoDate(paymentDate) || !methods.includes(method)) {
-      return res.status(400).json({ error: 'Provide a payment amount of at least PKR 0.01, valid date and payment method.' });
+    if (!Number.isFinite(roundedAmount) || roundedAmount < 0.01 || !isValidIsoDate(paymentDate) || !methods.includes(method) ||
+      !/^[a-zA-Z0-9-]{8,100}$/.test(idempotencyKey)) {
+      return res.status(400).json({ error: 'Provide a payment amount of at least PKR 0.01, valid date, payment method and unique payment request key.' });
     }
     const existing = await PayrollModel.findOne({ record_id: req.params.id });
     if (!existing) return res.status(404).json({ error: 'Payroll record not found.' });
@@ -221,15 +223,25 @@ financeRouter.post('/payroll/:id/payment', async (req: AuthenticatedRequest, res
     const nextPaid = Number((previousPaid + roundedAmount).toFixed(2));
     const now = new Date().toISOString();
     const updated = await PayrollModel.findOneAndUpdate(
-      { record_id: req.params.id, paid_amount: previousPaid, net_salary: existing.net_salary },
+      {
+        record_id: req.params.id,
+        paid_amount: previousPaid,
+        net_salary: existing.net_salary,
+        payment_history: { $not: { $elemMatch: { idempotency_key: idempotencyKey } } },
+      },
       {
         $inc: { paid_amount: roundedAmount },
-        $push: { payment_history: { amount: roundedAmount, payment_date: paymentDate, payment_method: method, recorded_by: req.user?.id || 'unknown', recorded_at: now } },
+        $push: { payment_history: { amount: roundedAmount, payment_date: paymentDate, payment_method: method, recorded_by: req.user?.id || 'unknown', recorded_at: now, idempotency_key: idempotencyKey } },
         $set: { payment_date: paymentDate, payment_method: method, status: getPayrollStatus(Number(existing.net_salary), nextPaid), updated_at: now },
       },
       { new: true, runValidators: true }
     );
-    if (!updated) return res.status(409).json({ error: 'This salary record changed during payment. Refresh the payroll and retry to prevent duplicate or excess payment.' });
+    if (!updated) {
+      const latest = await PayrollModel.findOne({ record_id: req.params.id }).select('payment_history').lean();
+      const alreadyRecorded = latest?.payment_history?.some((payment: any) => payment.idempotency_key === idempotencyKey);
+      if (alreadyRecorded) return res.status(409).json({ error: 'This payment request was already recorded. Refresh payroll; do not submit it again.' });
+      return res.status(409).json({ error: 'This salary record changed during payment. Refresh the payroll and retry with a new payment request.' });
+    }
     await audit(req, 'PAYROLL_PAYMENT_RECORDED', 'Payroll', updated.record_id, `Recorded PKR ${roundedAmount} for ${updated.staff_name}; total paid PKR ${updated.paid_amount}.`);
     return res.json({ ...updated.toObject(), id: updated.record_id });
   } catch {
