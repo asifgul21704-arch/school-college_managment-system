@@ -76,6 +76,7 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
   const [enrollments, setEnrollments] = useState<any[]>([]);
   const [expenseDraft, setExpenseDraft] = useState({ title: '', category: 'Utilities', amount: '', expense_date: new Date().toISOString().slice(0, 10), payment_method: 'Cash' });
   const [payrollDraft, setPayrollDraft] = useState({ staff_id: '', staff_name: '', designation: 'Teacher', salary_month: new Date().getMonth() + 1, salary_year: new Date().getFullYear(), basic_salary: '', allowances: '0', deductions: '0' });
+  const [pendingPayrollPayments, setPendingPayrollPayments] = useState<Record<string, { amount: number; payment_date: string; payment_method: string; idempotency_key: string }>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -256,25 +257,46 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
     catch (err: any) { setError(err?.message || 'Unable to delete expense.'); }
   };
   const paySalary = async (row: PayrollRecord) => {
-    const remaining = Number(row.net_salary || 0) - Number(row.paid_amount || 0);
-    const raw = window.prompt(`Remaining salary: PKR ${remaining.toLocaleString()}. Enter payment amount:`);
-    if (raw === null) return;
-    const amount = Number(raw);
-    if (!Number.isFinite(amount) || amount <= 0 || amount > remaining) { setError('Enter a valid payment amount within the remaining balance.'); return; }
-    const method = window.prompt('Payment method: Cash, Bank Transfer, Cheque, JazzCash, Easypaisa, Other', 'Cash');
-    if (method === null) return;
-    const allowed = ['Cash','Bank Transfer','Cheque','JazzCash','Easypaisa','Other'];
-    if (!allowed.includes(method)) { setError('Choose a supported payment method.'); return; }
-    try {
-      await api.recordFinanceSalaryPayment(row.id, {
+    const pendingRequest = pendingPayrollPayments[row.id];
+    let paymentRequest = pendingRequest;
+    if (!paymentRequest) {
+      const remaining = Number(row.net_salary || 0) - Number(row.paid_amount || 0);
+      const raw = window.prompt(`Remaining salary: PKR ${remaining.toLocaleString()}. Enter payment amount:`);
+      if (raw === null) return;
+      const amount = Number(raw);
+      if (!Number.isFinite(amount) || amount <= 0 || amount > remaining) { setError('Enter a valid payment amount within the remaining balance.'); return; }
+      const method = window.prompt('Payment method: Cash, Bank Transfer, Cheque, JazzCash, Easypaisa, Other', 'Cash');
+      if (method === null) return;
+      const allowed = ['Cash','Bank Transfer','Cheque','JazzCash','Easypaisa','Other'];
+      if (!allowed.includes(method)) { setError('Choose a supported payment method.'); return; }
+      paymentRequest = {
         amount,
         payment_date: new Date().toISOString().slice(0, 10),
         payment_method: method,
         idempotency_key: crypto.randomUUID(),
+      };
+      setPendingPayrollPayments(current => ({ ...current, [row.id]: paymentRequest! }));
+    }
+    try {
+      await api.recordFinanceSalaryPayment(row.id, paymentRequest);
+      setPendingPayrollPayments(current => {
+        const next = { ...current };
+        delete next[row.id];
+        return next;
       });
       await load(true);
+    } catch (err: any) {
+      const message = err?.message || 'Unable to record salary payment.';
+      if (String(message).toLowerCase().includes('already recorded')) {
+        setPendingPayrollPayments(current => {
+          const next = { ...current };
+          delete next[row.id];
+          return next;
+        });
+        await load(true);
+      }
+      setError(message);
     }
-    catch (err: any) { setError(err?.message || 'Unable to record salary payment.'); }
   };
 
   const printSalarySlip = (row: PayrollRecord) => {
