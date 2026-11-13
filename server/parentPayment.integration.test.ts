@@ -1096,4 +1096,71 @@ test('real MongoDB: teacher dashboards and attendance are scoped to exact assign
     body: { student_id: 'TEACHER-SCOPE-STUDENT-A', fee_month: 'December', year: 2026, tuition_fee: 1000 },
   });
   assert.equal(deniedFeeCreation.status, 403);
+
+  const deniedAdminAi = await request('/admin/ai/query', teacherToken, {
+    method: 'POST',
+    body: { prompt: 'Show all school fee records' },
+  });
+  assert.equal(deniedAdminAi.status, 403);
+  const deniedAssignmentManagement = await request('/admin/teacher-assignments', teacherToken);
+  assert.equal(deniedAssignmentManagement.status, 403);
+  const deniedTeacherCreation = await request('/teachers', teacherToken, {
+    method: 'POST',
+    body: { name: 'Unauthorized Teacher', qualification: 'MSc', subject: 'Physics' },
+  });
+  assert.equal(deniedTeacherCreation.status, 403);
+
+  const admin = await UserModel.findOne({ email: 'admin.integration@example.test' }).lean();
+  assert.ok(admin);
+  const adminToken = authToken({
+    id: admin.record_id!,
+    email: admin.email,
+    role: 'super_admin',
+    name: admin.name,
+  });
+
+  const createdStudent = await request('/students', adminToken, {
+    method: 'POST',
+    body: {
+      admission_no: 'ADMIN-WORKFLOW-ADM-1',
+      roll_no: 'ADMIN-WORKFLOW-01',
+      full_name: 'Admin Workflow Student',
+      father_name: 'Admin Workflow Guardian',
+      gender: 'Female',
+      class_name: 'Admin Workflow Class',
+      section: 'A',
+      academic_status: 'Active',
+    },
+  });
+  assert.equal(createdStudent.status, 201, JSON.stringify(createdStudent.body));
+  assert.equal(createdStudent.body.admission_no, 'ADMIN-WORKFLOW-ADM-1');
+  assert.ok(await StudentModel.findOne({ admission_no: 'ADMIN-WORKFLOW-ADM-1' }));
+
+  const createdTeacher = await request('/teachers', adminToken, {
+    method: 'POST',
+    body: {
+      name: 'Admin Workflow Teacher',
+      qualification: 'MSc Mathematics',
+      subject: 'Mathematics',
+      classes: ['Admin Workflow Class'],
+      contact_no: '03000000001',
+    },
+  });
+  assert.equal(createdTeacher.status, 201, JSON.stringify(createdTeacher.body));
+  assert.equal(createdTeacher.body.teacher.name, 'Admin Workflow Teacher');
+  assert.ok(await TeacherModel.findOne({ record_id: createdTeacher.body.teacher.id }));
+
+  const issuedVoucher = await request('/fees', adminToken, {
+    method: 'POST',
+    body: {
+      student_id: createdStudent.body.id,
+      fee_month: 'December',
+      year: 2026,
+      tuition_fee: 2500,
+      due_date: '2026-12-31',
+    },
+  });
+  assert.equal(issuedVoucher.status, 201, JSON.stringify(issuedVoucher.body));
+  assert.equal(issuedVoucher.body.total_amount, 2500);
+  assert.equal(issuedVoucher.body.pending_amount, 2500);
 });
