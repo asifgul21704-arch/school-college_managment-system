@@ -677,3 +677,77 @@ test('real MongoDB: concurrent public parent signup cannot overwrite a child cla
   const parentRecords = await ParentModel.countDocuments({ user_id: createdUsers[0].record_id });
   assert.equal(parentRecords, 1);
 });
+
+
+test('real MongoDB: concurrent duplicate deposit slip submissions return one success and one conflict', async () => {
+  const parent = await UserModel.create({
+    record_id: 'DUP-SLIP-PARENT',
+    email: 'duplicate.slip.parent@example.test',
+    password_hash: 'integration-only-hash',
+    name: 'Duplicate Slip Parent',
+    role: 'parent',
+    status: 'active',
+    linked_id: 'DUP-SLIP-STUDENT',
+    linked_student_ids: ['DUP-SLIP-STUDENT'],
+  });
+  await StudentModel.create({
+    record_id: 'DUP-SLIP-STUDENT',
+    admission_no: 'DUP-SLIP-ADM',
+    roll_no: 'DUP-01',
+    full_name: 'Duplicate Slip Student',
+    father_name: parent.name,
+    gender: 'Male',
+    class_name: 'Class 2',
+    section: 'A',
+    parent_user_id: parent.record_id,
+    academic_status: 'Active',
+  });
+  await FeeModel.create({
+    voucher_id: 'DUP-SLIP-VOUCHER',
+    student_id: 'DUP-SLIP-STUDENT',
+    student_name: 'Duplicate Slip Student',
+    class_name: 'Class 2',
+    fee_month: 'December',
+    year: 2026,
+    total_amount: 5000,
+    paid_amount: 0,
+    pending_amount: 5000,
+    due_date: '2026-12-31',
+    status: 'Unpaid',
+    payment_history: [],
+  });
+
+  const token = authToken({
+    id: parent.record_id!,
+    email: parent.email,
+    role: 'parent',
+    name: parent.name,
+    linked_student_ids: ['DUP-SLIP-STUDENT'],
+  });
+  const submit = () => request('/parent/payments/initiate', token, {
+    method: 'POST',
+    body: {
+      fee_id: 'DUP-SLIP-VOUCHER',
+      student_id: 'DUP-SLIP-STUDENT',
+      amount: 5000,
+      method: 'Bank Deposit',
+      bank_name: 'Integration Test Bank',
+      deposit_date: '2026-11-13',
+      deposit_slip_ref: 'DUPLICATE-SLIP-CONCURRENT-1',
+    },
+  });
+
+  const attempts = await Promise.all([submit(), submit()]);
+  assert.deepEqual(attempts.map(result => result.status).sort((a, b) => a - b), [201, 409]);
+  const ledgerEntries = await FeePaymentModel.find({
+    transaction_id: 'DUPLICATE-SLIP-CONCURRENT-1',
+  }).lean();
+  assert.equal(ledgerEntries.length, 1);
+  assert.equal(ledgerEntries[0].status, 'Pending Verification');
+  assert.equal(ledgerEntries[0].verification_status, 'Pending');
+
+  const fee = await FeeModel.findOne({ voucher_id: 'DUP-SLIP-VOUCHER' }).lean();
+  assert.equal(fee?.paid_amount, 0);
+  assert.equal(fee?.pending_amount, 5000);
+  assert.equal(fee?.payment_history.length, 0);
+});
