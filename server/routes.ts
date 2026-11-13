@@ -127,7 +127,10 @@ import {
   SmtpDeliveryError,
 } from './services/passwordResetEmailService.ts';
 
+import { financeRouter } from './financeRoutes.ts';
+
 export const router = express.Router();
+router.use('/finance', financeRouter);
 
 // Concurrency lock for in-flight fee payment operations per voucher ID (single-process fast guard, paired with DB atomic filter)
 const activePaymentLocks = new Set<string>();
