@@ -289,7 +289,7 @@ test('teacher AI query scopes student, attendance, and result data to assigned s
   assert.match(route, /TimetableModel\.find\(\{[\s\S]*teacher_name:[\s\S]*escapeRegexLiteral\(teacher\.name\)/);
   assert.doesNotMatch(route, /TimetableModel\.find\(\)/);
   assert.doesNotMatch(route, /StudentModel\.find\(\)\.lean\(\)/);
-  assert.match(route, /const promptTokens = lower\.match\(\/\[a-z0-9\]\+\/g\)/);
+  assert.match(route, /const promptTokens: string\[\] = lower\.match\(\/\[a-z0-9\]\+\/g\)/);
   assert.match(route, /const containsStudentName = \(student: StudentDto\)/);
   assert.doesNotMatch(route, /lower\.includes\(s\.full_name\.toLowerCase\(\)\)/);
 });
