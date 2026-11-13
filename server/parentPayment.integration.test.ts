@@ -237,6 +237,30 @@ test('real MongoDB: stale parent session loses unlinked-child access and payment
   assert.equal(summary.status, 200);
   assert.equal(summary.body.total_outstanding, 3000);
 
+  // Administrator counter collection writes both the embedded fee history and the standalone ledger.
+  const counterPayment = await request('/fees/VCH-INTEGRATION-A/pay', adminToken, {
+    method: 'PUT',
+    body: { amount: 500, method: 'Cash', transaction_id: 'COUNTER-INTEGRATION-A' },
+  });
+  assert.equal(counterPayment.status, 200, JSON.stringify(counterPayment.body));
+  assert.ok(counterPayment.body.receipt_no);
+  const counterLedger = await FeePaymentModel.findOne({ transaction_id: 'COUNTER-INTEGRATION-A' }).lean();
+  assert.ok(counterLedger);
+  assert.equal(counterLedger?.payment_reference, counterPayment.body.receipt_no);
+  let feeA = await FeeModel.findOne({ voucher_id: 'VCH-INTEGRATION-A' }).lean();
+  assert.equal(feeA?.paid_amount, 500);
+  assert.equal(feeA?.pending_amount, 3500);
+  assert.equal(feeA?.payment_history.length, 1);
+
+  const duplicateCounterPayment = await request('/fees/VCH-INTEGRATION-A/pay', adminToken, {
+    method: 'PUT',
+    body: { amount: 500, method: 'Cash', transaction_id: 'COUNTER-INTEGRATION-A' },
+  });
+  assert.equal(duplicateCounterPayment.status, 409);
+  feeA = await FeeModel.findOne({ voucher_id: 'VCH-INTEGRATION-A' }).lean();
+  assert.equal(feeA?.paid_amount, 500);
+  assert.equal(feeA?.payment_history.length, 1);
+
   const blockedPayment = await request('/parent/payments/initiate', parentToken, {
     method: 'POST',
     body: {
