@@ -2182,7 +2182,7 @@ router.post('/parents/link-student', sensitiveActionRateLimiter, authenticateTok
     const linkedStudents = await fetchLinkedStudentsForParentUser(canonicalUserId, userDoc.email);
     return res.json({
       message: `Successfully linked ${studentDoc.full_name} (${studentDoc.admission_no}) to parent account`,
-      student: toStudentDto(studentDoc),
+      student: toStudentDto(claimedStudent),
       linked_students: linkedStudents,
     });
   } catch (err: any) {
@@ -2332,7 +2332,7 @@ router.post('/parents/confirm-link-child', sensitiveActionRateLimiter, authentic
     return res.json({
       success: true,
       message: `Successfully linked ${studentDoc.full_name} to your parent account!`,
-      student: toStudentDto(studentDoc),
+      student: toStudentDto(claimedStudent),
       linked_students: allLinked,
     });
   } catch (err: any) {
@@ -7180,7 +7180,7 @@ router.post('/parent/payments/initiate', authenticateToken, sensitiveActionRateL
       return res.status(503).json({
         error: 'Online payments are unavailable until a verified payment gateway integration is configured. Use bank deposit for manual verification.',
       });
-    } } else {
+    } else {
       // Manual Bank Deposit / Wire Transfer (Requires Admin Verification)
       const cleanSlipRef = String(deposit_slip_ref || notes || '').trim();
 
