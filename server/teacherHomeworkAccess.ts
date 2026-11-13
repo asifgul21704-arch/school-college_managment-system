@@ -1,8 +1,45 @@
 import { TeacherAssignmentModel } from './models/TeacherAssignment.ts';
 import { isClassAssignedToTeacher, normalizeClassAccessLabel } from './classAccess.ts';
 
+export interface TeacherAssignmentScope {
+  class_name: string;
+  section: string;
+  subject: string;
+}
+
 function normalizeSubjectLabel(value: unknown): string {
   return String(value ?? '').trim().toLowerCase().split(' ').filter(Boolean).join(' ');
+}
+
+export async function getTeacherAssignmentScopes(teacherIds: string[]): Promise<TeacherAssignmentScope[]> {
+  if (teacherIds.length === 0) return [];
+  const assignments = await TeacherAssignmentModel.find({
+    teacher_id: { $in: teacherIds },
+  }).select('class_name section subject').lean();
+  return assignments.map((assignment: any) => ({
+    class_name: String(assignment.class_name || ''),
+    section: String(assignment.section || ''),
+    subject: String(assignment.subject || ''),
+  }));
+}
+
+export function isTeacherAssignedToClassSection(
+  teacherClasses: string[],
+  assignments: TeacherAssignmentScope[],
+  className: string,
+  section: string
+): boolean {
+  if (!isClassAssignedToTeacher(teacherClasses || [], className)) return false;
+  const classAssignments = assignments.filter(assignment =>
+    isClassAssignedToTeacher([assignment.class_name], className)
+  );
+  // Older teacher profiles may have class-level assignments without section rows.
+  if (classAssignments.length === 0) return true;
+  const targetSection = normalizeClassAccessLabel(section);
+  if (!targetSection) return false;
+  return classAssignments.some(
+    assignment => normalizeClassAccessLabel(assignment.section) === targetSection
+  );
 }
 
 export function isTeacherSubjectAssigned(
@@ -26,19 +63,17 @@ export async function canAssignTeacherHomework(
   section: string,
   subject: string
 ): Promise<boolean> {
-  if (!isClassAssignedToTeacher(teacher.classes || [], className)) return false;
-
-  const assignments = await TeacherAssignmentModel.find({
-    teacher_id: { $in: teacherIds },
-  }).select('class_name section subject').lean();
-  const matchingAssignments = assignments.filter((assignment: any) =>
-    isClassAssignedToTeacher([String(assignment.class_name || '')], className) &&
+  const assignments = await getTeacherAssignmentScopes(teacherIds);
+  if (!isTeacherAssignedToClassSection(teacher.classes || [], assignments, className, section)) {
+    return false;
+  }
+  const matchingAssignments = assignments.filter(assignment =>
+    isClassAssignedToTeacher([assignment.class_name], className) &&
     normalizeClassAccessLabel(assignment.section) === normalizeClassAccessLabel(section)
   );
-
   return isTeacherSubjectAssigned(
     teacher.subject,
-    matchingAssignments.map((assignment: any) => assignment.subject),
+    matchingAssignments.map(assignment => assignment.subject),
     subject
   );
 }
