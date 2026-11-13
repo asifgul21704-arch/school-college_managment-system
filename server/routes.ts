@@ -11656,6 +11656,7 @@ router.post('/teacher/results', authenticateToken, requireExactRole(['teacher'])
     }
 
     const cleanSubjectName = sanitizePlainText(subject_name, 120);
+    const reqSubjLower = cleanSubjectName.toLowerCase();
     const matchingAssignments = assignmentScopes.filter(assignment =>
       isTeacherAssignedToClassSection(
         [assignment.class_name], [assignment], studentDoc.class_name, studentDoc.section || 'A'
