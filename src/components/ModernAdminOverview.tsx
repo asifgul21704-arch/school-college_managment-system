@@ -13,6 +13,7 @@ type OverviewProps = {
   events: any[];
   onNavigate: (section: string) => void;
   onAskAI: (prompt: string) => void;
+  isTeacher?: boolean;
 };
 
 const money = (value: number) => new Intl.NumberFormat('en-PK', {
@@ -26,7 +27,7 @@ const dateLabel = (value: unknown) => {
 };
 
 export const ModernAdminOverview: React.FC<OverviewProps> = ({
-  stats, students, teachers, classes, events, onNavigate, onAskAI,
+  stats, students, teachers, classes, events, onNavigate, onAskAI, isTeacher = false,
 }) => {
   const totalStudents = Number(stats?.totalStudents) || students.length;
   const totalTeachers = Number(stats?.totalTeachers) || teachers.length;
@@ -48,13 +49,13 @@ export const ModernAdminOverview: React.FC<OverviewProps> = ({
     { label: 'Total teachers', value: totalTeachers.toLocaleString(), note: 'Faculty & academic staff', icon: GraduationCap, tone: 'mint' },
     { label: 'Pending admissions', value: (Number(stats?.pendingAdmissions) || 0).toLocaleString(), note: `${Number(stats?.approvedAdmissions) || 0} approved`, icon: UserPlus, tone: 'violet' },
     { label: 'Fees collected', value: money(collected), note: `${collectionRate}% of recorded fees`, icon: Wallet, tone: 'amber' },
-  ];
+  ].filter(metric => !isTeacher || !['Pending admissions', 'Fees collected'].includes(metric.label));
   const shortcuts = [
     { label: 'Add student', icon: UserPlus, section: 'students', tone: 'blue' },
     { label: 'Add teacher', icon: GraduationCap, section: 'teachers', tone: 'mint' },
     { label: 'Record result', icon: FileText, section: 'exams', tone: 'violet' },
     { label: 'Send notice', icon: Bell, section: 'announcements', tone: 'amber' },
-  ];
+  ].filter(action => !isTeacher || ['Record result', 'Send notice'].includes(action.label));
 
   return (
     <div className="ssc-overview space-y-5 sm:space-y-6">
@@ -84,7 +85,7 @@ export const ModernAdminOverview: React.FC<OverviewProps> = ({
         ))}
       </section>
 
-      <section className="grid grid-cols-1 2xl:grid-cols-[1.2fr_.8fr] gap-4">
+      <section className={isTeacher ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 2xl:grid-cols-[1.2fr_.8fr] gap-4"}>
         <article className="ssc-panel p-4 sm:p-5">
           <div className="flex items-center justify-between gap-3">
             <div><h2 className="ssc-panel-title">School performance</h2><p className="ssc-panel-subtitle">Enrollment by class · live student records</p></div>
@@ -107,7 +108,7 @@ export const ModernAdminOverview: React.FC<OverviewProps> = ({
           </div>
         </article>
 
-        <article className="ssc-panel p-4 sm:p-5">
+        {!isTeacher && <article className="ssc-panel p-4 sm:p-5">
           <div className="flex items-center justify-between"><div><h2 className="ssc-panel-title">Fee collection</h2><p className="ssc-panel-subtitle">Recorded collection and outstanding balance</p></div><Wallet className="text-blue-500" size={20}/></div>
           <div className="mt-5"><p className="text-xs text-slate-500">Total collected</p><p className="mt-1 text-2xl font-extrabold text-slate-900">{money(collected)}</p></div>
           <div className="mt-4 h-3 rounded-full bg-slate-100 overflow-hidden"><div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400" style={{width:`${collectionRate}%`}}/></div>
@@ -117,7 +118,7 @@ export const ModernAdminOverview: React.FC<OverviewProps> = ({
             <div className="rounded-xl bg-rose-50 p-3"><p className="text-[11px] text-rose-700">Outstanding</p><p className="mt-1 font-bold text-rose-900 text-sm">{money(outstanding)}</p></div>
           </div>
           <button onClick={() => onNavigate('fees')} className="mt-4 text-xs font-bold text-blue-700 flex items-center gap-1">Open fee records <ChevronRight size={14}/></button>
-        </article>
+        </article>}
       </section>
 
       <section className="grid grid-cols-1 xl:grid-cols-[.85fr_1.15fr] gap-4">
@@ -126,19 +127,19 @@ export const ModernAdminOverview: React.FC<OverviewProps> = ({
           <div className="mt-4 grid grid-cols-2 gap-3">
             {shortcuts.map(({label,icon:Icon,section,tone}) => <button key={label} onClick={() => onNavigate(section)} className="ssc-action-tile"><span className={`ssc-icon-tile ${tone}`}><Icon size={18}/></span><span className="text-xs font-bold text-slate-700">{label}</span><ChevronRight size={14} className="ml-auto text-slate-300"/></button>)}
           </div>
-          <div className="mt-4 rounded-2xl bg-gradient-to-r from-violet-50 to-blue-50 border border-violet-100 p-4">
+          {!isTeacher && <div className="mt-4 rounded-2xl bg-gradient-to-r from-violet-50 to-blue-50 border border-violet-100 p-4">
             <div className="flex items-center gap-2 text-violet-700"><Sparkles size={17}/><span className="text-sm font-bold">School AI assistant</span></div>
             <p className="mt-1 text-xs text-slate-600">Ask about attendance, fee dues, admissions or academic performance.</p>
             <button onClick={() => onAskAI('Give me a current school operations summary using live records.')} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-xs font-bold text-violet-700 shadow-sm">Ask a question <Send size={13}/></button>
-          </div>
+          </div>}
         </article>
 
         <article className="ssc-panel p-4 sm:p-5">
-          <div className="flex items-center justify-between gap-3"><div><h2 className="ssc-panel-title">School activity</h2><p className="ssc-panel-subtitle">Upcoming events and faculty overview</p></div><button onClick={() => onNavigate('events')} className="text-xs font-bold text-blue-700">View events <ArrowUpRight size={13} className="inline"/></button></div>
+          <div className="flex items-center justify-between gap-3"><div><h2 className="ssc-panel-title">School activity</h2><p className="ssc-panel-subtitle">Upcoming events and faculty overview</p></div>{!isTeacher && <button onClick={() => onNavigate('events')} className="text-xs font-bold text-blue-700">View events <ArrowUpRight size={13} className="inline"/></button>}</div>
           <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div><h3 className="mb-3 text-xs font-bold text-slate-700 flex items-center gap-2"><CalendarDays size={15} className="text-blue-500"/> Upcoming events</h3>
+            {!isTeacher && <div><h3 className="mb-3 text-xs font-bold text-slate-700 flex items-center gap-2"><CalendarDays size={15} className="text-blue-500"/> Upcoming events</h3>
               {upcomingEvents.length ? <div className="space-y-2">{upcomingEvents.map((event:any,index:number)=><div key={event.id || event._id || index} className="flex items-start gap-3 rounded-xl bg-slate-50 p-3"><span className="rounded-lg bg-white p-2 text-blue-600"><CalendarCheck size={16}/></span><div className="min-w-0"><p className="text-xs font-bold text-slate-800 truncate">{event.title || event.name || 'School event'}</p><p className="mt-1 text-[11px] text-slate-500">{dateLabel(event.date || event.event_date)}</p></div></div>)}</div> : <p className="rounded-xl bg-slate-50 p-4 text-xs text-slate-500">No upcoming events are currently listed.</p>}
-            </div>
+            </div>}
             <div><h3 className="mb-3 text-xs font-bold text-slate-700 flex items-center gap-2"><GraduationCap size={15} className="text-emerald-500"/> Faculty members</h3>
               {teacherRows.length ? <div className="space-y-2">{teacherRows.map((teacher:any,index:number)=><div key={teacher.id || teacher._id || index} className="flex items-center gap-3 rounded-xl bg-slate-50 p-3"><span className="grid h-8 w-8 place-items-center rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">{String(teacher.name || teacher.full_name || 'T').slice(0,1).toUpperCase()}</span><div className="min-w-0"><p className="text-xs font-bold text-slate-800 truncate">{teacher.name || teacher.full_name || 'Faculty member'}</p><p className="text-[11px] text-slate-500 truncate">{teacher.subject || teacher.designation || 'Teacher'}</p></div><span className="ml-auto h-2 w-2 rounded-full bg-emerald-400"/></div>)}</div> : <p className="rounded-xl bg-slate-50 p-4 text-xs text-slate-500">Faculty records will appear here.</p>}
             </div>
