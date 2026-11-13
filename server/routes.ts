@@ -30,7 +30,7 @@ import {
 } from './auth.ts';
 import { buildStudentParentClaimFilter } from './parentAccess.ts';
 import { isClassAssignedToTeacher } from './classAccess.ts';
-import { canAssignTeacherHomework } from './teacherHomeworkAccess.ts';
+import { canAssignTeacherHomework, getTeacherAssignmentScopes, isTeacherAssignedToClassSection, isTeacherSubjectAssigned } from './teacherHomeworkAccess.ts';
 import {
   detectInquiryIntent,
   verifyInquiryParent,
@@ -11252,6 +11252,8 @@ router.get('/teacher/students', authenticateToken, requireExactRole(['teacher'])
 
     const { class_name, section, search } = req.query;
     const assignedClasses = teacher.classes || [];
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+    const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
 
     if (class_name) {
       const isAssigned = isClassAssignedToTeacher(assignedClasses, String(class_name));
@@ -11262,7 +11264,9 @@ router.get('/teacher/students', authenticateToken, requireExactRole(['teacher'])
 
     const allStudentDocs = await StudentModel.find().sort({ created_at: 1, _id: 1 }).lean();
     let matchedDocs = allStudentDocs.filter(doc =>
-      isClassAssignedToTeacher(assignedClasses, String(doc.class_name || ''))
+      isTeacherAssignedToClassSection(
+        assignedClasses, assignmentScopes, String(doc.class_name || ''), String(doc.section || '')
+      )
     );
 
     if (class_name) {
@@ -11343,6 +11347,8 @@ router.get('/teacher/attendance', authenticateToken, requireExactRole(['teacher'
 
     const { class_name, section, date, filter, start_date, end_date } = req.query;
     const assignedClasses = teacher.classes || [];
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+    const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
 
     if (class_name) {
       const isAssigned = isClassAssignedToTeacher(assignedClasses, String(class_name));
@@ -11354,7 +11360,7 @@ router.get('/teacher/attendance', authenticateToken, requireExactRole(['teacher'
     const allAttDocs = await AttendanceModel.find().sort({ date: -1, created_at: -1, _id: -1 }).lean();
     let records = allAttDocs
       .map(toAttendanceDto)
-      .filter(a => isClassAssignedToTeacher(assignedClasses, a.class_name));
+      .filter(a => isTeacherAssignedToClassSection(assignedClasses, assignmentScopes, a.class_name, a.section));
 
     if (class_name) {
       records = records.filter(a => a.class_name.toLowerCase() === String(class_name).toLowerCase());
@@ -11540,6 +11546,8 @@ router.get('/teacher/results', authenticateToken, requireExactRole(['teacher']),
 
     const { exam_id, class_name, subject } = req.query;
     const assignedClasses = teacher.classes || [];
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+    const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
 
     if (class_name) {
       const isAssigned = isClassAssignedToTeacher(assignedClasses, String(class_name));
@@ -11551,7 +11559,7 @@ router.get('/teacher/results', authenticateToken, requireExactRole(['teacher']),
     const allResDocs = await ResultModel.find().sort({ created_at: -1, _id: -1 }).lean();
     let results = allResDocs
       .map(toResultDto)
-      .filter(r => isClassAssignedToTeacher(assignedClasses, r.class_name));
+      .filter(r => isTeacherAssignedToClassSection(assignedClasses, assignmentScopes, r.class_name, r.section));
 
     if (exam_id) results = results.filter(r => r.exam_id === String(exam_id));
     if (class_name) results = results.filter(r => r.class_name.toLowerCase() === String(class_name).toLowerCase());
