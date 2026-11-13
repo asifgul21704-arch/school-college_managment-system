@@ -136,7 +136,7 @@
 .ssc-admin-sidebar { background:#102b57; border-color:#1d467a; box-shadow:8px 0 30px rgba(16,43,87,.08); }
 .ssc-admin-sidebar .border-neutral-800 { border-color:rgba(255,255,255,.10); }
 .ssc-admin-sidebar .bg-neutral-900 { background:rgba(255,255,255,.07); }
-.ssc-admin-sidebar .hover\\:bg-neutral-900:hover { background:rgba(255,255,255,.10); }
+.ssc-admin-sidebar [class~="hover:bg-neutral-900"]:hover { background:rgba(255,255,255,.10); }
 .ssc-admin-sidebar .bg-emerald-900 { background:#1769e8; }
 .ssc-admin-sidebar .text-emerald-400 { color:#8bd8ff; }
 .ssc-admin-sidebar .text-emerald-300 { color:#a7e2ff; }
