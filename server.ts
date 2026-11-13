@@ -145,6 +145,15 @@ async function startServer() {
     next();
   });
 
+  // API responses contain private student, parent, attendance and payment records.
+  // Prevent browser, CDN and shared-proxy caches from retaining data after unlink or permission changes.
+  app.use('/api', (_req, res, next) => {
+    res.setHeader('Cache-Control', 'private, no-store, no-cache, max-age=0, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    next();
+  });
+
   // Mount API Router
   app.use('/api', apiRouter);
 

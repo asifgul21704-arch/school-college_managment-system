@@ -246,7 +246,7 @@ const FeePaymentSchema = new Schema<IFeePayment>(
 );
 
 FeePaymentSchema.index({ student_id: 1, date: -1 });
-FeePaymentSchema.index({ fee_id: 1 });
+
 FeePaymentSchema.index({ transaction_id: 1 }, { unique: true, sparse: true });
 FeePaymentSchema.index({ receipt_no: 1 }, { sparse: true });
 FeePaymentSchema.index({ status: 1, created_at: -1 });

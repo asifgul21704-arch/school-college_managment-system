@@ -12,11 +12,15 @@ import {
   ResultModel,
   ExamModel,
   SchoolSettingsModel,
+  ExpenseModel,
+  PayrollModel,
+  FeePaymentModel,
 } from '../models/index.ts';
 
 import mongoose from 'mongoose';
 import { GoogleGenAI } from '@google/genai';
 import { sanitizeErrorMessage } from '../config/db.ts';
+import { createNotificationBatchId, executeParentNotificationWorkflow } from '../notificationUtils.ts';
 
 export interface AdminAiQueryContext {
   userId: string;
@@ -1914,7 +1918,7 @@ export const ControlledSchoolTools = {
       totalOutstanding: unpaidData.grandTotalDue,
       students: unpaidData.students.slice(0, 5),
       draftUrdu,
-      draftEnglish: `Dear Respected Parent,\nThis is a gentle reminder from Shawan School and College, Paharpur, D.I. Khan that tuition fee dues are currently outstanding. Please deposit the pending voucher at the school accounts office.\nThank you,\nAdministration Shawan School & College`,
+      draftEnglish: `Dear Respected Parent,\nThis is a gentle reminder from School and College Management System that tuition fee dues are currently outstanding. Please deposit the pending voucher at the school accounts office.\nThank you,\nSchool Administration`,
       actionReady: true,
       actionType: 'SEND_FEE_REMINDER_SMS',
     };
@@ -1926,72 +1930,63 @@ export const ControlledSchoolTools = {
   async prepareSmsAction(type: 'ABSENT_ALERT' | 'FEE_REMINDER' | 'CUSTOM', customMessage?: string) {
     if (type === 'ABSENT_ALERT') {
       const absentData = await ControlledSchoolTools.getTodayAbsentStudents();
-      const recipients = absentData.absents
-        .filter(a => a.phone && a.phone !== 'Not available in database.' && a.phone !== 'N/A')
-        .map(a => ({
-          studentName: a.name,
-          className: a.class_name,
-          phone: a.phone,
-        }));
-
-      const messageText = `محترم والدین! آپ کا بچہ آج شوان سکول سے غیر حاضر ہے۔ براہ کرم وجہ کی اطلاع دیں۔ شوان سکول پہاڑ پور۔`;
-
+      const candidates = absentData.absents;
+      const recipients = await Promise.all(candidates.map(async (student: any) => {
+        const parent = await ParentModel.findOne({ linked_students: student.id }).select('user_id').lean();
+        const userId = String(parent?.user_id || '').trim();
+        if (!userId) return null;
+        return { studentId: String(student.id), studentName: student.name, className: student.class_name };
+      }));
+      const safeRecipients = recipients.filter((r): r is NonNullable<typeof r> => Boolean(r));
+      const messageText = `محترم والدین! آپ کا بچہ آج اسکول سے غیر حاضر ہے۔ براہ کرم وجہ کی اطلاع دیں۔ شکریہ۔`;
+      const actionId = createNotificationBatchId('SEND_SMS_ABSENT', absentData.date, safeRecipients.map(r => r.studentId), messageText);
       return {
         requiresConfirmation: true,
         pendingAction: {
           actionType: 'SEND_SMS_ABSENT',
-          title: `Send Absent Alert SMS (${recipients.length} Parents)`,
-          description: `This will prepare dispatch of automated notifications to parents of ${recipients.length} absent students for ${absentData.date}.`,
-          payload: {
-            recipients,
-            date: absentData.date,
-            message: messageText,
-          },
-          recipientCount: recipients.length,
+          title: `Create Absent Alert Notifications (${safeRecipients.length} Linked Parent Accounts)`,
+          description: `After confirmation, this creates in-app notification records only for linked parent accounts (${safeRecipients.length} of ${candidates.length} students). Students without a verified parent account are excluded. No SMS will be sent.`,
+          payload: { actionId, recipients: safeRecipients, date: absentData.date, message: messageText },
+          recipientCount: safeRecipients.length,
           previewText: messageText,
         },
       };
-    } else if (type === 'FEE_REMINDER') {
+    }
+    if (type === 'FEE_REMINDER') {
       const feeData = await ControlledSchoolTools.getStudentsWithUnpaidFees();
-      const recipients = feeData.students
-        .filter(s => s.phone && s.phone !== 'Not available in database.' && s.phone !== 'N/A')
-        .map(s => ({
-          studentName: s.studentName,
-          className: s.className,
-          phone: s.phone,
-          dueAmount: s.totalDue,
-        }));
-
-      const messageText = `محترم والدین! شوان سکول کی واجب الادا فیس جلد جمع کرائیں۔ شکریہ - شوان سکول اینڈ کالج پہاڑ پور۔`;
-
+      const recipients = await Promise.all(feeData.students.map(async (student: any) => {
+        const parent = await ParentModel.findOne({ linked_students: student.id }).select('user_id').lean();
+        const userId = String(parent?.user_id || '').trim();
+        if (!userId) return null;
+        return { studentId: String(student.id), studentName: student.studentName, className: student.className, dueAmount: student.totalDue };
+      }));
+      const safeRecipients = recipients.filter((r): r is NonNullable<typeof r> => Boolean(r));
+      const messageText = `محترم والدین! براہ کرم واجب الادا فیس جلد جمع کرائیں۔ شکریہ۔ اسکول انتظامیہ۔`;
+      const actionDate = new Date().toISOString().slice(0, 10);
+      const actionId = createNotificationBatchId('SEND_SMS_FEES', actionDate, safeRecipients.map(r => r.studentId), messageText);
       return {
         requiresConfirmation: true,
         pendingAction: {
           actionType: 'SEND_SMS_FEES',
-          title: `Send Fee Reminder SMS (${recipients.length} Parents)`,
-          description: `This will dispatch notifications to parents of ${recipients.length} students with outstanding fees totaling PKR ${feeData.grandTotalDue.toLocaleString()}.`,
-          payload: {
-            recipients,
-            grandTotalDue: feeData.grandTotalDue,
-            message: messageText,
-          },
-          recipientCount: recipients.length,
+          title: `Create Fee Reminder Notifications (${safeRecipients.length} Linked Parent Accounts)`,
+          description: `After confirmation, this creates in-app notification records only for linked parent accounts (${safeRecipients.length} of ${feeData.students.length} students) with outstanding fees. Unlinked accounts are excluded. No SMS will be sent.`,
+          payload: { actionId, recipients: safeRecipients, grandTotalDue: feeData.grandTotalDue, date: actionDate, message: messageText },
+          recipientCount: safeRecipients.length,
           previewText: messageText,
         },
       };
-    } else {
-      return {
-        requiresConfirmation: true,
-        pendingAction: {
-          actionType: 'SEND_SMS_CUSTOM',
-          title: 'Send Custom Broadcast Notification',
-          description: 'Dispatch custom administrative notification to recipients.',
-          payload: { message: customMessage || '' },
-          recipientCount: 1,
-          previewText: customMessage || '',
-        },
-      };
     }
+    return {
+      requiresConfirmation: true,
+      pendingAction: {
+        actionType: 'SEND_SMS_CUSTOM',
+        title: 'Custom In-App Notification',
+        description: 'Custom notifications are temporarily unavailable until an explicit recipient account can be selected. No SMS will be sent.',
+        payload: { recipients: [], message: customMessage || '' },
+        recipientCount: 0,
+        previewText: customMessage || '',
+      },
+    };
   },
 
   /**
@@ -2003,39 +1998,61 @@ export const ControlledSchoolTools = {
     confirmed: boolean,
     context: AdminAiQueryContext
   ) {
-    if (!confirmed) {
-      throw new Error(
-        'Action aborted: Explicit admin confirmation is mandatory to execute sensitive actions.'
-      );
-    }
+    // Ensure MongoDB has built the unique replay-protection index before any writes.
+    await NotificationModel.init();
+    // Resolve recipients again on the server at execution time; never trust client-supplied parent user IDs.
+    const batchResult = await executeParentNotificationWorkflow(
+      actionType,
+      payload,
+      confirmed,
+      context.userRole,
+      async studentIds => {
+        const parentDocs = await ParentModel.find({ linked_students: { $in: studentIds } })
+          .select('user_id linked_students')
+          .lean();
+        return parentDocs.map(parent => String(parent.user_id || '').trim()).filter(Boolean);
+      },
+      async (batchId, userId, message) => {
+        try {
+          const result = await NotificationModel.updateOne(
+            { action_id: batchId, user_id: userId },
+            {
+              $setOnInsert: {
+                action_id: batchId,
+                user_id: userId,
+                // Private recipient scope: role-wide parent notifications are visible to every parent account.
+                role: 'private',
+                title: actionType === 'SEND_SMS_ABSENT' ? 'Student Absence Alert' : 'Fee Reminder',
+                message,
+                link: '/student-portal',
+                read: false,
+              },
+            },
+            { upsert: true }
+          );
+          return Number(result.upsertedCount || 0) === 1;
+        } catch (error: any) {
+          // Concurrent retries can race on the unique compound index. A duplicate
+          // key means the other request already created this recipient's record.
+          if (error?.code === 11000) return false;
+          throw error;
+        }
+      }
+    );
+    const { actionId } = batchResult;
 
-    const recipients = payload?.recipients || [];
-    const message = payload?.message || '';
-
-    // Record notification entries in MongoDB
-    for (const r of recipients) {
-      await NotificationModel.create({
-        user_id: r.phone || 'parent',
-        title: `Administrative Alert: ${actionType}`,
-        message: `${message} [To: ${r.studentName || 'Student'}, Phone: ${r.phone}]`,
-        type: 'sms',
-        read: false,
-        created_at: new Date(),
-      });
-    }
-
-    // Persist to AuditLog
     const auditId = await recordAuditLog(
       context,
       `AI_ACTION_EXECUTED_${actionType}`,
-      'SMS_GATEWAY',
-      `Admin confirmed and logged notification alert for ${recipients.length} recipients.`
+      'IN_APP_NOTIFICATION',
+      `Notification batch ${actionId}: created ${batchResult.createdCount}, already existed ${batchResult.existingCount}, for ${batchResult.recipientCount} linked parent accounts. No SMS was sent.`
     );
-
     return {
       success: true,
-      message: `Action recorded and verified! Logged notifications for ${recipients.length} recipient(s). All events recorded in MongoDB AuditLog.`,
-      dispatchedCount: recipients.length,
+      message: `Created ${batchResult.createdCount} new in-app notification record(s); ${batchResult.existingCount} duplicate/replayed record(s) were safely skipped. No SMS was sent.`,
+      dispatchedCount: batchResult.createdCount,
+      alreadyExistedCount: batchResult.existingCount,
+      actionId,
       auditLogId: auditId,
     };
   },
@@ -2070,7 +2087,7 @@ export async function processAdminAiQuery(
   const prompt = (rawPrompt || '').trim();
   if (!prompt) {
     return {
-      text: 'Hello! I am the Shawan School and College Admin AI Assistant. How can I assist you with school records today?',
+      text: 'Hello! I am the School and College Management System Admin AI Assistant. How can I assist you with school records today?',
       aiProviderStatus: getAiProviderStatus(),
     };
   }
@@ -2160,12 +2177,12 @@ export async function processAdminAiQuery(
     const smsPrep = await ControlledSchoolTools.prepareSmsAction(isFee ? 'FEE_REMINDER' : 'ABSENT_ALERT');
     const auditId = await recordAuditLog(
       context,
-      'AI_PREPARE_SMS_ACTION',
-      'SMS_ALERT',
+      'AI_PREPARE_IN_APP_NOTIFICATION',
+      'IN_APP_NOTIFICATION',
       `Admin initiated sensitive notification for ${isFee ? 'fee reminder' : 'absent alert'}. Confirmation required.`
     );
     return {
-      text: `⚠️ **Admin Confirmation Required**\n\nYou have requested to dispatch notifications. In accordance with school safety protocols, this sensitive action requires explicit admin confirmation before processing.\n\nPlease review the details below and confirm to proceed.`,
+      text: `⚠️ **Admin Confirmation Required**\n\nYou have requested to create in-app notification records. Review the recipients and message before confirming. This workflow does not send SMS messages because an SMS gateway integration is not implemented.\n\nPlease review the details below and confirm to proceed.`,
       toolUsed: 'prepareSmsAction',
       requiresConfirmation: true,
       pendingAction: smsPrep.pendingAction,
@@ -2190,7 +2207,7 @@ export async function processAdminAiQuery(
       `Admin generated fee reminder draft for ${draftRes.unpaidStudentCount} unpaid students.`
     );
     return {
-      text: `### 📋 Prepared Fee Reminder Notification Draft\n\n**Recipients on Record:** ${draftRes.unpaidStudentCount} students with unpaid fees\n**Total Outstanding Dues:** PKR ${draftRes.totalOutstanding.toLocaleString()}\n\n---\n#### 📱 Urdu Template (SMS / WhatsApp):\n\`\`\`\n${draftRes.draftUrdu}\n\`\`\`\n\n#### 🌐 English Template:\n\`\`\`\n${draftRes.draftEnglish}\n\`\`\`\n\n*Action Ready: Say "Send fee reminder SMS alert" to trigger the verified broadcast confirmation dialog.*`,
+      text: `### 📋 Prepared Fee Reminder Notification Draft\n\n**Recipients on Record:** ${draftRes.unpaidStudentCount} students with unpaid fees\n**Total Outstanding Dues:** PKR ${draftRes.totalOutstanding.toLocaleString()}\n\n---\n#### 📱 Urdu Notification Template:\n\`\`\`\n${draftRes.draftUrdu}\n\`\`\`\n\n#### 🌐 English Template:\n\`\`\`\n${draftRes.draftEnglish}\n\`\`\`\n\n*Next Step: Review the draft and use the in-app parent notification workflow when ready.*`,
       toolUsed: 'draftFeeReminders',
       data: draftRes,
       auditLogId: auditId,
@@ -2273,7 +2290,7 @@ export async function processAdminAiQuery(
       .join('\n');
 
     return {
-      text: `### 📋 Parent Warning Roster: Students Below 75% Attendance\n\nFound **${warningData.count}** student(s) requiring immediate parental notification:\n\n| Student Name | Class & Roll | Attendance % | Father / Guardian | Mobile Phone | Residence |\n|---|---|---|---|---|---|\n${rows}\n\n*Action Ready: You can request "Send SMS alert to absent students" to trigger the verified notification dialog.*`,
+      text: `### 📋 Parent Warning Roster: Students Below 75% Attendance\n\nFound **${warningData.count}** student(s) requiring immediate parental notification:\n\n| Student Name | Class & Roll | Attendance % | Father / Guardian | Mobile Phone | Residence |\n|---|---|---|---|---|---|\n${rows}\n\n*Next Step: You can request "Create in-app parent notifications for absent students" to review linked parent recipients.*`,
       toolUsed: 'getParentWarningList',
       data: warningData,
       auditLogId: auditId,
@@ -2600,7 +2617,7 @@ export async function processAdminAiQuery(
         .join('\n');
 
       return {
-        text: `### 👨‍🏫 Shawan School & College Faculty Directory & Assigned Classes\n\nFound **${dirData.count}** active faculty members on institutional record:\n\n| Teacher Name | Primary Subject | Assigned Classes | Qualification | Contact Phone |\n|---|---|---|---|---|\n${rows}\n\n*Tip: You can ask for a specific teacher's complete dossier, e.g. "Give me the complete record of teacher ${dirData.teachers[0]?.name || 'Muhammad Ali'}"*.`,
+        text: `### 👨‍🏫 School & College Faculty Directory & Assigned Classes\n\nFound **${dirData.count}** active faculty members on institutional record:\n\n| Teacher Name | Primary Subject | Assigned Classes | Qualification | Contact Phone |\n|---|---|---|---|---|\n${rows}\n\n*Tip: You can ask for a specific teacher's complete dossier, e.g. "Give me the complete record of teacher ${dirData.teachers[0]?.name || 'Muhammad Ali'}"*.`,
         toolUsed: 'getFacultyDirectoryWithClasses',
         data: dirData,
         auditLogId: auditId,
@@ -2759,9 +2776,53 @@ export async function processAdminAiQuery(
     );
 
     return {
-      text: `### 🏫 Shawan School and College: Administrative Overview\n\n* **Total Active Students:** **${overview.totalStudents}**\n* **Active Faculty Members:** **${overview.totalTeachers}**\n* **Configured Classes:** **${overview.totalClasses}**\n* **Today's Attendance Rate:** **${overview.attendanceRate}%** (${overview.todayPresent}/${overview.todayMarked} marked)\n* **Tuition Fees Collected:** **PKR ${overview.totalCollectedFee.toLocaleString()}**\n* **Total Pending Dues:** **PKR ${overview.totalPendingFee.toLocaleString()}**\n* **New Admissions:** **${overview.approvedAdmissions}** Approved, **${overview.pendingAdmissions}** Pending\n\n*All statistics retrieved via live MongoDB Atlas database aggregation.*`,
+      text: `### 🏫 School and College Management System: Administrative Overview\n\n* **Total Active Students:** **${overview.totalStudents}**\n* **Active Faculty Members:** **${overview.totalTeachers}**\n* **Configured Classes:** **${overview.totalClasses}**\n* **Today's Attendance Rate:** **${overview.attendanceRate}%** (${overview.todayPresent}/${overview.todayMarked} marked)\n* **Tuition Fees Collected:** **PKR ${overview.totalCollectedFee.toLocaleString()}**\n* **Total Pending Dues:** **PKR ${overview.totalPendingFee.toLocaleString()}**\n* **New Admissions:** **${overview.approvedAdmissions}** Approved, **${overview.pendingAdmissions}** Pending\n\n*All statistics retrieved via live MongoDB Atlas database aggregation.*`,
       toolUsed: 'getSchoolOverview',
       data: overview,
+      auditLogId: auditId,
+      aiProviderStatus: getAiProviderStatus(),
+    };
+  }
+
+  // ----------------------------------------------------
+  // FINANCE INTELLIGENCE: Expense, payroll and income-vs-expense reports
+  // ----------------------------------------------------
+  if (
+    pLower.includes('income vs expense') ||
+    pLower.includes('expense') ||
+    pLower.includes('payroll') ||
+    pLower.includes('salary')
+  ) {
+    const monthMatch = prompt.match(/\b(20\d{2})-(0?[1-9]|1[0-2])\b/);
+    const now = new Date();
+    const year = monthMatch ? Number(monthMatch[1]) : now.getFullYear();
+    const month = monthMatch ? Number(monthMatch[2]) : now.getMonth() + 1;
+    const periodPrefix = `${year}-${String(month).padStart(2, '0')}`;
+    const [expenseDocs, payrollDocs, paymentDocs] = await Promise.all([
+      ExpenseModel.find({ expense_date: { $regex: `^${periodPrefix}` } }).lean(),
+      PayrollModel.find({ salary_year: year, salary_month: month }).lean(),
+      FeePaymentModel.find({ date: { $regex: `^${periodPrefix}` }, status: 'Paid', verification_status: 'Verified' }).lean(),
+    ]);
+    const operationalExpenses = expenseDocs.filter((row: any) => row.category !== 'Salaries');
+    const expenseTotal = operationalExpenses.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0);
+    const payrollTotal = payrollDocs.reduce((sum: number, row: any) => sum + Number(row.net_salary || 0), 0);
+    const payrollPaid = payrollDocs.reduce((sum: number, row: any) => sum + Number(row.paid_amount || 0), 0);
+    const totalOutflow = expenseTotal + payrollPaid;
+    const payrollRemaining = Math.max(0, payrollTotal - payrollPaid);
+    const collected = paymentDocs.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0);
+    const expenseByCategory = new Map<string, number>();
+    operationalExpenses.forEach((row: any) => expenseByCategory.set(row.category, (expenseByCategory.get(row.category) || 0) + Number(row.amount || 0)));
+    const categoryRows = Array.from(expenseByCategory.entries()).map(([category, amount]) => `| ${category} | PKR ${amount.toLocaleString()} |`).join('\n');
+    const auditId = await recordAuditLog(
+      context,
+      'AI_FINANCE_REPORT',
+      'FINANCE',
+      `Generated live finance report for ${periodPrefix}; ${expenseDocs.length} expense records and ${payrollDocs.length} payroll records.`
+    );
+    return {
+      text: `### Finance Intelligence Report — ${periodPrefix}\n\n* **Verified fee collections:** PKR ${collected.toLocaleString()}\n* **Operating expenses (${operationalExpenses.length} records):** PKR ${expenseTotal.toLocaleString()}\n* **Payroll net salary (${payrollDocs.length} records):** PKR ${payrollTotal.toLocaleString()} (paid PKR ${payrollPaid.toLocaleString()})\n* **Recorded cash outflow (operating expenses + salary paid):** PKR ${totalOutflow.toLocaleString()}\n* **Unpaid payroll balance:** PKR ${payrollRemaining.toLocaleString()}\n* **Operating balance indicator:** PKR ${(collected - totalOutflow).toLocaleString()}\n\n#### Operating expense categories\n| Category | Amount |\n|---|---:|\n${categoryRows || '| No expense records | PKR 0 |'}\n\n*All figures are filtered to ${periodPrefix}. Collections include only Paid + Verified fee transactions. Cash balance is an operational indicator, not an audited profit/loss statement.*`,
+      toolUsed: 'getFinanceIntelligenceReport',
+      data: { period: periodPrefix, verifiedFeeCollections: collected, operationalExpenses: expenseTotal, payrollNet: payrollTotal, payrollPaid, payrollRemaining, totalOutflow, expenseCount: expenseDocs.length, payrollCount: payrollDocs.length },
       auditLogId: auditId,
       aiProviderStatus: getAiProviderStatus(),
     };
@@ -3368,7 +3429,7 @@ export async function processAdminAiQuery(
   );
 
   return {
-    text: `I am the **Shawan School and College Admin AI Assistant** connected strictly to authoritative MongoDB Atlas school collections (no fabricated or guessed records).\n\n### 💡 Supported Database Queries:\n* **Admissions:** *"Show new admitted students"*, *"Show recent admissions this month"*\n* **Student Records:** *"Give me the complete record of this student"*, *"Show student attendance and fee status"*, *"Show parent details for this student"*\n* **Faculty Dossiers:** *"Show teacher details and assigned classes"*, *"Show assigned subjects for teacher [Name]"*\n* **Multi-Tool Queries:** *"Show students who have attendance below 75% AND unpaid fees"*, *"Prepare a parent warning list for students below 75% attendance"*, *"Find parents of all students with unpaid fees"*\n* **School-Wide Reports:** *"Give me the school overview"*, *"Give me a summary of today's school attendance"*, *"Give me a summary of pending fees"*, *"Which classes have the highest number of absences?"*, *"How many students are in each class?"*\n* **Administrative Actions:** *"Draft fee reminder for students with unpaid fees"*, *"Send SMS alert to absent students"*${providerUnavailableBanner}`,
+    text: `I am the **School and College Management System Admin AI Assistant**, connected strictly to authoritative MongoDB school collections (no fabricated or guessed records).\n\n### 💡 Supported Database Queries:\n* **Admissions:** *"Show new admitted students"*, *"Show recent admissions this month"*\n* **Student Records:** *"Give me the complete record of this student"*, *"Show student attendance and fee status"*, *"Show parent details for this student"*\n* **Faculty Dossiers:** *"Show teacher details and assigned classes"*, *"Show assigned subjects for teacher [Name]"*\n* **Multi-Tool Queries:** *"Show students who have attendance below 75% AND unpaid fees"*, *"Prepare a parent warning list for students below 75% attendance"*, *"Find parents of all students with unpaid fees"*\n* **School-Wide Reports:** *"Give me the school overview"*, *"Give me a summary of today's school attendance"*, *"Give me a summary of pending fees"*, *"Which classes have the highest number of absences?"*, *"How many students are in each class?"*\n* **Administrative Actions:** *"Draft fee reminder for students with unpaid fees"*, *"Create in-app parent notifications for absent students"*${providerUnavailableBanner}`,
     toolUsed: 'generalHelp',
     auditLogId: auditId,
     aiProviderStatus: providerStatus,

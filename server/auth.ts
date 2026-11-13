@@ -5,8 +5,10 @@ import mongoose from 'mongoose';
 import { UserModel, type UserRole } from './models/User.ts';
 import { RevokedTokenModel } from './models/RevokedToken.ts';
 import { RateLimitBucketModel } from './models/RateLimitBucket.ts';
+import { hasAnyRole, hasExactRole } from './roleAccess.ts';
 
-const DEFAULT_INSECURE_SECRET = 'shawan-school-and-college-secure-jwt-secret-2026-paharpur';
+// Development-only fallback is unique to this process; it is never a reusable source-controlled signing key.
+const DEVELOPMENT_PROCESS_SECRET = crypto.randomBytes(32).toString('hex');
 export const SESSION_COOKIE_NAME = 'shawan_session';
 const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
@@ -209,7 +211,7 @@ export function getJwtSecret(): string {
       );
     }
     if (
-      rawSecret === DEFAULT_INSECURE_SECRET ||
+      rawSecret === DEVELOPMENT_PROCESS_SECRET ||
       rawSecret === EXAMPLE_PLACEHOLDER_SECRET ||
       /^(replace_with|your_|changeme)/i.test(rawSecret)
     ) {
@@ -224,7 +226,13 @@ export function getJwtSecret(): string {
     }
     return rawSecret;
   }
-  return rawSecret || DEFAULT_INSECURE_SECRET;
+  return rawSecret || DEVELOPMENT_PROCESS_SECRET;
+}
+
+const ALLOWED_AUTH_ROLES = new Set<UserRole>(['super_admin', 'admin', 'teacher', 'parent', 'student']);
+
+export function isValidUserRole(role: unknown): role is UserRole {
+  return typeof role === 'string' && ALLOWED_AUTH_ROLES.has(role as UserRole);
 }
 
 export interface AuthenticatedRequest extends Request {
@@ -463,6 +471,10 @@ export async function authenticateToken(req: AuthenticatedRequest, res: Response
       return res.status(401).json({ error: 'Invalid or expired session. User account not found.' });
     }
 
+    if (!isValidUserRole(liveUser.role)) {
+      return res.status(403).json({ error: 'Account role is invalid. Access denied; contact an administrator.' });
+    }
+
     if (liveUser.password_changed_at) {
       const changedAtMs = new Date(liveUser.password_changed_at).getTime();
       const tokenIssuedMs =
@@ -511,7 +523,7 @@ export async function authenticateOptionalToken(req: AuthenticatedRequest, _res:
     const decoded: any = jsonwebtoken.verify(token, getJwtSecret());
     if (mongoose.connection.readyState === 1) {
       const liveUser = await resolveLiveUserFromDecoded(decoded);
-      if (liveUser) {
+      if (liveUser && isValidUserRole(liveUser.role) && (!liveUser.status || liveUser.status === 'active')) {
         req.user = {
           id: String(liveUser.record_id || liveUser._id),
           email: String(liveUser.email),
@@ -533,7 +545,7 @@ export function requireRole(allowedRoles: UserRole[]) {
       return res.status(401).json({ error: 'Authentication required.' });
     }
 
-    if (req.user.role === 'super_admin' || allowedRoles.includes(req.user.role)) {
+    if (hasAnyRole(req.user.role, allowedRoles)) {
       return next();
     }
 
@@ -549,7 +561,7 @@ export function requireExactRole(allowedRoles: UserRole[]) {
       return res.status(401).json({ error: 'Authentication required. Token missing.' });
     }
 
-    if (allowedRoles.includes(req.user.role)) {
+    if (hasExactRole(req.user.role, allowedRoles)) {
       return next();
     }
 

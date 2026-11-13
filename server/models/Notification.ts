@@ -3,6 +3,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 export interface INotification extends Document {
   user_id?: string;
   role?: string;
+  action_id?: string;
   title: string;
   message: string;
   read: boolean;
@@ -22,6 +23,11 @@ const NotificationSchema = new Schema<INotification>(
       type: String,
       default: 'all',
       index: true,
+    },
+    action_id: {
+      type: String,
+      default: undefined,
+      maxlength: 64,
     },
     title: {
       type: String,
@@ -43,6 +49,17 @@ const NotificationSchema = new Schema<INotification>(
   },
   {
     timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
+  }
+);
+
+// A single confirmed action can create at most one notification per account.
+// Legacy notifications without action_id are excluded from this unique index.
+NotificationSchema.index(
+  { action_id: 1, user_id: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { action_id: { $type: 'string' } },
+    name: 'unique_notification_action_recipient',
   }
 );
 

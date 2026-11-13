@@ -1,4 +1,10 @@
 import express, { type Request, type Response } from 'express';
+import { financeRouter } from './financeRoutes.ts';
+import { buildNotificationVisibilityFilter, canMarkNotificationRead } from './notificationAccess.ts';
+import { buildParentPaymentHistoryFilter, buildParentLinkedStudentFilter, collectParentStudentReferences, isParentLinkedToStudent, isExactGuardianNameMatch, areSameStudentIdentity, isStudentClaimedByAnotherParent, buildStudentParentClaimFilter, buildStudentParentReleaseFilter } from './parentAccess.ts';
+import { isClassAssignedToTeacher, buildTeacherClassFilter } from './classAccess.ts';
+import { getParentPaymentMethodMode, collectStudentPaymentIdentifiers, normalizeDepositReference, isExactParentPaymentRetry } from './paymentUtils.ts';
+import { isExactTeacherName, isExactTeacherSubject, areAllResultSubjectsAssignedToTeacher, isExactSectionMatch } from './teacherAccess.ts';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jsonwebtoken from 'jsonwebtoken';
@@ -125,6 +131,7 @@ import {
 } from './services/passwordResetEmailService.ts';
 
 export const router = express.Router();
+router.use('/finance', financeRouter);
 
 // Concurrency lock for in-flight fee payment operations per voucher ID (single-process fast guard, paired with DB atomic filter)
 const activePaymentLocks = new Set<string>();
@@ -148,6 +155,43 @@ function ensureMongoReady(res: Response): boolean {
     return false;
   }
   return true;
+}
+
+/**
+ * Persist one notification per business action and recipient.
+ * The Notification schema's unique partial index makes concurrent retries safe.
+ */
+async function createNotificationOnce(input: {
+  actionId: string;
+  userId?: string;
+  role: string;
+  title: string;
+  message: string;
+  link?: string;
+}): Promise<boolean> {
+  const userId = String(input.userId || '').trim();
+  try {
+    const result = await NotificationModel.updateOne(
+      { action_id: input.actionId, user_id: userId },
+      {
+        $setOnInsert: {
+          action_id: input.actionId,
+          user_id: userId,
+          role: input.role,
+          title: input.title,
+          message: input.message,
+          link: input.link || '',
+          read: false,
+        },
+      },
+      { upsert: true }
+    );
+    return result.upsertedCount === 1;
+  } catch (err: any) {
+    // A concurrent request may win the unique-index race; treat it as a replay.
+    if (err?.code === 11000) return false;
+    throw err;
+  }
 }
 
 function isMongoUnavailableError(err: any): boolean {
@@ -461,39 +505,14 @@ async function findParentByAnyId(rawId: string): Promise<any | null> {
 async function getLinkedStudentIdsForParent(user: {
   id: string;
   email?: string;
-  linked_id?: string;
-  linked_student_ids?: string[];
 }): Promise<Set<string>> {
-  const ids = new Set<string>();
-  if (user.linked_id) ids.add(String(user.linked_id).trim());
-  if (Array.isArray(user.linked_student_ids)) {
-    for (const s of user.linked_student_ids) {
-      if (s && String(s).trim()) ids.add(String(s).trim());
-    }
-  }
+  // The authenticated user's current MongoDB link fields are the sole source of truth.
+  // JWT claims and denormalized parent/student links are intentionally excluded: a stale
+  // session or partially completed unlink must not restore access to a former child.
+  const userDoc = await findUserByAnyId(user.id);
+  const ids = collectParentStudentReferences(userDoc);
 
-  const parentQueryClauses: Record<string, any>[] = [{ user_id: user.id }];
-  if (user.email) {
-    parentQueryClauses.push({ email: user.email.toLowerCase() });
-  }
-  const [parentDoc, childDocs] = await Promise.all([
-    ParentModel.findOne({ $or: parentQueryClauses }).lean(),
-    StudentModel.find({ parent_user_id: user.id }).select('record_id _id').lean(),
-  ]);
-
-  if (parentDoc && Array.isArray(parentDoc.linked_students)) {
-    for (const rawLinked of parentDoc.linked_students) {
-      const clean = String(rawLinked || '').trim();
-      if (clean) ids.add(clean);
-    }
-  }
-
-  for (const child of childDocs) {
-    const cid = child.record_id || (child._id ? child._id.toString() : '');
-    if (cid) ids.add(cid);
-  }
-
-  // Normalize any ObjectId or admission_no references in ids to include canonical student DTO IDs
+  // Normalize ObjectId/admission number aliases to canonical student identifiers.
   if (ids.size > 0) {
     const idArr = Array.from(ids);
     const objIds = idArr
@@ -505,26 +524,13 @@ async function getLinkedStudentIdsForParent(user: {
         { admission_no: { $in: idArr } },
         ...(objIds.length > 0 ? [{ _id: { $in: objIds } }] : []),
       ],
-    })
-      .select('record_id _id')
-      .lean();
+    }).select('record_id _id admission_no').lean();
     for (const st of matchedStudents) {
-      if (st.record_id) ids.add(st.record_id);
-      if (st._id) ids.add(st._id.toString());
+      for (const identifier of collectStudentPaymentIdentifiers(st)) ids.add(identifier);
     }
   }
 
   return ids;
-}
-
-function isClassAssignedToTeacher(assignedClasses: string[], targetClassName: string): boolean {
-  const target = String(targetClassName || '').trim().toLowerCase();
-  if (!target) return false;
-  return assignedClasses.some(raw => {
-    const c = String(raw || '').trim().toLowerCase();
-    if (!c) return false;
-    return c === target || target.includes(c) || c.includes(target);
-  });
 }
 
 async function getAuthenticatedTeacherMongo(req: AuthenticatedRequest): Promise<TeacherDto | null> {
@@ -1765,22 +1771,21 @@ router.post('/auth/register-parent', authRateLimiter, async (req: Request, res: 
 
   if (!ensureMongoReady(res)) return;
 
+  let createdUser: any = null;
+  let claimedStudent: any = null;
+  let canonicalParentId = '';
+  let verifiedChild: any = null;
+  let canonicalStudentId = '';
+  const linkedStudentIds: string[] = [];
+  const linkedStudentDtos: StudentDto[] = [];
+
   try {
     const existingUser = await UserModel.findOne({ email: cleanEmail }).lean();
     if (existingUser) {
       return res.status(409).json({ error: 'An account with this email address already exists' });
     }
 
-    const salt = await bcrypt.genSalt(10);
-    const password_hash = await bcrypt.hash(String(password), salt);
-
-    const ts = Date.now();
-    const randSuffix = Math.random().toString(36).slice(2, 6);
-    const newUserId = `usr_${ts}_${randSuffix}`;
-    const linkedStudentIds: string[] = [];
-    const linkedStudentDtos: StudentDto[] = [];
-
-    // Optional child linking during signup requires BOTH matching admission_no AND child_dob
+    // Verify the optional child before account creation, but do not claim ownership yet.
     if (child_admission_no && String(child_admission_no).trim()) {
       const cleanAdm = String(child_admission_no).trim().toUpperCase();
       const cleanChildDob = child_dob ? String(child_dob).trim() : '';
@@ -1789,37 +1794,67 @@ router.post('/auth/register-parent', authRateLimiter, async (req: Request, res: 
           error: 'Child date of birth is required when linking a student by admission number during registration',
         });
       }
-      const studentDoc = await StudentModel.findOne({
+      verifiedChild = await StudentModel.findOne({
         admission_no: { $regex: new RegExp(`^${escapeRegexLiteral(cleanAdm)}$`, 'i') },
       });
-      if (!studentDoc || studentDoc.dob !== cleanChildDob) {
+      if (!verifiedChild || verifiedChild.dob !== cleanChildDob) {
         return res.status(404).json({
           error: 'No student found matching both the provided admission number and date of birth.',
         });
       }
-      const sid = studentDoc.record_id || studentDoc._id.toString();
-      linkedStudentIds.push(sid);
-      studentDoc.parent_user_id = newUserId;
-      await studentDoc.save();
-      linkedStudentDtos.push(toStudentDto(studentDoc));
+      canonicalStudentId = verifiedChild.record_id || verifiedChild._id.toString();
     }
+
+    const salt = await bcrypt.genSalt(10);
+    const password_hash = await bcrypt.hash(String(password), salt);
+    const ts = Date.now();
+    const randSuffix = Math.random().toString(36).slice(2, 6);
+    const newUserId = `usr_${ts}_${randSuffix}`;
 
     const cleanName = sanitizePlainText(full_name, 150);
     const cleanPhone = phone ? sanitizePlainText(phone, 40) : '';
     const cleanAddress = address ? sanitizePlainText(address, 300) : '';
     const cleanOccupation = occupation ? sanitizePlainText(occupation, 150) : '';
 
-    const createdUser = await UserModel.create({
+    createdUser = await UserModel.create({
       record_id: newUserId,
       email: cleanEmail,
       password_hash,
       name: cleanName,
       role: 'parent',
       phone: cleanPhone,
-      linked_id: linkedStudentIds[0] || '',
-      linked_student_ids: linkedStudentIds,
+      linked_id: '',
+      linked_student_ids: [],
       status: 'active',
     });
+    canonicalParentId = createdUser.record_id || createdUser._id.toString();
+
+    if (verifiedChild) {
+      // Public registration uses the same atomic ownership claim and verified persistence
+      // as the authenticated parent-link workflow.
+      claimedStudent = await claimStudentForParent(
+        verifiedChild,
+        canonicalParentId,
+        createdUser._id.toString()
+      );
+      if (!claimedStudent) {
+        await UserModel.deleteOne({ _id: createdUser._id });
+        createdUser = null;
+        return res.status(409).json({
+          error: 'This student is already linked to another parent account. Please contact school administration if this is incorrect.',
+        });
+      }
+
+      await persistParentStudentLink(createdUser, verifiedChild, canonicalStudentId, canonicalParentId);
+      linkedStudentIds.push(canonicalStudentId);
+      linkedStudentDtos.push(toStudentDto(claimedStudent));
+
+      // Refresh the account document so the issued JWT and response reflect persisted links.
+      createdUser = await UserModel.findById(createdUser._id);
+      if (!createdUser) {
+        throw new Error('Parent account could not be reloaded after child linking.');
+      }
+    }
 
     await ParentModel.create({
       record_id: `prt_${newUserId}`,
@@ -1832,48 +1867,59 @@ router.post('/auth/register-parent', authRateLimiter, async (req: Request, res: 
       occupation: cleanOccupation,
       linked_students: linkedStudentIds,
     });
-
-    const userDto = toUserDto(createdUser);
-    await recordMongoAudit(
-      { id: userDto.id, name: userDto.name, role: userDto.role },
-      'Parent Account Registered',
-      'Parent',
-      userDto.id,
-      `Linked students: ${linkedStudentIds.length}`
-    );
-
-    const token = generateToken({
-      id: userDto.id,
-      email: userDto.email,
-      role: userDto.role,
-      name: userDto.name,
-      phone: userDto.phone,
-      linked_id: userDto.linked_id,
-      linked_student_ids: userDto.linked_student_ids,
-    });
-
-    setSessionCookie(req, res, token);
-
-    return res.status(201).json({
-      message: 'Parent account successfully created',
-      token,
-      user: {
-        id: userDto.id,
-        email: userDto.email,
-        name: userDto.name,
-        role: userDto.role,
-        phone: userDto.phone,
-        linked_id: userDto.linked_id,
-        linked_student_ids: userDto.linked_student_ids,
-      },
-      linked_students: linkedStudentDtos,
-    });
   } catch (err: any) {
+    // Roll back partial registration without releasing a student's claim owned by someone else.
+    if (createdUser) {
+      if (verifiedChild && canonicalParentId) {
+        await StudentModel.updateOne(
+          buildStudentParentReleaseFilter(verifiedChild._id, canonicalParentId, createdUser._id.toString()),
+          { $unset: { parent_user_id: '' } }
+        ).catch(() => {});
+      }
+      await ParentModel.deleteOne({ user_id: canonicalParentId }).catch(() => {});
+      await UserModel.deleteOne({ _id: createdUser._id }).catch(() => {});
+    }
     if (err?.code === 11000) {
       return res.status(409).json({ error: 'An account with this email address already exists' });
     }
     return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to register parent account') });
   }
+
+  const userDto = toUserDto(createdUser);
+  await recordMongoAudit(
+    { id: userDto.id, name: userDto.name, role: userDto.role },
+    'Parent Account Registered',
+    'Parent',
+    userDto.id,
+    `Linked students: ${linkedStudentIds.length}`
+  );
+
+  const token = generateToken({
+    id: userDto.id,
+    email: userDto.email,
+    role: userDto.role,
+    name: userDto.name,
+    phone: userDto.phone,
+    linked_id: userDto.linked_id,
+    linked_student_ids: userDto.linked_student_ids,
+  });
+
+  setSessionCookie(req, res, token);
+
+  return res.status(201).json({
+    message: 'Parent account successfully created',
+    token,
+    user: {
+      id: userDto.id,
+      email: userDto.email,
+      name: userDto.name,
+      role: userDto.role,
+      phone: userDto.phone,
+      linked_id: userDto.linked_id,
+      linked_student_ids: userDto.linked_student_ids,
+    },
+    linked_students: linkedStudentDtos,
+  });
 });
 
 // Teacher self-signup (MongoDB-authoritative with mandatory Admin approval)
@@ -1992,16 +2038,14 @@ router.post('/auth/register-teacher', authRateLimiter, async (req: Request, res:
       ip_address: req.ip || '',
     }).catch(() => {});
 
-    // 4. Create Notification for School Admin
-    await NotificationModel.create({
-      notification_id: `notif_${ts}_${randSuffix}`,
-      user_id: 'admin',
+    // 4. Create one admin notification for this teacher signup.
+    await createNotificationOnce({
+      actionId: crypto.createHash('sha256').update(`teacher-signup:${newUserId}`).digest('hex'),
+      userId: 'admin',
       role: 'admin',
       title: 'New Teacher Signup Application',
       message: `${full_name} (${cleanEmail}) applied for teacher position (${chosenSubject}). Please review in Admin Console.`,
-      type: 'info',
-      read: false,
-    }).catch(() => {});
+    }).catch(() => false);
 
     return res.status(201).json({
       success: true,
@@ -2074,13 +2118,7 @@ function isFatherNameMatch(studentFather: string, inputFather: string): boolean 
 }
 
 async function fetchLinkedStudentsForParentUser(userId: string, email?: string): Promise<StudentDto[]> {
-  const userDoc = await findUserByAnyId(userId);
-  const ids = await getLinkedStudentIdsForParent({
-    id: userId,
-    email: email || userDoc?.email,
-    linked_id: userDoc?.linked_id,
-    linked_student_ids: userDoc?.linked_student_ids,
-  });
+  const ids = await getLinkedStudentIdsForParent({ id: userId, email });
   if (ids.size === 0) return [];
   const idArr = Array.from(ids);
   const objIds = idArr
@@ -2090,13 +2128,56 @@ async function fetchLinkedStudentsForParentUser(userId: string, email?: string):
     $or: [
       { record_id: { $in: idArr } },
       { admission_no: { $in: idArr } },
-      { parent_user_id: userId },
       ...(objIds.length > 0 ? [{ _id: { $in: objIds } }] : []),
     ],
   })
     .sort({ created_at: -1, _id: -1 })
     .lean();
   return docs.map(toStudentDto);
+}
+
+async function claimStudentForParent(studentDoc: any, canonicalUserId: string, mongoUserId: string): Promise<any | null> {
+  if (!studentDoc?._id || !canonicalUserId || !mongoUserId) return null;
+  // One atomic conditional write decides ownership. Concurrent parent requests cannot both claim an unowned student.
+  return StudentModel.findOneAndUpdate(
+    buildStudentParentClaimFilter(studentDoc._id, canonicalUserId, mongoUserId),
+    { $set: { parent_user_id: canonicalUserId } },
+    { new: true }
+  );
+}
+
+async function persistParentStudentLink(
+  userDoc: any,
+  studentDoc: any,
+  canonicalStudentId: string,
+  canonicalUserId: string
+): Promise<void> {
+  try {
+    const result = await UserModel.updateOne(
+      { _id: userDoc._id, role: 'parent' },
+      {
+        $addToSet: { linked_student_ids: canonicalStudentId },
+        $set: { linked_id: canonicalStudentId },
+      }
+    );
+    if (result.matchedCount !== 1) {
+      throw new Error('Parent account is no longer available for linking.');
+    }
+  } catch (linkError) {
+    // A network error can happen after MongoDB committed. Verify before releasing ownership.
+    const latestUser = await UserModel.findOne({ _id: userDoc._id, role: 'parent' }).lean();
+    const linkPersisted = Boolean(
+      latestUser &&
+      ((latestUser.linked_student_ids || []).includes(canonicalStudentId) || latestUser.linked_id === canonicalStudentId)
+    );
+    if (!linkPersisted) {
+      await StudentModel.updateOne(
+        buildStudentParentReleaseFilter(studentDoc._id, canonicalUserId, userDoc._id.toString()),
+        { $set: { parent_user_id: '' } }
+      );
+    }
+    throw linkError;
+  }
 }
 
 // Parent link student endpoint (secure verification by Admission No and Date of Birth)
@@ -2129,17 +2210,13 @@ router.post('/parents/link-student', sensitiveActionRateLimiter, authenticateTok
 
     const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
     const canonicalUserId = userDoc.record_id || userDoc._id.toString();
-
-    const nextLinked = Array.isArray(userDoc.linked_student_ids) ? [...userDoc.linked_student_ids] : [];
-    if (!nextLinked.includes(canonicalStudentId)) {
-      nextLinked.push(canonicalStudentId);
+    const claimedStudent = await claimStudentForParent(studentDoc, canonicalUserId, userDoc._id.toString());
+    if (!claimedStudent) {
+      return res.status(409).json({ error: 'This student is already linked to another parent account. Please contact school administration if this is incorrect.' });
     }
-    userDoc.linked_student_ids = nextLinked;
-    userDoc.linked_id = canonicalStudentId;
-    await userDoc.save();
 
-    studentDoc.parent_user_id = canonicalUserId;
-    await studentDoc.save();
+    await persistParentStudentLink(userDoc, studentDoc, canonicalStudentId, canonicalUserId);
+    Object.assign(studentDoc, claimedStudent.toObject ? claimedStudent.toObject() : claimedStudent);
 
     await ParentModel.findOneAndUpdate(
       { $or: [{ user_id: canonicalUserId }, { email: userDoc.email.toLowerCase() }] },
@@ -2198,17 +2275,43 @@ router.post('/parents/find-child', sensitiveActionRateLimiter, authenticateToken
       return res.status(404).json({ error: 'Parent account not found' });
     }
 
-    const allStudents = (await StudentModel.find().lean()).map(toStudentDto);
-    const matches = allStudents.filter(s => {
-      if (!isStudentNameMatch(s.full_name, cleanStudent)) return false;
-      if (!isStudentClassMatch(s.class_name, cleanClass)) return false;
-      if (!isStudentRollMatch(s.roll_no, cleanRoll)) return false;
-
-      const fatherMatches =
-        isFatherNameMatch(s.father_name, cleanFather) ||
-        (userDoc.name && isFatherNameMatch(s.father_name, userDoc.name));
-      return Boolean(fatherMatches);
-    });
+    // Narrow candidate records by roll number and class before applying tolerant name/guardian matching.
+    const rollDigits = cleanRoll.replace(/\D/g, '');
+    const rollClauses: Record<string, any>[] = [
+      { roll_no: { $regex: new RegExp('^' + escapeRegexLiteral(cleanRoll) + '$', 'i') } },
+    ];
+    if (rollDigits) {
+      const normalizedRoll = String(parseInt(rollDigits, 10));
+      rollClauses.push(
+        { roll_no: { $regex: new RegExp('^\\D*0*' + escapeRegexLiteral(normalizedRoll) + '\\D*$', 'i') } },
+        { roll_no: Number(normalizedRoll) }
+      );
+    }
+    const classDigits = cleanClass.match(/\d+/)?.[0] || '';
+    const classClauses: Record<string, any>[] = [
+      { class_name: { $regex: new RegExp(escapeRegexLiteral(cleanClass), 'i') } },
+    ];
+    if (classDigits) {
+      classClauses.push({ class_name: { $regex: new RegExp('\\b' + escapeRegexLiteral(classDigits) + '\\b', 'i') } });
+    }
+    const candidateDocs = await StudentModel.find({
+      $and: [{ $or: rollClauses }, { $or: classClauses }],
+    }).lean();
+    const canonicalUserId = userDoc.record_id || userDoc._id.toString();
+    const currentParentIdentifiers = [canonicalUserId, userDoc._id.toString()];
+    const matches = candidateDocs
+      .filter(rawDoc => {
+        const student = toStudentDto(rawDoc);
+        if (!isStudentNameMatch(student.full_name, cleanStudent)) return false;
+        if (!isStudentClassMatch(student.class_name, cleanClass)) return false;
+        const fatherMatches =
+          isFatherNameMatch(student.father_name, cleanFather) ||
+          (userDoc.name && isFatherNameMatch(student.father_name, userDoc.name));
+        if (!fatherMatches) return false;
+        // Do not disclose candidate details for a student claimed by another parent account.
+        return !isStudentClaimedByAnotherParent(rawDoc.parent_user_id, currentParentIdentifiers);
+      })
+      .map(toStudentDto);
 
     if (matches.length === 0) {
       return res.status(404).json({
@@ -2216,12 +2319,9 @@ router.post('/parents/find-child', sensitiveActionRateLimiter, authenticateToken
       });
     }
 
-    const canonicalUserId = userDoc.record_id || userDoc._id.toString();
     const alreadyLinkedIds = await getLinkedStudentIdsForParent({
       id: canonicalUserId,
       email: userDoc.email,
-      linked_id: userDoc.linked_id,
-      linked_student_ids: userDoc.linked_student_ids,
     });
 
     const unlinkedMatches = matches.filter(s => !alreadyLinkedIds.has(s.id));
@@ -2248,7 +2348,7 @@ router.post('/parents/find-child', sensitiveActionRateLimiter, authenticateToken
 
 // 2. Confirm & Link Verified Child to Guardian Account
 router.post('/parents/confirm-link-child', sensitiveActionRateLimiter, authenticateToken, requireRole(['parent']), async (req: AuthenticatedRequest, res: Response) => {
-  const { student_id, father_name } = req.body || {};
+  const { student_id } = req.body || {};
   if (!student_id) {
     return res.status(400).json({ error: 'Student ID is required for confirmation' });
   }
@@ -2265,10 +2365,11 @@ router.post('/parents/confirm-link-child', sensitiveActionRateLimiter, authentic
       return res.status(404).json({ error: 'Student record could not be found' });
     }
 
-    const fatherMatches = father_name
-      ? isFatherNameMatch(studentDoc.father_name, String(father_name)) ||
-        (userDoc.name && isFatherNameMatch(studentDoc.father_name, userDoc.name))
-      : userDoc.name && isFatherNameMatch(studentDoc.father_name, userDoc.name);
+    // Never trust a guardian name supplied by the browser as proof of identity.
+    // The student's recorded father/guardian name must exactly match the authenticated
+    // parent's registered account name. For other legitimate guardians, use the
+    // admission-number + date-of-birth verification workflow or ask an admin to link.
+    const fatherMatches = isExactGuardianNameMatch(studentDoc.father_name, userDoc.name);
 
     if (!fatherMatches) {
       return res.status(403).json({
@@ -2278,17 +2379,13 @@ router.post('/parents/confirm-link-child', sensitiveActionRateLimiter, authentic
 
     const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
     const canonicalUserId = userDoc.record_id || userDoc._id.toString();
-
-    const nextLinked = Array.isArray(userDoc.linked_student_ids) ? [...userDoc.linked_student_ids] : [];
-    if (!nextLinked.includes(canonicalStudentId)) {
-      nextLinked.push(canonicalStudentId);
+    const claimedStudent = await claimStudentForParent(studentDoc, canonicalUserId, userDoc._id.toString());
+    if (!claimedStudent) {
+      return res.status(409).json({ error: 'This student is already linked to another parent account. Please contact school administration if this is incorrect.' });
     }
-    userDoc.linked_student_ids = nextLinked;
-    userDoc.linked_id = canonicalStudentId;
-    await userDoc.save();
 
-    studentDoc.parent_user_id = canonicalUserId;
-    await studentDoc.save();
+    await persistParentStudentLink(userDoc, studentDoc, canonicalStudentId, canonicalUserId);
+    Object.assign(studentDoc, claimedStudent.toObject ? claimedStudent.toObject() : claimedStudent);
 
     await ParentModel.findOneAndUpdate(
       { $or: [{ user_id: canonicalUserId }, { email: userDoc.email.toLowerCase() }] },
@@ -2350,8 +2447,6 @@ router.post('/parents/unlink-child', authenticateToken, requireRole(['parent']),
     const linkedSet = await getLinkedStudentIdsForParent({
       id: canonicalUserId,
       email: userDoc.email,
-      linked_id: userDoc.linked_id,
-      linked_student_ids: userDoc.linked_student_ids,
     });
 
     if (!linkedSet.has(canonicalStudentId) && !linkedSet.has(String(student_id))) {
@@ -2365,17 +2460,43 @@ router.post('/parents/unlink-child', authenticateToken, requireRole(['parent']),
       String(student_id),
     ]);
 
-    const filteredIds = (userDoc.linked_student_ids || []).filter((id: string) => !idsToPull.has(id));
-    userDoc.linked_student_ids = filteredIds;
-    if (!userDoc.linked_id || idsToPull.has(userDoc.linked_id)) {
-      userDoc.linked_id = filteredIds.length > 0 ? filteredIds[0] : '';
+    const idsToRemove = Array.from(idsToPull).filter(Boolean);
+    // Update both authoritative link fields in one atomic MongoDB pipeline.
+    // Otherwise a request between $pull and a later linked_id update could re-read
+    // the legacy primary link and temporarily restore access after unlink.
+    const remainingLinksExpression = {
+      $filter: {
+        input: { $ifNull: ['$linked_student_ids', []] },
+        as: 'linkedId',
+        cond: { $not: [{ $in: ['$$linkedId', idsToRemove] }] },
+      },
+    };
+    const unlinkResult = await UserModel.updateOne(
+      { _id: userDoc._id, role: 'parent' },
+      [{
+        $set: {
+          linked_student_ids: remainingLinksExpression,
+          linked_id: {
+            $cond: [
+              { $in: [{ $ifNull: ['$linked_id', ''] }, idsToRemove] },
+              { $ifNull: [{ $arrayElemAt: [remainingLinksExpression, 0] }, ''] },
+              { $ifNull: ['$linked_id', ''] },
+            ],
+          },
+        },
+      }],
+      { updatePipeline: true }
+    );
+    if (unlinkResult.matchedCount !== 1) {
+      return res.status(409).json({ error: 'Parent account changed during unlink. Refresh and try again.' });
     }
-    await userDoc.save();
 
-    if (studentDoc.parent_user_id === canonicalUserId) {
-      studentDoc.parent_user_id = '';
-      await studentDoc.save();
-    }
+    // Release the student's ownership only when it is still assigned to this parent.
+    // This allows a different verified parent to link the student after unlink.
+    await StudentModel.updateOne(
+      buildStudentParentReleaseFilter(studentDoc._id, canonicalUserId, userDoc._id.toString()),
+      { $unset: { parent_user_id: '' } }
+    );
 
     await ParentModel.updateMany(
       { $or: [{ user_id: canonicalUserId }, { email: userDoc.email.toLowerCase() }] },
@@ -2390,12 +2511,15 @@ router.post('/parents/unlink-child', authenticateToken, requireRole(['parent']),
       `Student: ${studentDoc.full_name}`
     );
 
-    const remainingLinked = await fetchLinkedStudentsForParentUser(canonicalUserId, userDoc.email);
+    const [remainingLinked, finalUserDoc] = await Promise.all([
+      fetchLinkedStudentsForParentUser(canonicalUserId, userDoc.email),
+      UserModel.findOne({ _id: userDoc._id, role: 'parent' }).lean(),
+    ]);
     return res.json({
       success: true,
       message: `Successfully unlinked ${studentDoc.full_name} from your account.`,
       linked_students: remainingLinked,
-      active_child_id: userDoc.linked_id || undefined,
+      active_child_id: finalUserDoc?.linked_id || undefined,
     });
   } catch (err: any) {
     return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to unlink child') });
@@ -2685,16 +2809,16 @@ router.get('/admin/parent-links', authenticateToken, requireRole(['super_admin',
       if (Array.isArray(u.linked_student_ids)) {
         u.linked_student_ids.forEach((id: string) => parentStudentIds.add(id));
       }
-      if (prof && Array.isArray(prof.linked_students)) {
-        prof.linked_students.forEach((id: string) => parentStudentIds.add(id));
-      }
-      allStudents.forEach(s => {
-        if (s.parent_user_id === uid) parentStudentIds.add(s.id);
-      });
-
-      const linked = allStudents.filter(
-        s => parentStudentIds.has(s.id) || parentStudentIds.has(s.admission_no)
-      );
+      // Admin relationship view follows the same authoritative source as parent access:
+      // current User.linked_id / User.linked_student_ids only. Denormalized Parent and
+      // Student pointers are intentionally excluded so stale links cannot reappear.
+      const linked = studentDocs
+        .filter((student: any) => isParentLinkedToStudent(parentStudentIds, [
+          student.record_id,
+          student._id?.toString(),
+          student.admission_no,
+        ]))
+        .map(toStudentDto);
       return {
         id: uid,
         name: u.name,
@@ -2744,18 +2868,14 @@ router.post('/admin/parent-links/link', authenticateToken, requireRole(['super_a
     const canonicalParentId = parentUser.record_id || parentUser._id.toString();
     const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
 
-    const nextLinked = Array.isArray(parentUser.linked_student_ids) ? [...parentUser.linked_student_ids] : [];
-    if (!nextLinked.includes(canonicalStudentId)) {
-      nextLinked.push(canonicalStudentId);
+    // Admin linking uses the same atomic ownership claim as the parent portal.
+    // It cannot silently take a child away from another active parent account.
+    const claimedStudent = await claimStudentForParent(studentDoc, canonicalParentId, parentUser._id.toString());
+    if (!claimedStudent) {
+      return res.status(409).json({ error: 'This student is already linked to another parent account. Unlink the existing relationship first.' });
     }
-    parentUser.linked_student_ids = nextLinked;
-    if (!parentUser.linked_id) {
-      parentUser.linked_id = canonicalStudentId;
-    }
-    await parentUser.save();
 
-    studentDoc.parent_user_id = canonicalParentId;
-    await studentDoc.save();
+    await persistParentStudentLink(parentUser, studentDoc, canonicalStudentId, canonicalParentId);
 
     await ParentModel.findOneAndUpdate(
       { $or: [{ user_id: canonicalParentId }, { email: parentUser.email.toLowerCase() }] },
@@ -2790,7 +2910,6 @@ router.post('/admin/parent-links/link', authenticateToken, requireRole(['super_a
   }
 });
 
-// 6. Admin Unlink Student from Parent
 router.post('/admin/parent-links/unlink', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
   const { parent_id, student_id } = req.body || {};
   if (!parent_id || !student_id) {
@@ -2810,28 +2929,57 @@ router.post('/admin/parent-links/unlink', authenticateToken, requireRole(['super
 
     const canonicalParentId = parentUser.record_id || parentUser._id.toString();
     const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
-    const idsToPull = new Set([
+    const linkedSet = await getLinkedStudentIdsForParent({
+      id: canonicalParentId,
+      email: parentUser.email,
+    });
+    if (!linkedSet.has(canonicalStudentId) && !linkedSet.has(String(student_id))) {
+      return res.status(409).json({ error: 'This student is not currently linked to the selected parent account.' });
+    }
+
+    const idsToRemove = Array.from(new Set([
       canonicalStudentId,
       studentDoc._id.toString(),
       studentDoc.admission_no,
       String(student_id),
-    ]);
+    ].filter(Boolean)));
 
-    const filteredIds = (parentUser.linked_student_ids || []).filter((id: string) => !idsToPull.has(id));
-    parentUser.linked_student_ids = filteredIds;
-    if (!parentUser.linked_id || idsToPull.has(parentUser.linked_id)) {
-      parentUser.linked_id = filteredIds.length > 0 ? filteredIds[0] : '';
+    // Keep administrator unlink behavior identical to parent unlink behavior:
+    // current User links are cleared atomically, then only this parent's student claim is released.
+    const remainingLinksExpression = {
+      $filter: {
+        input: { $ifNull: ['$linked_student_ids', []] },
+        as: 'linkedId',
+        cond: { $not: [{ $in: ['$$linkedId', idsToRemove] }] },
+      },
+    };
+    const unlinkResult = await UserModel.updateOne(
+      { _id: parentUser._id, role: 'parent' },
+      [{
+        $set: {
+          linked_student_ids: remainingLinksExpression,
+          linked_id: {
+            $cond: [
+              { $in: [{ $ifNull: ['$linked_id', ''] }, idsToRemove] },
+              { $ifNull: [{ $arrayElemAt: [remainingLinksExpression, 0] }, ''] },
+              { $ifNull: ['$linked_id', ''] },
+            ],
+          },
+        },
+      }],
+      { updatePipeline: true }
+    );
+    if (unlinkResult.matchedCount !== 1) {
+      return res.status(409).json({ error: 'Parent account changed during unlink. Refresh and try again.' });
     }
-    await parentUser.save();
 
-    if (studentDoc.parent_user_id === canonicalParentId || studentDoc.parent_user_id === String(parent_id)) {
-      studentDoc.parent_user_id = '';
-      await studentDoc.save();
-    }
-
+    await StudentModel.updateOne(
+      buildStudentParentReleaseFilter(studentDoc._id, canonicalParentId, parentUser._id.toString()),
+      { $unset: { parent_user_id: '' } }
+    );
     await ParentModel.updateMany(
       { $or: [{ user_id: canonicalParentId }, { email: parentUser.email.toLowerCase() }] },
-      { $pull: { linked_students: { $in: Array.from(idsToPull) } } }
+      { $pull: { linked_students: { $in: idsToRemove } } }
     );
 
     await recordMongoAudit(
@@ -2903,13 +3051,13 @@ router.get('/auth/me', authenticateToken, async (req: AuthenticatedRequest, res:
 // 2. DASHBOARD METRICS
 // ==========================================
 
-router.get('/dashboard/stats', authenticateToken, requireRole(['super_admin', 'admin', 'teacher']), async (req: AuthenticatedRequest, res: Response) => {
+router.get('/dashboard/stats', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   try {
     const isTeacher = req.user?.role === 'teacher';
     const today = new Date().toISOString().split('T')[0];
 
-    const [
+    let [
       totalStudents,
       totalTeachers,
       totalParents,
@@ -2951,8 +3099,40 @@ router.get('/dashboard/stats', authenticateToken, requireRole(['super_admin', 'a
         : FeeModel.find().sort({ created_at: -1, _id: -1 }).lean(),
     ]);
 
+    // Teachers receive dashboard aggregates only for their currently assigned classes.
+    // Never expose school-wide student or attendance totals through a teacher dashboard.
+    if (isTeacher) {
+      const teacher = await getAuthenticatedTeacherMongo(req);
+      const assignedClasses = (teacher?.classes || []).filter(Boolean);
+      if (assignedClasses.length > 0) {
+        const assignedStudentDocs = await StudentModel.find({
+          class_name: { $in: assignedClasses },
+        }).select('record_id admission_no _id').lean();
+        const studentIdentifiers = Array.from(new Set(
+          assignedStudentDocs.flatMap((student: any) => [
+            student.record_id,
+            student.admission_no,
+            student._id?.toString(),
+          ]).filter((value: unknown): value is string => typeof value === 'string' && value.length > 0)
+        ));
+        const scopedAttendance = studentIdentifiers.length > 0
+          ? await AttendanceModel.find({ date: today, student_id: { $in: studentIdentifiers } }).lean()
+          : [];
+        totalStudents = assignedStudentDocs.length;
+        todayAttendanceDocs.splice(0, todayAttendanceDocs.length, ...scopedAttendance);
+      } else {
+        totalStudents = 0;
+        todayAttendanceDocs.splice(0, todayAttendanceDocs.length);
+      }
+    }
+
     const recentAdmissions = recentDocs.map(toAdmissionDto);
-    const totalAnnouncements = publishedAnnCount;
+    const totalAnnouncements = isTeacher
+      ? await AnnouncementModel.countDocuments({
+          published: { $ne: false },
+          audience: { $in: ['All', 'Teachers', 'Public'] },
+        })
+      : publishedAnnCount;
     const activeAnnouncements = publishedAnnCount;
     const recentAnnouncements = recentAnnDocs.map(toAnnouncementDto);
 
@@ -3327,7 +3507,7 @@ router.get('/students/:id', authenticateToken, async (req: AuthenticatedRequest,
       return res.status(404).json({ error: 'Student record not found' });
     }
     const student = toStudentDto(studentDoc);
-    const studentIds = new Set<string>([student.id, studentDoc._id.toString()]);
+    const studentIds = new Set<string>(collectStudentPaymentIdentifiers(studentDoc));
 
     // OBJECT-LEVEL SECURITY CHECK: STUDENT (own record only)
     if (req.user?.role === 'student') {
@@ -3342,11 +3522,11 @@ router.get('/students/:id', authenticateToken, async (req: AuthenticatedRequest,
     // OBJECT-LEVEL SECURITY CHECK: PARENT (explicitly linked child only — NO phone-number matching)
     if (req.user?.role === 'parent') {
       const linkedSet = await getLinkedStudentIdsForParent(req.user);
-      const isLinked =
-        student.parent_user_id === req.user.id ||
-        linkedSet.has(student.id) ||
-        linkedSet.has(studentDoc._id.toString()) ||
-        linkedSet.has(student.admission_no);
+      const isLinked = isParentLinkedToStudent(linkedSet, [
+        student.id,
+        studentDoc._id.toString(),
+        student.admission_no,
+      ]);
       if (!isLinked) {
         return res.status(403).json({ error: 'Access denied: You may only view records for your linked child.' });
       }
@@ -4345,16 +4525,14 @@ router.post('/admin/teacher-requests/:id/approve', authenticateToken, requireRol
       `Approved ${teacherDto.name} (${teacherDto.email}). Status: ${resolvedStatus}, Classes: ${(teacherDoc.classes || []).join(', ')}`
     );
 
-    // 7. Notification for Teacher
-    await NotificationModel.create({
-      notification_id: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      user_id: userDoc.record_id,
+    // 7. Notify the teacher once for this account approval.
+    await createNotificationOnce({
+      actionId: crypto.createHash('sha256').update(`teacher-approved:${userDoc.record_id}`).digest('hex'),
+      userId: userDoc.record_id,
       role: 'teacher',
       title: 'Teacher Account Approved',
       message: `Congratulations ${teacherDto.name}! Your teacher account has been approved by the School Administration. You can now access your teacher portal.`,
-      type: 'info',
-      read: false,
-    }).catch(() => {});
+    }).catch(() => false);
 
     return res.json({
       success: true,
@@ -4471,17 +4649,15 @@ router.post('/admin/teacher-tasks', authenticateToken, requireRole(['super_admin
       assigned_by: req.user?.name || 'Administration',
     });
 
-    // Notify teacher
+    // Notify the assigned teacher once for this persisted task.
     if (teacher?.user_id) {
-      await NotificationModel.create({
-        notification_id: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        user_id: teacher.user_id,
+      await createNotificationOnce({
+        actionId: crypto.createHash('sha256').update(`teacher-task:${taskDoc._id.toString()}`).digest('hex'),
+        userId: teacher.user_id,
         role: 'teacher',
         title: 'New Responsibility Assigned',
         message: `Admin assigned a new duty: "${title}" (Due: ${due_date}). Please review your tasks tab.`,
-        type: 'info',
-        read: false,
-      }).catch(() => {});
+      }).catch(() => false);
     }
 
     await recordMongoAudit(
@@ -5844,7 +6020,7 @@ router.get('/admissions/track/:applicationNo', contactRateLimiter, async (req: R
   }
 });
 
-router.get('/admissions', authenticateToken, requireRole(['super_admin', 'admin', 'teacher']), async (req: AuthenticatedRequest, res: Response) => {
+router.get('/admissions', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
   const { status, class_applying, startDate, endDate, from, to } = req.query;
 
   const rawStart = (startDate ?? from) as string | undefined;
@@ -5918,7 +6094,7 @@ router.get('/admissions', authenticateToken, requireRole(['super_admin', 'admin'
   }
 });
 
-router.put('/admissions/:id/status', authenticateToken, requireRole(['super_admin', 'admin', 'teacher']), async (req: AuthenticatedRequest, res: Response) => {
+router.put('/admissions/:id/status', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
   const { status, remarks } = req.body || {};
   if (!status) {
     return res.status(400).json({ error: 'Status is required' });
@@ -6330,9 +6506,13 @@ router.post('/attendance/batch', authenticateToken, requireRole(['super_admin', 
       const assignedClasses = teacher?.classes || [];
       for (const { rec, studentDoc } of resolvedEntries) {
         const targetClass = String(rec.class_name || studentDoc.class_name || '');
+        const requestedSection = String(rec.section || studentDoc.section || 'A').trim();
+        const actualSection = String(studentDoc.section || 'A').trim();
         if (
           !isClassAssignedToTeacher(assignedClasses, targetClass) ||
-          !isClassAssignedToTeacher(assignedClasses, studentDoc.class_name)
+          !isClassAssignedToTeacher(assignedClasses, studentDoc.class_name) ||
+          targetClass.trim().toLocaleLowerCase('en') !== String(studentDoc.class_name || '').trim().toLocaleLowerCase('en') ||
+          requestedSection.toLocaleLowerCase('en') !== actualSection.toLocaleLowerCase('en')
         ) {
           return res.status(403).json({
             error: `Access denied: You are not assigned to class "${targetClass || studentDoc.class_name}".`,
@@ -6361,9 +6541,9 @@ router.post('/attendance/batch', authenticateToken, requireRole(['super_admin', 
                 existing.record_id ||
                 `att_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
               student_id: canonicalStudentId,
-              student_name: rec.student_name || studentDoc.full_name,
-              class_name: rec.class_name || studentDoc.class_name,
-              section: rec.section || studentDoc.section || 'A',
+              student_name: studentDoc.full_name,
+              class_name: studentDoc.class_name,
+              section: studentDoc.section || 'A',
               date: cleanDate,
               status: rec.status,
               remarks: nextRemarks,
@@ -6378,9 +6558,9 @@ router.post('/attendance/batch', authenticateToken, requireRole(['super_admin', 
           {
             $set: {
               student_id: canonicalStudentId,
-              student_name: rec.student_name || studentDoc.full_name,
-              class_name: rec.class_name || studentDoc.class_name,
-              section: rec.section || studentDoc.section || 'A',
+              student_name: studentDoc.full_name,
+              class_name: studentDoc.class_name,
+              section: studentDoc.section || 'A',
               date: cleanDate,
               status: rec.status,
               remarks: rec.remarks ? String(rec.remarks) : '',
@@ -6955,7 +7135,7 @@ router.delete('/fees/:id', authenticateToken, requireRole(['super_admin', 'admin
 // ==========================================
 
 // 1. Get Outstanding Fee Summary for Parent or Student
-router.get('/parent/fees/summary', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/parent/fees/summary', authenticateToken, requireRole(['parent', 'student', 'admin', 'super_admin']), async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   try {
     const user = req.user!;
@@ -6965,11 +7145,13 @@ router.get('/parent/fees/summary', authenticateToken, async (req: AuthenticatedR
       const linked = await getLinkedStudentIdsForParent(user);
       studentIds = Array.from(linked);
     } else if (user.role === 'student') {
-      const studentDoc = await StudentModel.findOne({
-        $or: [{ user_id: user.id }, { email: user.email.toLowerCase() }],
-      }).lean();
+      const studentDoc = user.linked_id
+        ? await findStudentByAnyId(user.linked_id)
+        : await StudentModel.findOne({
+            $or: [{ user_id: user.id }, { email: user.email.toLowerCase() }],
+          }).lean();
       if (studentDoc) {
-        studentIds = [studentDoc.record_id || studentDoc._id.toString()];
+        studentIds = collectStudentPaymentIdentifiers(studentDoc);
       }
     } else if (req.query.student_id) {
       studentIds = [String(req.query.student_id).trim()];
@@ -7067,7 +7249,7 @@ router.get('/payments/settings', async (_req: Request, res: Response) => {
 });
 
 // 3. Initiate Payment (Parent Portal: Online Gateway Sandbox or Bank Deposit)
-router.post('/parent/payments/initiate', authenticateToken, sensitiveActionRateLimiter, async (req: AuthenticatedRequest, res: Response) => {
+router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent', 'student', 'admin', 'super_admin']), sensitiveActionRateLimiter, async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   const user = req.user!;
   const {
@@ -7075,7 +7257,6 @@ router.post('/parent/payments/initiate', authenticateToken, sensitiveActionRateL
     student_id,
     amount,
     method,
-    gateway_provider,
     bank_name,
     account_number,
     deposit_date,
@@ -7097,20 +7278,19 @@ router.post('/parent/payments/initiate', authenticateToken, sensitiveActionRateL
     return res.status(400).json({ error: 'Fee voucher ID is required' });
   }
 
-  // Authorization check: parent must have child linked
-  if (user.role === 'parent') {
-    const linked = await getLinkedStudentIdsForParent(user);
-    if (!linked.has(cleanStudentId)) {
-      return res.status(403).json({ error: 'Access denied: You can only make payments for your linked children' });
-    }
-  } else if (user.role === 'student') {
-    const studentDoc = await StudentModel.findOne({
-      $or: [{ user_id: user.id }, { email: user.email.toLowerCase() }],
-    }).lean();
-    const myId = studentDoc?.record_id || studentDoc?._id.toString();
-    if (myId !== cleanStudentId) {
-      return res.status(403).json({ error: 'Access denied: Students can only pay their own fee vouchers' });
-    }
+  if (!isSafeMediaOrWebUrl(receipt_attachment_url, true)) {
+    return res.status(400).json({ error: 'Receipt attachment must be a safe image or HTTPS/HTTP URL.' });
+  }
+
+  const paymentMode = getParentPaymentMethodMode(method);
+  if (paymentMode === 'gateway_unavailable') {
+    return res.status(503).json({
+      error: 'Online payment gateway integration is not configured. No payment was charged or recorded. Please use bank deposit/transfer and wait for school verification.',
+      code: 'PAYMENT_GATEWAY_UNAVAILABLE',
+    });
+  }
+  if (paymentMode === 'unsupported') {
+    return res.status(400).json({ error: 'Unsupported payment method. Use Bank Deposit or Bank Transfer.' });
   }
 
   try {
@@ -7119,9 +7299,56 @@ router.post('/parent/payments/initiate', authenticateToken, sensitiveActionRateL
       return res.status(404).json({ error: 'Fee voucher not found' });
     }
 
+    // The voucher itself is the authoritative payment target. Never trust a separate
+    // student_id from the browser without proving it is the same student as the voucher.
+    const feeStudentDoc = await findStudentByAnyId(String(feeDoc.student_id || ''));
+    if (!feeStudentDoc) {
+      return res.status(404).json({ error: 'The student linked to this fee voucher could not be found.' });
+    }
+    const feeStudentAliases = [
+      feeStudentDoc.record_id,
+      feeStudentDoc._id.toString(),
+      feeStudentDoc.admission_no,
+    ].filter(Boolean) as string[];
+
+    if (cleanStudentId) {
+      const requestedStudentDoc = await findStudentByAnyId(cleanStudentId);
+      if (!requestedStudentDoc) {
+        return res.status(404).json({ error: 'Requested student record not found.' });
+      }
+      const requestedStudentAliases = [
+        requestedStudentDoc.record_id,
+        requestedStudentDoc._id.toString(),
+        requestedStudentDoc.admission_no,
+      ].filter(Boolean) as string[];
+      if (!areSameStudentIdentity(feeStudentAliases, requestedStudentAliases)) {
+        return res.status(403).json({ error: 'Access denied: The selected fee voucher does not belong to the requested student.' });
+      }
+    }
+
+    if (user.role === 'parent') {
+      const linked = await getLinkedStudentIdsForParent(user);
+      if (!isParentLinkedToStudent(linked, feeStudentAliases)) {
+        return res.status(403).json({ error: 'Access denied: You can only make payments for your linked children.' });
+      }
+    } else if (user.role === 'student') {
+      const ownStudentDoc = user.linked_id
+        ? await findStudentByAnyId(user.linked_id)
+        : await StudentModel.findOne({ user_id: user.id }).lean();
+      if (!ownStudentDoc) {
+        return res.status(403).json({ error: 'Access denied: Student profile is not linked to this account.' });
+      }
+      const ownStudentAliases = [
+        ownStudentDoc.record_id,
+        ownStudentDoc._id.toString(),
+        ownStudentDoc.admission_no,
+      ].filter(Boolean) as string[];
+      if (!areSameStudentIdentity(ownStudentAliases, feeStudentAliases)) {
+        return res.status(403).json({ error: 'Access denied: Students can only pay their own fee vouchers.' });
+      }
+    }
+
     const currentPending = Number(feeDoc.pending_amount) || 0;
-    const currentPaid = Number(feeDoc.paid_amount) || 0;
-    const currentTotal = Number(feeDoc.total_amount) || 0;
 
     if (currentPending <= 0 || feeDoc.status === 'Paid') {
       return res.status(400).json({ error: 'Fee voucher is already fully settled. No payment required.' });
@@ -7152,133 +7379,26 @@ router.post('/parent/payments/initiate', authenticateToken, sensitiveActionRateL
 
     const parentName = parentDoc?.name || user.name || 'Parent/Guardian';
     const resolvedParentPhone = parent_phone || parentDoc?.phone || user.phone || '';
-    const paymentRef = `PAY-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-    const isOnlineGateway =
-      method === 'Online Gateway' ||
-      method === 'Easypaisa / JazzCash' ||
-      method === 'JazzCash' ||
-      method === 'Easypaisa' ||
-      method === 'Raast';
-
-    if (isOnlineGateway) {
-      // Instant automated sandbox / live verification & settlement
-      const receiptNo = `REC-${Date.now().toString().slice(-6)}${Math.floor(100 + Math.random() * 900)}`;
-      const nextPaid = currentPaid + paymentAmount;
-      const nextPending = Math.max(0, currentTotal - nextPaid);
-      const nextStatus: FeeVoucherStatus = nextPending === 0 ? 'Paid' : 'Partial';
-
-      const paymentRecord = {
-        receipt_no: receiptNo,
-        date: new Date().toISOString().split('T')[0],
-        amount: paymentAmount,
-        method: (gateway_provider === 'JazzCash' || gateway_provider === 'Easypaisa' || method === 'Easypaisa / JazzCash'
-          ? 'Easypaisa / JazzCash'
-          : 'Bank Transfer') as any,
-        transaction_id: paymentRef,
-        notes: `Online Gateway (${gateway_provider || method}) [Verified Instant Settlement]`,
-      };
-
-      const paymentDoc = await FeePaymentModel.create({
-        fee_id: feeDoc.voucher_id || feeDoc._id.toString(),
-        student_id: feeDoc.student_id,
-        payment_reference: paymentRef,
-        receipt_no: receiptNo,
-        transaction_id: paymentRef,
-        date: new Date().toISOString().split('T')[0],
-        amount: paymentAmount,
-        method: paymentRecord.method,
-        status: 'Paid',
-        verification_status: 'Verified',
-        parent_user_id: user.id,
-        parent_name: parentName,
-        parent_phone: resolvedParentPhone,
-        student_name: feeDoc.student_name,
-        admission_no: feeDoc.student_id,
-        class_name: feeDoc.class_name,
-        fee_month: feeDoc.fee_month,
-        year: feeDoc.year,
-        gateway_provider: gateway_provider || method,
-        notes: notes || 'Instant online payment via school portal',
-        received_by: `Gateway (${gateway_provider || method})`,
-        verified_by_id: user.id,
-        verified_by_name: 'Online Payment Gateway',
-        verified_at: new Date().toISOString(),
+    // Require a stable bank reference: the unique transaction_id index prevents duplicate submissions on retry.
+    const cleanSlipRef = normalizeDepositReference(deposit_slip_ref);
+    if (!cleanSlipRef) {
+      return res.status(400).json({
+        error: 'A valid deposit slip reference or bank transaction ID is required. This prevents duplicate payment submissions.',
       });
+    }
 
-      // Atomically update fee voucher
-      const updatedFee = await FeeModel.findOneAndUpdate(
-        { _id: feeDoc._id, pending_amount: { $gte: paymentAmount } },
-        {
-          $set: {
-            paid_amount: nextPaid,
-            pending_amount: nextPending,
-            status: nextStatus,
-          },
-          $push: { payment_history: paymentRecord },
-        },
-        { returnDocument: 'after' }
-      ).lean();
-
-      // Trigger SMS confirmation
-      const smsResult = await sendPaymentApprovalSms({
-        payment_reference: paymentRef,
-        receipt_no: receiptNo,
-        amount: paymentAmount,
-        parent_name: parentName,
-        parent_phone: resolvedParentPhone,
-        student_name: feeDoc.student_name,
-        class_name: feeDoc.class_name,
-      });
-
-      if (smsResult.sent) {
-        await FeePaymentModel.updateOne(
-          { _id: paymentDoc._id },
-          {
-            $set: {
-              sms_status: smsResult.status,
-              sms_message: smsResult.message,
-              sms_sent_at: smsResult.timestamp,
-            },
-          }
-        );
-      }
-
-      // Notifications
-      await NotificationModel.create([
-        {
-          role: 'admin',
-          title: 'Fee Payment Received (Online)',
-          message: `Online payment of PKR ${paymentAmount.toLocaleString()} received for ${feeDoc.student_name} (${feeDoc.class_name}). Ref: ${paymentRef}`,
-          link: '/admin',
-        },
-        {
-          user_id: user.id,
-          role: 'parent',
-          title: 'Fee Payment Confirmed',
-          message: `Your payment of PKR ${paymentAmount.toLocaleString()} for ${feeDoc.student_name} has been processed successfully. Receipt No: ${receiptNo}.`,
-          link: '/student-portal',
-        },
-      ]);
-
-      return res.status(201).json({
-        message: 'Payment completed successfully',
-        payment: toFeePaymentDto(paymentDoc),
-        fee: updatedFee ? toFeeDto(updatedFee) : feeDoc,
-        receipt_no: receiptNo,
-      });
-    } else {
-      // Manual Bank Deposit / Wire Transfer (Requires Admin Verification)
-      const cleanSlipRef = String(deposit_slip_ref || notes || '').trim();
-
-      const paymentDoc = await FeePaymentModel.create({
+    const paymentRef = `PAY-${new Date().getFullYear()}-${crypto.randomUUID()}`;
+    const paymentMethodLabel = String(method || '').trim().toLowerCase() === 'bank transfer' ? 'Bank Transfer' : 'Bank Deposit';
+    // Manual Bank Deposit / Wire Transfer (Requires Admin Verification)
+    const paymentDoc = await FeePaymentModel.create({
         fee_id: feeDoc.voucher_id || feeDoc._id.toString(),
         student_id: feeDoc.student_id,
         payment_reference: paymentRef,
         receipt_no: '',
-        transaction_id: cleanSlipRef || undefined,
+        transaction_id: cleanSlipRef,
         date: deposit_date || new Date().toISOString().split('T')[0],
         amount: paymentAmount,
-        method: (method === 'Bank Transfer' ? 'Bank Transfer' : 'Bank Deposit') as any,
+        method: paymentMethodLabel as any,
         status: 'Pending Verification',
         verification_status: 'Pending',
         parent_user_id: user.id,
@@ -7289,12 +7409,12 @@ router.post('/parent/payments/initiate', authenticateToken, sensitiveActionRateL
         class_name: feeDoc.class_name,
         fee_month: feeDoc.fee_month,
         year: feeDoc.year,
-        bank_name: bank_name || '',
+        bank_name: sanitizePlainText(bank_name, 120),
         account_number: account_number || '',
         deposit_date: deposit_date || new Date().toISOString().split('T')[0],
         deposit_slip_ref: cleanSlipRef,
         receipt_attachment_url: receipt_attachment_url || '',
-        notes: notes || 'Bank deposit submitted by parent, awaiting verification',
+        notes: sanitizePlainText(notes || 'Bank deposit submitted by parent, awaiting verification', 1000),
         received_by: 'Accounts Office (Pending Review)',
       });
 
@@ -7308,34 +7428,35 @@ router.post('/parent/payments/initiate', authenticateToken, sensitiveActionRateL
         class_name: feeDoc.class_name,
       });
 
-      if (smsResult.sent) {
-        await FeePaymentModel.updateOne(
-          { _id: paymentDoc._id },
-          {
-            $set: {
-              sms_status: smsResult.status,
-              sms_message: smsResult.message,
-              sms_sent_at: smsResult.timestamp,
-            },
-          }
-        );
+      await FeePaymentModel.updateOne(
+      { _id: paymentDoc._id },
+      {
+        $set: {
+          sms_status: smsResult.status,
+          sms_message: smsResult.message,
+          sms_sent_at: smsResult.timestamp,
+        },
       }
+    );
 
-      // Notify Admin Dashboard
-      await NotificationModel.create([
-        {
+      // Notify Admin and parent exactly once for this persisted payment action.
+      const notificationActionId = `fee-submit:${paymentDoc._id.toString()}`;
+      await Promise.all([
+        createNotificationOnce({
+          actionId: notificationActionId,
           role: 'admin',
           title: 'New Fee Payment Verification Required',
           message: `Parent submitted Bank Deposit of PKR ${paymentAmount.toLocaleString()} for ${feeDoc.student_name} (${feeDoc.class_name}). Slip Ref: ${cleanSlipRef || paymentRef}.`,
           link: '/admin',
-        },
-        {
-          user_id: user.id,
+        }),
+        createNotificationOnce({
+          actionId: notificationActionId,
+          userId: user.id,
           role: 'parent',
           title: 'Payment Submission Received',
           message: `Your payment voucher submission of PKR ${paymentAmount.toLocaleString()} (Ref: ${paymentRef}) has been received and is pending verification.`,
           link: '/student-portal',
-        },
+        }),
       ]);
 
       return res.status(201).json({
@@ -7343,14 +7464,71 @@ router.post('/parent/payments/initiate', authenticateToken, sensitiveActionRateL
         payment: toFeePaymentDto(paymentDoc),
         fee: toFeeDto(feeDoc),
       });
-    }
   } catch (err: any) {
+    if (err?.code === 11000) {
+      // A prior attempt may have persisted the payment before notification delivery failed.
+      // Recover only for the same authenticated parent and the exact same payment details.
+      try {
+        const retryFeeDoc = await FeeModel.findOne(buildFeeLookupFilter(cleanFeeId)).lean();
+        const canonicalVoucherId = retryFeeDoc?.voucher_id || retryFeeDoc?._id?.toString();
+        const existingPayment = await FeePaymentModel.findOne({
+          transaction_id: normalizeDepositReference(deposit_slip_ref),
+          parent_user_id: user.id,
+        }).lean();
+
+        const expectedMethod = String(method || '').trim().toLowerCase() === 'bank transfer' ? 'Bank Transfer' : 'Bank Deposit';
+        const exactRetry = Boolean(
+          retryFeeDoc &&
+          isExactParentPaymentRetry(existingPayment, {
+            feeId: String(canonicalVoucherId || ''),
+            studentId: String(retryFeeDoc.student_id || ''),
+            amount: paymentAmount,
+            method: expectedMethod,
+            parentUserId: user.id,
+          })
+        );
+
+        if (exactRetry && retryFeeDoc && existingPayment) {
+          const notificationActionId = `fee-submit:${existingPayment._id.toString()}`;
+          await Promise.all([
+            createNotificationOnce({
+              actionId: notificationActionId,
+              role: 'admin',
+              title: 'New Fee Payment Verification Required',
+              message: `Parent submitted Bank Deposit of PKR ${paymentAmount.toLocaleString()} for ${retryFeeDoc.student_name} (${retryFeeDoc.class_name}). Slip Ref: ${normalizeDepositReference(deposit_slip_ref)}.`,
+              link: '/admin',
+            }),
+            createNotificationOnce({
+              actionId: notificationActionId,
+              userId: user.id,
+              role: 'parent',
+              title: 'Payment Submission Received',
+              message: `Your payment voucher submission of PKR ${paymentAmount.toLocaleString()} (Ref: ${existingPayment.payment_reference}) has been received and is pending verification.`,
+              link: '/student-portal',
+            }),
+          ]);
+
+          return res.status(200).json({
+            message: 'This payment was already received. Its notifications have been checked safely.',
+            payment: toFeePaymentDto(existingPayment),
+            fee: toFeeDto(retryFeeDoc),
+            idempotent_replay: true,
+          });
+        }
+      } catch (recoveryError) {
+        return sendRouteError(res, recoveryError, 'Unable to safely recover the existing payment submission.');
+      }
+
+      return res.status(409).json({
+        error: 'This bank deposit reference has already been submitted. Check payment history before retrying.',
+      });
+    }
     return sendRouteError(res, err, 'Failed to process fee payment');
   }
 });
 
 // 4. Parent Payment History
-router.get('/parent/payments/history', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/parent/payments/history', authenticateToken, requireRole(['parent', 'student', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   try {
     const user = req.user!;
@@ -7359,18 +7537,20 @@ router.get('/parent/payments/history', authenticateToken, async (req: Authentica
     if (user.role === 'parent') {
       const linked = await getLinkedStudentIdsForParent(user);
       const studentIds = Array.from(linked);
-      query = {
-        $or: [
-          { parent_user_id: user.id },
-          { student_id: { $in: studentIds } },
-        ],
-      };
+      // A stale denormalized parent_user_id must never expose a former child's payment history.
+      // Empty link sets intentionally produce student_id: { $in: [] }, which returns no records.
+      query = buildParentPaymentHistoryFilter(linked);
     } else if (user.role === 'student') {
-      const studentDoc = await StudentModel.findOne({
-        $or: [{ user_id: user.id }, { email: user.email.toLowerCase() }],
-      }).lean();
-      const myId = studentDoc?.record_id || studentDoc?._id.toString();
-      query = { student_id: myId };
+      const studentDoc = user.linked_id
+        ? await findStudentByAnyId(user.linked_id)
+        : await StudentModel.findOne({
+            $or: [{ user_id: user.id }, { email: user.email.toLowerCase() }],
+          }).lean();
+      if (!studentDoc) {
+        return res.json([]);
+      }
+      const studentIds = collectStudentPaymentIdentifiers(studentDoc);
+      query = { student_id: { $in: studentIds } };
     } else {
       query = {};
     }
@@ -7457,68 +7637,111 @@ router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['supe
   const paymentId = String(req.params.id || '').trim();
 
   try {
-    const paymentDoc = await FeePaymentModel.findById(paymentId);
-    if (!paymentDoc) {
-      return res.status(404).json({ error: 'Payment record not found' });
-    }
-
-    if (paymentDoc.verification_status === 'Verified' || paymentDoc.status === 'Paid') {
-      return res.status(400).json({ error: 'This payment has already been verified and marked as Paid.' });
-    }
-
-    const feeDoc = await FeeModel.findOne(buildFeeLookupFilter(paymentDoc.fee_id)).lean();
-    if (!feeDoc) {
-      return res.status(404).json({ error: 'Associated fee voucher not found in database' });
-    }
-
-    const currentPending = Number(feeDoc.pending_amount) || 0;
-    const currentPaid = Number(feeDoc.paid_amount) || 0;
-    const currentTotal = Number(feeDoc.total_amount) || 0;
-
-    if (paymentDoc.amount > currentPending) {
-      return res.status(400).json({
-        error: `Approved payment amount (PKR ${paymentDoc.amount.toLocaleString()}) exceeds current remaining balance (PKR ${currentPending.toLocaleString()}).`,
+    if (!(await doesMongoSupportTransactions())) {
+      return res.status(503).json({
+        error: 'Payment approval requires a transaction-capable MongoDB deployment. No payment status or fee balance was changed.',
       });
     }
 
-    const receiptNo = `REC-${Date.now().toString().slice(-6)}${Math.floor(100 + Math.random() * 900)}`;
-    const nextPaid = currentPaid + paymentDoc.amount;
-    const nextPending = Math.max(0, currentTotal - nextPaid);
-    const nextStatus: FeeVoucherStatus = nextPending === 0 ? 'Paid' : 'Partial';
+    let paymentDoc: any = null;
+    let feeDoc: any = null;
+    let updatedFee: any = null;
+    let receiptNo = '';
+    let idempotentReplay = false;
+    const session = await mongoose.startSession();
+    try {
+      await session.withTransaction(async () => {
+        const pendingPayment = await FeePaymentModel.findOne({
+          _id: paymentId,
+          status: 'Pending Verification',
+          verification_status: 'Pending',
+        }).session(session);
+        if (!pendingPayment) {
+          const existing = await FeePaymentModel.findById(paymentId).session(session);
+          if (!existing) {
+            throw Object.assign(new Error('Payment record not found'), { statusCode: 404 });
+          }
+          if (existing.status === 'Paid' && existing.verification_status === 'Verified' && existing.receipt_no) {
+            paymentDoc = existing;
+            receiptNo = existing.receipt_no;
+            feeDoc = await FeeModel.findOne(buildFeeLookupFilter(existing.fee_id)).session(session).lean();
+            if (!feeDoc) {
+              throw Object.assign(new Error('Associated fee voucher not found in database'), { statusCode: 404 });
+            }
+            idempotentReplay = true;
+            return;
+          }
+          throw Object.assign(new Error('This payment is no longer pending verification. It may already have been approved or rejected.'), { statusCode: 409 });
+        }
 
-    const paymentRecord = {
-      receipt_no: receiptNo,
-      date: new Date().toISOString().split('T')[0],
-      amount: paymentDoc.amount,
-      method: paymentDoc.method,
-      transaction_id: paymentDoc.deposit_slip_ref || paymentDoc.payment_reference,
-      notes: `Bank Deposit Approved by ${req.user!.name} (Ref: ${paymentDoc.payment_reference})`,
-    };
+        const currentFee = await FeeModel.findOne(buildFeeLookupFilter(pendingPayment.fee_id)).session(session).lean();
+        if (!currentFee) {
+          throw Object.assign(new Error('Associated fee voucher not found in database'), { statusCode: 404 });
+        }
 
-    // Update payment document
-    paymentDoc.status = 'Paid';
-    paymentDoc.verification_status = 'Verified';
-    paymentDoc.receipt_no = receiptNo;
-    paymentDoc.verified_by_id = req.user!.id;
-    paymentDoc.verified_by_name = req.user!.name;
-    paymentDoc.verified_at = new Date().toISOString();
-    paymentDoc.received_by = req.user!.name;
-    await paymentDoc.save();
+        const currentPending = Number(currentFee.pending_amount) || 0;
+        if (pendingPayment.amount > currentPending) {
+          throw Object.assign(new Error(
+            `Approved payment amount (PKR ${pendingPayment.amount.toLocaleString()}) exceeds current remaining balance (PKR ${currentPending.toLocaleString()}).`
+          ), { statusCode: 409 });
+        }
 
-    // Atomically update fee voucher
-    const updatedFee = await FeeModel.findOneAndUpdate(
-      { _id: feeDoc._id, pending_amount: { $gte: paymentDoc.amount } },
-      {
-        $set: {
-          paid_amount: nextPaid,
-          pending_amount: nextPending,
-          status: nextStatus,
-        },
-        $push: { payment_history: paymentRecord },
-      },
-      { returnDocument: 'after' }
-    ).lean();
+        receiptNo = `REC-${Date.now().toString().slice(-6)}${Math.floor(100 + Math.random() * 900)}`;
+        const nextPending = Math.max(0, currentPending - pendingPayment.amount);
+        const nextStatus: FeeVoucherStatus = nextPending === 0 ? 'Paid' : 'Partial';
+        const paymentRecord = {
+          receipt_no: receiptNo,
+          date: new Date().toISOString().split('T')[0],
+          amount: pendingPayment.amount,
+          method: pendingPayment.method,
+          transaction_id: pendingPayment.deposit_slip_ref || pendingPayment.payment_reference,
+          notes: `Bank Deposit Approved by ${req.user!.name} (Ref: ${pendingPayment.payment_reference})`,
+        };
 
+        updatedFee = await FeeModel.findOneAndUpdate(
+          { _id: currentFee._id, pending_amount: { $gte: pendingPayment.amount } },
+          {
+            $inc: { paid_amount: pendingPayment.amount, pending_amount: -pendingPayment.amount },
+            $set: { status: nextStatus },
+            $push: { payment_history: paymentRecord },
+          },
+          { session, returnDocument: 'after' }
+        ).lean();
+        if (!updatedFee) {
+          throw Object.assign(new Error('Voucher balance changed concurrently. Refresh and retry approval.'), { statusCode: 409 });
+        }
+
+        paymentDoc = await FeePaymentModel.findOneAndUpdate(
+          {
+            _id: pendingPayment._id,
+            status: 'Pending Verification',
+            verification_status: 'Pending',
+          },
+          {
+            $set: {
+              status: 'Paid',
+              verification_status: 'Verified',
+              receipt_no: receiptNo,
+              verified_by_id: req.user!.id,
+              verified_by_name: req.user!.name,
+              verified_at: new Date().toISOString(),
+              received_by: req.user!.name,
+            },
+          },
+          { session, new: true }
+        );
+        if (!paymentDoc) {
+          throw Object.assign(new Error('Payment was already processed by another administrator. No changes were committed.'), { statusCode: 409 });
+        }
+        feeDoc = currentFee;
+      });
+    } finally {
+      await session.endSession();
+    }
+
+    // On an exact replay, retry only the idempotent in-app notification.
+    // Do not repeat SMS side effects or audit entries.
+    if (!idempotentReplay) {
     // Send SMS Confirmation to parent
     const smsResult = await sendPaymentApprovalSms({
       payment_reference: paymentDoc.payment_reference,
@@ -7530,37 +7753,39 @@ router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['supe
       class_name: paymentDoc.class_name || feeDoc.class_name,
     });
 
-    if (smsResult.sent) {
-      await FeePaymentModel.updateOne(
-        { _id: paymentDoc._id },
-        {
-          $set: {
-            sms_status: smsResult.status,
-            sms_message: smsResult.message,
-            sms_sent_at: smsResult.timestamp,
-          },
-        }
-      );
-    }
+    await FeePaymentModel.updateOne(
+      { _id: paymentDoc._id },
+      {
+        $set: {
+          sms_status: smsResult.status,
+          sms_message: smsResult.message,
+          sms_sent_at: smsResult.timestamp,
+        },
+      }
+    );
 
-    // Notify Parent in-app
+    }
+    // This idempotent write runs on both first attempt and retry, recovering
+    // the notification if the payment transaction committed before a failure.
     if (paymentDoc.parent_user_id) {
-      await NotificationModel.create({
-        user_id: paymentDoc.parent_user_id,
+      await createNotificationOnce({
+        actionId: `fee-approve:${paymentDoc._id.toString()}`,
+        userId: paymentDoc.parent_user_id,
         role: 'parent',
         title: 'Fee Payment Approved & Receipt Issued',
         message: `Your deposit of PKR ${paymentDoc.amount.toLocaleString()} for ${paymentDoc.student_name || feeDoc.student_name} has been verified. Official Receipt: ${receiptNo}.`,
         link: '/student-portal',
       });
     }
-
-    await recordMongoAudit(
-      req.user!,
-      'Approved Fee Payment',
-      'FeePayment',
-      paymentDoc.payment_reference,
-      `Verified deposit of PKR ${paymentDoc.amount} for ${paymentDoc.student_name}. Receipt: ${receiptNo}`
-    );
+    if (!idempotentReplay) {
+      await recordMongoAudit(
+        req.user!,
+        'Approved Fee Payment',
+        'FeePayment',
+        paymentDoc.payment_reference,
+        `Verified deposit of PKR ${paymentDoc.amount} for ${paymentDoc.student_name}. Receipt: ${receiptNo}`
+      );
+    }
 
     return res.json({
       message: 'Payment verified and approved successfully',
@@ -7569,6 +7794,9 @@ router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['supe
       receipt_no: receiptNo,
     });
   } catch (err: any) {
+    if (err?.statusCode === 404 || err?.statusCode === 409) {
+      return res.status(err.statusCode).json({ error: sanitizeErrorMessage(err.message) });
+    }
     return sendRouteError(res, err, 'Failed to approve payment');
   }
 });
@@ -7585,23 +7813,42 @@ router.post('/admin/payments/:id/reject', authenticateToken, requireRole(['super
   }
 
   try {
-    const paymentDoc = await FeePaymentModel.findById(paymentId);
+    let paymentDoc = await FeePaymentModel.findOneAndUpdate(
+      {
+        _id: paymentId,
+        status: 'Pending Verification',
+        verification_status: 'Pending',
+      },
+      {
+        $set: {
+          status: 'Rejected',
+          verification_status: 'Rejected',
+          rejection_reason: cleanReason,
+          verified_by_id: req.user!.id,
+          verified_by_name: req.user!.name,
+          verified_at: new Date().toISOString(),
+        },
+      },
+      { new: true }
+    );
+
+    let idempotentReplay = false;
     if (!paymentDoc) {
-      return res.status(404).json({ error: 'Payment record not found' });
+      const existing = await FeePaymentModel.findById(paymentId).lean();
+      if (!existing) {
+        return res.status(404).json({ error: 'Payment record not found' });
+      }
+      if (existing.status === 'Rejected' && existing.verification_status === 'Rejected') {
+        paymentDoc = existing;
+        idempotentReplay = true;
+      } else {
+        return res.status(409).json({ error: 'This payment is no longer pending verification. It may already have been approved or rejected.' });
+      }
     }
 
-    if (paymentDoc.verification_status === 'Verified' || paymentDoc.status === 'Paid') {
-      return res.status(400).json({ error: 'Cannot reject an already verified and settled payment.' });
-    }
-
-    paymentDoc.status = 'Rejected';
-    paymentDoc.verification_status = 'Rejected';
-    paymentDoc.rejection_reason = cleanReason;
-    paymentDoc.verified_by_id = req.user!.id;
-    paymentDoc.verified_by_name = req.user!.name;
-    paymentDoc.verified_at = new Date().toISOString();
-    await paymentDoc.save();
-
+    // On an exact replay, retry only the idempotent in-app notification.
+    // Do not repeat SMS side effects or audit entries.
+    if (!idempotentReplay) {
     // Send Rejection SMS to Parent
     const smsResult = await sendPaymentRejectionSms(
       {
@@ -7615,36 +7862,38 @@ router.post('/admin/payments/:id/reject', authenticateToken, requireRole(['super
       cleanReason
     );
 
-    if (smsResult.sent) {
-      await FeePaymentModel.updateOne(
-        { _id: paymentDoc._id },
-        {
-          $set: {
-            sms_status: smsResult.status,
-            sms_message: smsResult.message,
-            sms_sent_at: smsResult.timestamp,
-          },
-        }
-      );
-    }
+    await FeePaymentModel.updateOne(
+      { _id: paymentDoc._id },
+      {
+        $set: {
+          sms_status: smsResult.status,
+          sms_message: smsResult.message,
+          sms_sent_at: smsResult.timestamp,
+        },
+      }
+    );
 
+    }
+    // Use the persisted rejection reason on retries; never let a replay alter it.
     if (paymentDoc.parent_user_id) {
-      await NotificationModel.create({
-        user_id: paymentDoc.parent_user_id,
+      await createNotificationOnce({
+        actionId: `fee-reject:${paymentDoc._id.toString()}`,
+        userId: paymentDoc.parent_user_id,
         role: 'parent',
         title: 'Fee Payment Rejected',
-        message: `Your payment Ref: ${paymentDoc.payment_reference} for ${paymentDoc.student_name} was rejected. Reason: ${cleanReason}`,
+        message: `Your payment Ref: ${paymentDoc.payment_reference} for ${paymentDoc.student_name} was rejected. Reason: ${paymentDoc.rejection_reason || cleanReason}`,
         link: '/student-portal',
       });
     }
-
-    await recordMongoAudit(
-      req.user!,
-      'Rejected Fee Payment',
-      'FeePayment',
-      paymentDoc.payment_reference,
-      `Rejected deposit of PKR ${paymentDoc.amount} for ${paymentDoc.student_name}. Reason: ${cleanReason}`
-    );
+    if (!idempotentReplay) {
+      await recordMongoAudit(
+        req.user!,
+        'Rejected Fee Payment',
+        'FeePayment',
+        paymentDoc.payment_reference,
+        `Rejected deposit of PKR ${paymentDoc.amount} for ${paymentDoc.student_name}. Reason: ${paymentDoc.rejection_reason || cleanReason}`
+      );
+    }
 
     return res.json({
       message: 'Payment rejected',
@@ -8422,7 +8671,15 @@ router.get('/results', authenticateToken, async (req: AuthenticatedRequest, res:
     // Object-level isolation: teachers only see results for their assigned classes
     if (req.user?.role === 'teacher') {
       const teacher = await getAuthenticatedTeacherMongo(req);
-      const assignedClasses = teacher?.classes || [];
+      if (!teacher) {
+        return res.status(404).json({ error: 'Teacher profile not linked.' });
+      }
+      const assignedClasses = teacher.classes || [];
+      const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter(Boolean)));
+      const assignmentDocs = await TeacherAssignmentModel.find({
+        teacher_id: { $in: teacherIds },
+      }).select('subject').lean();
+      const allowedSubjects = [teacher.subject, ...assignmentDocs.map((item: any) => item.subject)];
 
       if (class_name) {
         if (!isClassAssignedToTeacher(assignedClasses, String(class_name))) {
@@ -8440,7 +8697,10 @@ router.get('/results', authenticateToken, async (req: AuthenticatedRequest, res:
       const docs = await ResultModel.find().sort({ created_at: -1, _id: -1 }).lean();
       let result = docs
         .map(toResultDto)
-        .filter(r => isClassAssignedToTeacher(assignedClasses, r.class_name));
+        .filter(r =>
+          isClassAssignedToTeacher(assignedClasses, r.class_name) &&
+          areAllResultSubjectsAssignedToTeacher(allowedSubjects, r.subjects.map(s => s.subject_name))
+        );
       if (exam_id) result = result.filter(r => r.exam_id === String(exam_id));
       if (resolvedStudentAliases) result = result.filter(r => resolvedStudentAliases!.has(r.student_id));
       if (class_name) result = result.filter(r => r.class_name.toLowerCase() === String(class_name).toLowerCase());
@@ -8509,10 +8769,11 @@ router.post('/results', authenticateToken, requireRole(['super_admin', 'admin', 
     }
     const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
 
+    let authenticatedTeacher: TeacherDto | null = null;
     if (req.user?.role === 'teacher') {
-      const teacher = await getAuthenticatedTeacherMongo(req);
-      const assignedClasses = teacher?.classes || [];
-      if (!isClassAssignedToTeacher(assignedClasses, studentDoc.class_name)) {
+      authenticatedTeacher = await getAuthenticatedTeacherMongo(req);
+      const assignedClasses = authenticatedTeacher?.classes || [];
+      if (!authenticatedTeacher || !isClassAssignedToTeacher(assignedClasses, studentDoc.class_name)) {
         return res.status(403).json({
           error: `Access denied: You are not assigned to class "${studentDoc.class_name}".`,
         });
@@ -8523,6 +8784,25 @@ router.post('/results', authenticateToken, requireRole(['super_admin', 'admin', 
     const exam = examDoc ? toExamDto(examDoc) : null;
     if (!exam) {
       return res.status(400).json({ error: `Referenced exam ID "${cleanExamId}" was not found in the database.` });
+    }
+    if (authenticatedTeacher) {
+      const examClasses = Array.isArray(exam.classes) ? exam.classes : [];
+      if (examClasses.length > 0 && !examClasses.includes('All Classes') &&
+          !examClasses.some((name: string) => isClassAssignedToTeacher([studentDoc.class_name], name))) {
+        return res.status(403).json({ error: 'Access denied: This exam is not assigned to the student class.' });
+      }
+      const teacherIds = Array.from(new Set([authenticatedTeacher.id, req.user?.linked_id, req.user?.id].filter(Boolean)));
+      const assignmentDocs = await TeacherAssignmentModel.find({
+        teacher_id: { $in: teacherIds },
+        class_name: { $regex: new RegExp(`^${escapeRegexLiteral(studentDoc.class_name)}$`, 'i') },
+      }).select('subject').lean();
+      const allowedSubjects = [authenticatedTeacher.subject, ...assignmentDocs.map((item: any) => item.subject)];
+      for (const subject of subjects) {
+        const requested = sanitizePlainText(subject?.subject_name || subject?.subject || '', 120);
+        if (!isExactTeacherSubject(allowedSubjects, requested)) {
+          return res.status(403).json({ error: `Access denied: You are not assigned subject "${requested}".` });
+        }
+      }
     }
 
     const normalizedSubjects: Array<{ subject_name: string; total_marks: number; obtained_marks: number; grade: string }> = [];
@@ -8644,11 +8924,26 @@ router.delete('/results/:id', authenticateToken, requireRole(['super_admin', 'ad
 
     if (req.user?.role === 'teacher') {
       const teacher = await getAuthenticatedTeacherMongo(req);
-      const assignedClasses = teacher?.classes || [];
+      if (!teacher) {
+        return res.status(404).json({ error: 'Teacher profile not linked.' });
+      }
+      const assignedClasses = teacher.classes || [];
       if (!isClassAssignedToTeacher(assignedClasses, existing.class_name)) {
         return res.status(403).json({
           error: `Access denied: You are not assigned to class "${existing.class_name}".`,
         });
+      }
+      const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter(Boolean)));
+      const assignmentDocs = await TeacherAssignmentModel.find({
+        teacher_id: { $in: teacherIds },
+        class_name: { $regex: new RegExp(`^${escapeRegexLiteral(existing.class_name)}$`, 'i') },
+      }).select('subject').lean();
+      const allowedSubjects = [teacher.subject, ...assignmentDocs.map((item: any) => item.subject)];
+      const resultSubjectNames = Array.isArray(existing.subjects)
+        ? existing.subjects.map((item: any) => String(item.subject_name || ''))
+        : [];
+      if (!areAllResultSubjectsAssignedToTeacher(allowedSubjects, resultSubjectNames)) {
+        return res.status(403).json({ error: 'Access denied: You may only manage results for your assigned subjects.' });
       }
     }
 
@@ -8682,11 +8977,26 @@ router.patch('/results/:id/publish', authenticateToken, requireRole(['super_admi
 
     if (req.user?.role === 'teacher') {
       const teacher = await getAuthenticatedTeacherMongo(req);
-      const assignedClasses = teacher?.classes || [];
+      if (!teacher) {
+        return res.status(404).json({ error: 'Teacher profile not linked.' });
+      }
+      const assignedClasses = teacher.classes || [];
       if (!isClassAssignedToTeacher(assignedClasses, existing.class_name)) {
         return res.status(403).json({
           error: `Access denied: You are not assigned to class "${existing.class_name}".`,
         });
+      }
+      const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter(Boolean)));
+      const assignmentDocs = await TeacherAssignmentModel.find({
+        teacher_id: { $in: teacherIds },
+        class_name: { $regex: new RegExp(`^${escapeRegexLiteral(existing.class_name)}$`, 'i') },
+      }).select('subject').lean();
+      const allowedSubjects = [teacher.subject, ...assignmentDocs.map((item: any) => item.subject)];
+      const resultSubjectNames = Array.isArray(existing.subjects)
+        ? existing.subjects.map((item: any) => String(item.subject_name || ''))
+        : [];
+      if (!areAllResultSubjectsAssignedToTeacher(allowedSubjects, resultSubjectNames)) {
+        return res.status(403).json({ error: 'Access denied: You may only manage results for your assigned subjects.' });
       }
     }
 
@@ -9751,13 +10061,7 @@ router.get('/notifications', authenticateToken, async (req: AuthenticatedRequest
     const userRole = req.user!.role;
     const allowedUserIds = await resolveNotificationAllowedUserIds(req.user!);
 
-    const notifs = await NotificationModel.find({
-      $or: [
-        { user_id: { $in: allowedUserIds } },
-        { role: userRole },
-        { role: 'all' },
-      ],
-    })
+    const notifs = await NotificationModel.find(buildNotificationVisibilityFilter(userRole, allowedUserIds))
       .sort({ created_at: -1 })
       .limit(50)
       .lean();
@@ -9779,14 +10083,7 @@ router.get('/notifications/unread-count', authenticateToken, async (req: Authent
     const userRole = req.user!.role;
     const allowedUserIds = await resolveNotificationAllowedUserIds(req.user!);
 
-    const count = await NotificationModel.countDocuments({
-      read: false,
-      $or: [
-        { user_id: { $in: allowedUserIds } },
-        { role: userRole },
-        { role: 'all' },
-      ],
-    });
+    const count = await NotificationModel.countDocuments({ read: false, ...buildNotificationVisibilityFilter(userRole, allowedUserIds) });
 
     return res.json({ unreadCount: count });
   } catch (err: any) {
@@ -9808,12 +10105,7 @@ router.put('/notifications/:id/read', authenticateToken, async (req: Authenticat
     const userRole = req.user!.role;
     const allowedUserIds = await resolveNotificationAllowedUserIds(req.user!);
 
-    const isAdmin = userRole === 'super_admin' || userRole === 'admin';
-    const isAuthorized =
-      isAdmin ||
-      allowedUserIds.includes(notif.user_id) ||
-      notif.role === userRole ||
-      notif.role === 'all';
+    const isAuthorized = canMarkNotificationRead(userRole, allowedUserIds, notif);
 
     if (!isAuthorized) {
       return res.status(403).json({ error: 'Access denied: You may only mark your own notifications as read.' });
@@ -9834,14 +10126,7 @@ router.put('/notifications/mark-all-read', authenticateToken, async (req: Authen
     const allowedUserIds = await resolveNotificationAllowedUserIds(req.user!);
 
     await NotificationModel.updateMany(
-      {
-        read: false,
-        $or: [
-          { user_id: { $in: allowedUserIds } },
-          { role: userRole },
-          { role: 'all' },
-        ],
-      },
+      { read: false, ...buildNotificationVisibilityFilter(userRole, allowedUserIds) },
       { $set: { read: true } }
     );
 
@@ -10240,6 +10525,7 @@ router.post('/upload', sensitiveActionRateLimiter, authenticateToken, async (req
         [
           req.user.linked_id,
           ownDoc?.record_id,
+          ownDoc?.admission_no,
           ownDoc?._id ? ownDoc._id.toString() : '',
         ].filter(Boolean) as string[]
       );
@@ -10251,6 +10537,14 @@ router.post('/upload', sensitiveActionRateLimiter, authenticateToken, async (req
       if (!parentLinked.has(cleanStudentId)) {
         return res.status(403).json({ error: 'Parents may only upload documents for their linked children.' });
       }
+    } else if (req.user?.role === 'teacher') {
+      const teacher = await getAuthenticatedTeacherMongo(req);
+      const targetStudent = await findStudentByAnyId(cleanStudentId);
+      if (!teacher || !targetStudent || !isClassAssignedToTeacher(teacher.classes || [], targetStudent.class_name)) {
+        return res.status(403).json({ error: 'Teachers may only upload documents for students in their assigned classes.' });
+      }
+    } else {
+      return res.status(403).json({ error: 'This account cannot upload documents for a student profile.' });
     }
   }
 
@@ -10325,9 +10619,11 @@ router.get('/documents/:filename', sensitiveActionRateLimiter, authenticateToken
 
     const user = req.user!;
     const isAdmin = user.role === 'super_admin' || user.role === 'admin';
-    let authorized = isAdmin || docMeta.uploaded_by_user_id === user.id;
+    let authorized = isAdmin;
 
     if (!authorized && docMeta.student_id) {
+      // Student-scoped documents follow live ownership/link relationships.
+      // The original uploader does not retain access after a parent-child unlink.
       if (user.role === 'student') {
         const ownDoc = user.linked_id
           ? await findStudentByAnyId(user.linked_id)
@@ -10336,6 +10632,7 @@ router.get('/documents/:filename', sensitiveActionRateLimiter, authenticateToken
           [
             user.linked_id,
             ownDoc?.record_id,
+            ownDoc?.admission_no,
             ownDoc?._id ? ownDoc._id.toString() : '',
           ].filter(Boolean) as string[]
         );
@@ -10343,7 +10640,18 @@ router.get('/documents/:filename', sensitiveActionRateLimiter, authenticateToken
       } else if (user.role === 'parent') {
         const linkedSet = await getLinkedStudentIdsForParent(user);
         authorized = linkedSet.has(docMeta.student_id);
+      } else if (user.role === 'teacher') {
+        const teacher = await getAuthenticatedTeacherMongo(req);
+        const targetStudent = await findStudentByAnyId(docMeta.student_id);
+        authorized = Boolean(
+          teacher &&
+          targetStudent &&
+          isClassAssignedToTeacher(teacher.classes || [], targetStudent.class_name)
+        );
       }
+    } else if (!authorized && !docMeta.student_id) {
+      // Non-student-scoped private documents remain available only to their uploader.
+      authorized = docMeta.uploaded_by_user_id === user.id;
     }
 
     if (!authorized) {
@@ -10621,9 +10929,6 @@ router.post('/portal/ai/query', aiRateLimiter, authenticateToken, requireRole(['
       return res.status(403).json({ error: 'Access denied: You may only query your own authorized academic records.' });
     }
 
-    const allStudentsDocs = await StudentModel.find().lean();
-    const allStudents: StudentDto[] = allStudentsDocs.map(toStudentDto);
-
     // ====================================================
     // STUDENT PORTAL AI
     // ====================================================
@@ -10638,16 +10943,6 @@ router.post('/portal/ai/query', aiRateLimiter, authenticateToken, requireRole(['
       const studentAliasIds = Array.from(
         new Set([student.id, studentDoc.record_id, studentDoc._id ? studentDoc._id.toString() : ''].filter(Boolean))
       );
-
-      // Prevent querying other students by name or roll number (using word boundary check)
-      const otherStudents = allStudents.filter(s => s.id !== student.id);
-      for (const other of otherStudents) {
-        const otherFirst = other.full_name.split(' ')[0].toLowerCase();
-        const otherWordRegex = new RegExp(`\\b${escapeRegexLiteral(otherFirst)}\\b`, 'i');
-        if (otherFirst.length > 2 && otherWordRegex.test(lower) && !student.full_name.toLowerCase().includes(otherFirst)) {
-          return res.status(403).json({ error: 'Access denied: You may only query your own student records.' });
-        }
-      }
 
       await recordMongoAudit(req.user!, 'Queried Student Portal AI', 'Student', student.id, `Query: "${prompt.substring(0, 60)}"`);
 
@@ -10787,32 +11082,20 @@ router.post('/portal/ai/query', aiRateLimiter, authenticateToken, requireRole(['
     // ====================================================
     if (userRole === 'parent') {
       const parentStudentIds = await getLinkedStudentIdsForParent(req.user!);
-      const linkedStudents = allStudents.filter(s => parentStudentIds.has(s.id));
+      const parentStudentDocs = await StudentModel.find(buildParentLinkedStudentFilter(parentStudentIds)).lean();
+      const linkedStudents = parentStudentDocs.map(toStudentDto);
       if (linkedStudents.length === 0) {
         return res.status(404).json({ error: 'No linked children found for this parent account.' });
-      }
-
-      // Check if user is inquiring about an unrelated student by name (word boundary check)
-      const unlinkedStudents = allStudents.filter(s => !parentStudentIds.has(s.id));
-      for (const unlinked of unlinkedStudents) {
-        const unlinkedFirst = unlinked.full_name.split(' ')[0].toLowerCase();
-        const unlinkedWordRegex = new RegExp(`\\b${escapeRegexLiteral(unlinkedFirst)}\\b`, 'i');
-        if (unlinkedFirst.length > 2 && unlinkedWordRegex.test(lower)) {
-          const isAlsoLinkedName = linkedStudents.some(ls => ls.full_name.toLowerCase().includes(unlinkedFirst));
-          if (!isAlsoLinkedName) {
-            return res.status(403).json({ error: 'Access denied: You may only query records for your linked child.' });
-          }
-        }
       }
 
       await recordMongoAudit(req.user!, 'Queried Parent Portal AI', 'Parent', req.user!.id, `Query: "${prompt.substring(0, 60)}"`);
 
       const getChildAliases = (childDto: StudentDto): Set<string> => {
-        const rawDoc = allStudentsDocs.find(
+        const rawDoc = parentStudentDocs.find(
           (d: any) => (d.record_id || d._id.toString()) === childDto.id || d._id.toString() === childDto.id
         );
         return new Set<string>(
-          [childDto.id, rawDoc?.record_id, rawDoc?._id ? rawDoc._id.toString() : ''].filter(Boolean) as string[]
+          [childDto.id, rawDoc?.record_id, rawDoc?._id ? rawDoc._id.toString() : '', rawDoc?.admission_no].filter(Boolean) as string[]
         );
       };
 
@@ -10990,7 +11273,7 @@ router.get('/teacher/dashboard', authenticateToken, requireExactRole(['teacher']
     );
 
     const [allStudentDocs, allTtDocs, annDocs, allAttDocs, allResDocs, assignmentDocs, taskDocs, notifCount] = await Promise.all([
-      StudentModel.find().lean(),
+      StudentModel.find(buildTeacherClassFilter(assignedClasses)).lean(),
       TimetableModel.find().sort({ created_at: 1, _id: 1 }).lean(),
       AnnouncementModel.find({
         published: { $ne: false },
@@ -10999,8 +11282,8 @@ router.get('/teacher/dashboard', authenticateToken, requireExactRole(['teacher']
         .sort({ created_at: -1, _id: -1 })
         .limit(5)
         .lean(),
-      AttendanceModel.find().sort({ date: -1, created_at: -1, _id: -1 }).lean(),
-      ResultModel.find().sort({ created_at: -1, _id: -1 }).lean(),
+      AttendanceModel.find(buildTeacherClassFilter(assignedClasses)).sort({ date: -1, created_at: -1, _id: -1 }).lean(),
+      ResultModel.find(buildTeacherClassFilter(assignedClasses)).sort({ created_at: -1, _id: -1 }).lean(),
       TeacherAssignmentModel.find({ teacher_id: { $in: teacherIds } }).lean(),
       TeacherTaskModel.find({ teacher_id: { $in: teacherIds } }).sort({ due_date: 1 }).lean(),
       NotificationModel.countDocuments({
@@ -11010,6 +11293,7 @@ router.get('/teacher/dashboard', authenticateToken, requireExactRole(['teacher']
     ]);
 
     const assignments = assignmentDocs.map(toTeacherAssignmentDto);
+    const allowedSubjects = [teacher.subject, ...assignments.map((assignment: any) => assignment.subject)];
     const isClassTeacher = assignments.some(a => a.is_class_teacher);
     const classTeacherAssignments = assignments.filter(a => a.is_class_teacher);
 
@@ -11030,8 +11314,7 @@ router.get('/teacher/dashboard', authenticateToken, requireExactRole(['teacher']
     const todayDate = new Date().toISOString().split('T')[0];
 
     const teacherTimetable = allTtDocs.map(toTimetableDto).filter(t =>
-      t.teacher_name.toLowerCase().includes(teacher.name.toLowerCase()) ||
-      teacher.name.toLowerCase().includes(t.teacher_name.toLowerCase())
+      isExactTeacherName(t.teacher_name, teacher.name)
     );
     const todayTimetable = teacherTimetable.filter(t => t.day.toLowerCase() === todayDay.toLowerCase());
 
@@ -11057,7 +11340,10 @@ router.get('/teacher/dashboard', authenticateToken, requireExactRole(['teacher']
 
     const recentResults = allResDocs
       .map(toResultDto)
-      .filter(r => isClassAssignedToTeacher(mergedClasses, r.class_name))
+      .filter(r =>
+        isClassAssignedToTeacher(mergedClasses, r.class_name) &&
+        areAllResultSubjectsAssignedToTeacher(allowedSubjects, r.subjects.map(s => s.subject_name))
+      )
       .slice(0, 5);
 
     const tasks = taskDocs.map(toTeacherTaskDto);
@@ -11200,10 +11486,10 @@ router.get('/teacher/classes', authenticateToken, requireExactRole(['teacher']),
     const todayDate = new Date().toISOString().split('T')[0];
     const assignedClasses = teacher.classes || [];
     const [allClassDocs, allSectionDocs, allStudentDocs, todayAttDocs] = await Promise.all([
-      ClassModel.find().lean(),
-      SectionModel.find().sort({ created_at: 1, _id: 1 }).lean(),
-      StudentModel.find().select('class_name section').lean(),
-      AttendanceModel.find({ date: todayDate }).select('class_name').lean(),
+      ClassModel.find(buildTeacherClassFilter(assignedClasses)).lean(),
+      SectionModel.find(buildTeacherClassFilter(assignedClasses)).sort({ created_at: 1, _id: 1 }).lean(),
+      StudentModel.find(buildTeacherClassFilter(assignedClasses)).select('class_name section').lean(),
+      AttendanceModel.find({ date: todayDate, ...buildTeacherClassFilter(assignedClasses) }).select('class_name').lean(),
     ]);
 
     const classList = assignedClasses.map(className => {
@@ -11256,7 +11542,8 @@ router.get('/teacher/students', authenticateToken, requireExactRole(['teacher'])
       }
     }
 
-    const allStudentDocs = await StudentModel.find().sort({ created_at: 1, _id: 1 }).lean();
+    const studentFilter = buildTeacherClassFilter(assignedClasses);
+    const allStudentDocs = await StudentModel.find(studentFilter).sort({ created_at: 1, _id: 1 }).lean();
     let matchedDocs = allStudentDocs.filter(doc =>
       isClassAssignedToTeacher(assignedClasses, String(doc.class_name || ''))
     );
@@ -11347,7 +11634,7 @@ router.get('/teacher/attendance', authenticateToken, requireExactRole(['teacher'
       }
     }
 
-    const allAttDocs = await AttendanceModel.find().sort({ date: -1, created_at: -1, _id: -1 }).lean();
+    const allAttDocs = await AttendanceModel.find(buildTeacherClassFilter(assignedClasses)).sort({ date: -1, created_at: -1, _id: -1 }).lean();
     let records = allAttDocs
       .map(toAttendanceDto)
       .filter(a => isClassAssignedToTeacher(assignedClasses, a.class_name));
@@ -11436,6 +11723,13 @@ router.post('/teacher/attendance', authenticateToken, requireExactRole(['teacher
           error: `Access denied: Student "${rec.student_name || rec.student_id}" does not belong to assigned class "${class_name}".`,
         });
       }
+      const actualSection = sanitizePlainText(studentDoc.section || 'A', 60) || 'A';
+      const requestedSection = sanitizePlainText(section || rec.section || actualSection, 60) || actualSection;
+      if (!isExactSectionMatch(actualSection, requestedSection)) {
+        return res.status(403).json({
+          error: `Access denied: Student "${rec.student_name || rec.student_id}" does not belong to section "${requestedSection}".`,
+        });
+      }
       resolvedEntries.push({
         studentDoc,
         canonicalStudentId: studentDoc.record_id || studentDoc._id.toString(),
@@ -11452,7 +11746,7 @@ router.post('/teacher/attendance', authenticateToken, requireExactRole(['teacher
         date: cleanDate,
       });
 
-      const resolvedSection = sanitizePlainText(section || rec.section || studentDoc.section || 'A', 60) || 'A';
+      const resolvedSection = sanitizePlainText(studentDoc.section || 'A', 60) || 'A';
       const resolvedRemarks =
         rec.remarks !== undefined
           ? sanitizePlainText(rec.remarks, 500)
@@ -11536,6 +11830,14 @@ router.get('/teacher/results', authenticateToken, requireExactRole(['teacher']),
 
     const { exam_id, class_name, subject } = req.query;
     const assignedClasses = teacher.classes || [];
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter(Boolean)));
+    const assignmentDocs = await TeacherAssignmentModel.find({
+      teacher_id: { $in: teacherIds },
+    }).select('subject').lean();
+    const allowedSubjects = [teacher.subject, ...assignmentDocs.map((item: any) => item.subject)];
+    if (subject && !isExactTeacherSubject(allowedSubjects, String(subject))) {
+      return res.status(403).json({ error: 'Access denied: You are not assigned to this subject.' });
+    }
 
     if (class_name) {
       const isAssigned = isClassAssignedToTeacher(assignedClasses, String(class_name));
@@ -11544,17 +11846,20 @@ router.get('/teacher/results', authenticateToken, requireExactRole(['teacher']),
       }
     }
 
-    const allResDocs = await ResultModel.find().sort({ created_at: -1, _id: -1 }).lean();
+    const allResDocs = await ResultModel.find(buildTeacherClassFilter(assignedClasses)).sort({ created_at: -1, _id: -1 }).lean();
     let results = allResDocs
       .map(toResultDto)
-      .filter(r => isClassAssignedToTeacher(assignedClasses, r.class_name));
+      .filter(r =>
+        isClassAssignedToTeacher(assignedClasses, r.class_name) &&
+        areAllResultSubjectsAssignedToTeacher(allowedSubjects, r.subjects.map(s => s.subject_name))
+      );
 
     if (exam_id) results = results.filter(r => r.exam_id === String(exam_id));
     if (class_name) results = results.filter(r => r.class_name.toLowerCase() === String(class_name).toLowerCase());
 
     if (subject) {
       results = results.filter(r =>
-        r.subjects.some(s => s.subject_name.toLowerCase().includes(String(subject).toLowerCase()))
+        r.subjects.some(s => isExactTeacherSubject([String(subject)], s.subject_name))
       );
     }
 
@@ -11638,13 +11943,7 @@ router.post('/teacher/results', authenticateToken, requireExactRole(['teacher'])
 
     const cleanSubjectName = sanitizePlainText(subject_name, 120);
     const reqSubjLower = cleanSubjectName.toLowerCase();
-    const isSubjectAllowed = allowedSubjNames.some(
-      tSubj =>
-        tSubj.includes(reqSubjLower) ||
-        reqSubjLower.includes(tSubj) ||
-        tSubj.split('&').some(part => part.trim().length > 2 && reqSubjLower.includes(part.trim())) ||
-        reqSubjLower.split(' ').some(word => word.length > 3 && tSubj.includes(word))
-    );
+    const isSubjectAllowed = isExactTeacherSubject(allowedSubjNames, cleanSubjectName);
 
     if (!isSubjectAllowed) {
       return res.status(403).json({
@@ -11674,7 +11973,16 @@ router.post('/teacher/results', authenticateToken, requireExactRole(['teacher'])
     else if (pct >= 40) grade = 'D';
 
     const examDoc = await ExamModel.findOne(buildCmsRecordLookupFilter(cleanExamId)).lean();
-    const resolvedExamTitle = sanitizePlainText(exam_title || examDoc?.title || 'Term Assessment', 200) || 'Term Assessment';
+    if (!examDoc) {
+      return res.status(404).json({ error: 'Exam not found.' });
+    }
+    const exam = toExamDto(examDoc);
+    const examClasses = Array.isArray(exam.classes) ? exam.classes : [];
+    if (examClasses.length > 0 && !examClasses.includes('All Classes') &&
+        !examClasses.some((name: string) => isClassAssignedToTeacher([studentDoc.class_name], name))) {
+      return res.status(403).json({ error: 'Access denied: This exam is not assigned to the student class.' });
+    }
+    const resolvedExamTitle = sanitizePlainText(exam_title || exam.title || 'Term Assessment', 200) || 'Term Assessment';
 
     const studentIdAliases = Array.from(
       new Set([canonicalStudentId, studentDoc._id.toString(), String(student_id).trim()].filter(Boolean))
@@ -11794,8 +12102,7 @@ router.get('/teacher/timetable', authenticateToken, requireExactRole(['teacher']
 
     const ttDocs = await TimetableModel.find().sort({ created_at: 1, _id: 1 }).lean();
     const timetable = ttDocs.map(toTimetableDto).filter(t =>
-      t.teacher_name.toLowerCase().includes(teacher.name.toLowerCase()) ||
-      teacher.name.toLowerCase().includes(t.teacher_name.toLowerCase())
+      isExactTeacherName(t.teacher_name, teacher.name)
     );
 
     const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -11924,6 +12231,27 @@ router.post('/teacher/homework', authenticateToken, requireExactRole(['teacher']
       return res.status(404).json({ error: 'Teacher profile not linked.' });
     }
 
+    const assignedClasses = teacher.classes || [];
+    const requestedClass = String(class_name).trim();
+    const requestedSection = String(section).trim();
+    const requestedSubject = String(subject).trim();
+    if (!isClassAssignedToTeacher(assignedClasses, requestedClass)) {
+      return res.status(403).json({ error: `Access denied: You are not assigned to class "${requestedClass}".` });
+    }
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter(Boolean)));
+    const classAssignments = await TeacherAssignmentModel.find({
+      teacher_id: { $in: teacherIds },
+      class_name: { $regex: new RegExp(`^${escapeRegexLiteral(requestedClass)}$`, 'i') },
+    }).select('section subject').lean();
+    const allowedSubjects = classAssignments.length > 0
+      ? classAssignments.filter((assignment: any) =>
+          String(assignment.section || '').trim().toLocaleLowerCase('en') === requestedSection.toLocaleLowerCase('en')
+        ).map((assignment: any) => assignment.subject)
+      : [teacher.subject];
+    if (!isExactTeacherSubject(allowedSubjects, requestedSubject)) {
+      return res.status(403).json({ error: 'Access denied: This subject/section is not assigned to your teacher account.' });
+    }
+
     const homeworkId = `hwk_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const created = await HomeworkModel.create({
       homework_id: homeworkId,
@@ -12028,37 +12356,31 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
       });
     }
 
-    const allStudentDocs = await StudentModel.find().lean();
+    // Scope the database read itself to this teacher's current assigned classes.
+    const teacherClassFilter = buildTeacherClassFilter(assignedClasses);
+    const allStudentDocs = await StudentModel.find(teacherClassFilter).lean();
     const allStudents: StudentDto[] = allStudentDocs.map(toStudentDto);
-
-    const otherStudents = allStudents.filter(
-      s => !isClassAssignedToTeacher(assignedClasses, s.class_name)
-    );
-    for (const other of otherStudents) {
-      const otherFirst = other.full_name.split(' ')[0].toLowerCase();
-      const otherWordRegex = new RegExp(`\\b${escapeRegexLiteral(otherFirst)}\\b`, 'i');
-      if (otherFirst.length > 2 && otherWordRegex.test(lower)) {
-        const inTeacherClass = allStudents.some(
-          s =>
-            isClassAssignedToTeacher(assignedClasses, s.class_name) &&
-            s.full_name.toLowerCase().includes(otherFirst)
-        );
-        if (!inTeacherClass) {
-          return res.status(403).json({
-            error: 'Access denied: You may only query records for students enrolled in your assigned classes.',
-          });
-        }
-      }
-    }
 
     await recordMongoAudit(req.user!, 'Queried Teacher AI', 'TeacherAI', teacher.id, `Query: "${prompt.substring(0, 60)}"`);
 
     const teacherStudents = allStudents.filter(s =>
       isClassAssignedToTeacher(assignedClasses, s.class_name)
     );
+    const findMentionedTeacherStudents = (query: string) => {
+      const fullNameMatches = teacherStudents.filter(student =>
+        query.includes(student.full_name.toLowerCase())
+      );
+      if (fullNameMatches.length > 0) {
+        const longestMatchLength = Math.max(...fullNameMatches.map(student => student.full_name.length));
+        return fullNameMatches.filter(student => student.full_name.length === longestMatchLength);
+      }
+      return teacherStudents.filter(student =>
+        query.includes(student.full_name.split(' ')[0].toLowerCase())
+      );
+    };
 
     if (lower.startsWith('mark ') || (lower.includes('mark') && (lower.includes('absent') || lower.includes('present') || lower.includes('leave')))) {
-      const matched = teacherStudents.filter(s => lower.includes(s.full_name.toLowerCase()) || lower.includes(s.full_name.split(' ')[0].toLowerCase()));
+      const matched = findMentionedTeacherStudents(lower);
       if (matched.length === 1) {
         const targetStudent = matched[0];
         let status = 'Absent';
@@ -12088,24 +12410,52 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
     }
 
     if (lower.includes('enter') && lower.includes('marks')) {
-      const matched = teacherStudents.filter(s => lower.includes(s.full_name.toLowerCase()) || lower.includes(s.full_name.split(' ')[0].toLowerCase()));
+      const matched = findMentionedTeacherStudents(lower);
       if (matched.length === 1) {
         const targetStudent = matched[0];
         const numMatch = lower.match(/\b\d{1,3}\b/);
         const marks = numMatch ? parseInt(numMatch[0], 10) : 75;
+        const examDocs = await ExamModel.find().sort({ start_date: -1, created_at: -1 }).lean();
+        const eligibleExams = examDocs.filter((exam: any) => {
+          const examClasses = Array.isArray(exam.classes) ? exam.classes : [];
+          return examClasses.length === 0 || examClasses.some((className: string) =>
+            className === 'All Classes' || isClassAssignedToTeacher([targetStudent.class_name], className)
+          );
+        });
+        const namedExams = eligibleExams.filter((exam: any) =>
+          [exam.title, exam.term].some(value => typeof value === 'string' && value.trim() && lower.includes(value.toLowerCase()))
+        );
+        const examChoices = namedExams.length > 0 ? namedExams : eligibleExams;
+        if (examChoices.length !== 1) {
+          const availableNames = examChoices.slice(0, 5).map((exam: any) => exam.title || exam.term).filter(Boolean);
+          return res.json({
+            text: examChoices.length === 0
+              ? `No exam is currently assigned to ${targetStudent.class_name}. Ask an administrator to schedule the exam before entering marks.`
+              : `Several exams are available for ${targetStudent.class_name}: ${availableNames.join(', ')}. Please mention the exact exam title so I can prepare the correct marks entry.`,
+            toolUsed: 'teacherExamSelection',
+          });
+        }
+        const selectedExam = examChoices[0];
+        const selectedExamId = String(selectedExam.record_id || selectedExam._id || '');
+        if (!selectedExamId) {
+          return res.json({
+            text: 'The selected exam does not have a valid database identifier. Ask an administrator to review the exam record.',
+            toolUsed: 'teacherExamSelection',
+          });
+        }
 
         return res.json({
-          text: `I have prepared the examination marks entry for **${targetStudent.full_name}** (${targetStudent.class_name}) in **${teacher.subject}** (${marks}/100). Please review and confirm.`,
+          text: `I have prepared the examination marks entry for **${targetStudent.full_name}** (${targetStudent.class_name}) in **${teacher.subject}** for **${selectedExam.title}** (${marks}/100). Please review and confirm.`,
           toolUsed: 'prepareTeacherMarksAction',
           requiresConfirmation: true,
           pendingAction: {
             actionType: 'RECORD_MARKS',
             title: `Enter ${marks} marks for ${targetStudent.full_name}`,
-            description: `Record score of ${marks}/100 in ${teacher.subject} for ${targetStudent.full_name} (${targetStudent.class_name}).`,
+            description: `Record score of ${marks}/100 in ${teacher.subject} for ${targetStudent.full_name} (${targetStudent.class_name}) in ${selectedExam.title}.`,
             payload: {
               student_id: targetStudent.id,
-              exam_id: 'ex_term1',
-              exam_title: 'First Term Assessment',
+              exam_id: selectedExamId,
+              exam_title: selectedExam.title,
               subject_name: teacher.subject,
               total_marks: 100,
               obtained_marks: marks,
@@ -12157,7 +12507,7 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
     }
 
     if (lower.includes('timetable') || lower.includes('schedule') || lower.includes('period') || lower.includes('next class')) {
-      const ttDocs = await TimetableModel.find().sort({ created_at: 1, _id: 1 }).lean();
+      const ttDocs = await TimetableModel.find(teacherClassFilter).sort({ created_at: 1, _id: 1 }).lean();
       const teacherTimetable = ttDocs.map(toTimetableDto).filter(t =>
         t.teacher_name.toLowerCase().includes(teacher.name.toLowerCase()) ||
         teacher.name.toLowerCase().includes(t.teacher_name.toLowerCase())
@@ -12186,7 +12536,7 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
     }
 
     if ((lower.includes('below') && lower.includes('75')) || lower.includes('low attendance') || lower.includes('warning attendance')) {
-      const allAttDocs = await AttendanceModel.find().select('student_id status class_name').lean();
+      const allAttDocs = await AttendanceModel.find(teacherClassFilter).select('student_id status class_name').lean();
       let reply = `### ⚠️ Low Attendance Warning in Your Classes (<75%)\n`;
       let lowCount = 0;
       for (const c of assignedClasses) {
@@ -12214,7 +12564,7 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
 
     if (lower.includes('absent') || lower.includes('attendance today') || lower.includes('attendance percentage')) {
       const today = new Date().toISOString().split('T')[0];
-      const todayAttDocs = await AttendanceModel.find({ date: today }).lean();
+      const todayAttDocs = await AttendanceModel.find({ date: today, ...teacherClassFilter }).lean();
       const todayAtt = todayAttDocs
         .map(toAttendanceDto)
         .filter(a => isClassAssignedToTeacher(assignedClasses, a.class_name));
@@ -12237,7 +12587,7 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
     }
 
     if (lower.includes('result') || lower.includes('mark') || lower.includes('score') || lower.includes('performance') || lower.includes('below 50')) {
-      const allResDocs = await ResultModel.find().sort({ created_at: -1, _id: -1 }).lean();
+      const allResDocs = await ResultModel.find(teacherClassFilter).sort({ created_at: -1, _id: -1 }).lean();
       const classResults = allResDocs
         .map(toResultDto)
         .filter(r => isClassAssignedToTeacher(assignedClasses, r.class_name));
@@ -12259,7 +12609,7 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
 
     if (lower.includes('pending') || lower.includes('task') || lower.includes('attendance task')) {
       const today = new Date().toISOString().split('T')[0];
-      const todayAttDocs = await AttendanceModel.find({ date: today }).select('class_name').lean();
+      const todayAttDocs = await AttendanceModel.find({ date: today, ...teacherClassFilter }).select('class_name').lean();
       const pending: string[] = [];
       const marked: string[] = [];
       for (const c of assignedClasses) {
@@ -12391,8 +12741,33 @@ router.post('/teacher/ai/execute-action', authenticateToken, requireExactRole(['
         return res.status(400).json({ error: 'Invalid marks values.' });
       }
 
-      const cleanSubj = sanitizePlainText(subject_name || teacher.subject || 'Subject', 120) || 'Subject';
+      const cleanSubj = sanitizePlainText(subject_name || teacher.subject || 'Subject', 120);
+      if (!cleanSubj) return res.status(400).json({ error: 'A valid subject is required.' });
+      const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter(Boolean)));
+      const assignmentDocs = await TeacherAssignmentModel.find({
+        teacher_id: { $in: teacherIds },
+        class_name: { $regex: new RegExp(`^${escapeRegexLiteral(studentDoc.class_name)}$`, 'i') },
+      }).select('subject').lean();
+      const allowedSubjects = [teacher.subject, ...assignmentDocs.map((item: any) => item.subject)];
+      if (!isExactTeacherSubject(allowedSubjects, cleanSubj)) {
+        return res.status(403).json({ error: 'Access denied: You are not assigned subject "' + cleanSubj + '".' });
+      }
+
       const cleanExamId = sanitizePlainText(exam_id || 'ex_term1', 80) || 'ex_term1';
+      const examDoc = await ExamModel.findOne(buildCmsRecordLookupFilter(cleanExamId)).lean();
+      if (!examDoc) {
+        return res.status(404).json({ error: 'Exam not found. Select an existing examination before recording marks.' });
+      }
+      const examClasses = Array.isArray(examDoc.classes) ? examDoc.classes : [];
+      const studentClass = String(studentDoc.class_name || '').trim().toLowerCase();
+      const examAllowsStudentClass = examClasses.some((examClass: unknown) => {
+        const normalizedClass = String(examClass || '').trim().toLowerCase();
+        return normalizedClass === 'all classes' || (studentClass && normalizedClass === studentClass);
+      });
+      if (!examAllowsStudentClass) {
+        return res.status(403).json({ error: 'Access denied: This examination is not assigned to the student class.' });
+      }
+
       const pct = (om / tm) * 100;
       let grade = 'F';
       if (pct >= 80) grade = 'A1';
@@ -12449,7 +12824,7 @@ router.post('/teacher/ai/execute-action', authenticateToken, requireExactRole(['
         await ResultModel.create({
           record_id: `res_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
           exam_id: cleanExamId,
-          exam_title: sanitizePlainText(exam_title || 'First Term Assessment', 200) || 'First Term Assessment',
+          exam_title: examDoc.title,
           student_id: canonicalStudentId,
           student_name: studentDoc.full_name,
           class_name: studentDoc.class_name,

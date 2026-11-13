@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   User as UserIcon,
   Calendar,
@@ -181,8 +181,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
   const [showPayModal, setShowPayModal] = useState<boolean>(false);
   const [payingFee, setPayingFee] = useState<FeeRecord | null>(null);
   const [payAmount, setPayAmount] = useState<number | string>('');
-  const [payMethod, setPayMethod] = useState<'Online Gateway' | 'Bank Deposit'>('Online Gateway');
-  const [payGatewayProvider, setPayGatewayProvider] = useState<'JazzCash' | 'Easypaisa' | 'Raast'>('JazzCash');
+  const [payMethod, setPayMethod] = useState<'Online Gateway' | 'Bank Deposit'>('Bank Deposit');
   const [payBankName, setPayBankName] = useState<string>('Askari Bank Limited');
   const [payDepositDate, setPayDepositDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [payDepositSlipRef, setPayDepositSlipRef] = useState<string>('');
@@ -192,14 +191,71 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
   const [payModalSubmitting, setPayModalSubmitting] = useState<boolean>(false);
   const [payModalError, setPayModalError] = useState<string | null>(null);
   const [payModalSuccess, setPayModalSuccess] = useState<string | null>(null);
+  const portalLoadVersionRef = useRef(0);
+  const parentChildrenLoadVersionRef = useRef(0);
 
-  const loadPaymentData = async (targetStudentId?: string) => {
+  // Remove child-specific data immediately when switching or losing a parent-child link.
+  // Version counters also prevent an older in-flight request from restoring stale records.
+  const clearStudentScopedData = () => {
+    portalLoadVersionRef.current += 1;
+    setPortalError(null);
+    setStudent(null);
+    setPortalAiMessages([{
+      sender: 'assistant',
+      text: user?.role === 'parent'
+        ? 'Ask questions about records for your currently linked children.'
+        : 'Ask questions about your personal academic records.',
+    }]);
+    setPortalAiInput('');
+    setPortalAiLoading(false);
+    setShowNewInquiryModal(false);
+    setNewInquiryMessage('');
+    setFoundStudents([]);
+    setSelectedCandidateId('');
+    setLinkStep('search');
+    setLinkError(null);
+    setLinkSuccess(null);
+    setStudentName('');
+    setClassName('');
+    setRollNo('');
+    setNotifications([]);
+    setUnreadCount(0);
+    setAttendanceData(null);
+    setFees([]);
+    setResults([]);
+    setTimetable([]);
+    setAnnouncements([]);
+    setFeeSummary(null);
+    setPaymentHistory([]);
+    setPrintingResult(null);
+    setPrintingFee(null);
+    setViewingReceiptPayment(null);
+    setPayingFee(null);
+    setPayAmount('');
+    setPayMethod('Bank Deposit');
+    setPayBankName('Askari Bank Limited');
+    setPayDepositDate(new Date().toISOString().split('T')[0]);
+    setPayDepositSlipRef('');
+    setPaySlipAttachmentUrl('');
+    setPayParentPhone(user?.phone || '');
+    setPayNotes('');
+    setPayModalSubmitting(false);
+    setNewInquiryChildId('');
+    setInquirySubmitSuccess(null);
+    setCopiedInquiryRef(null);
+    setShowPayModal(false);
+    setPayModalError(null);
+    setPayModalSuccess(null);
+  };
+
+  const loadPaymentData = async (targetStudentId?: string, requestVersion?: number) => {
     try {
       const [summary, settings, history] = await Promise.all([
         api.getFeeSummary(targetStudentId).catch(() => null),
         api.getPublicPaymentSettings().catch(() => null),
         api.getParentPaymentHistory().catch(() => []),
       ]);
+      if (requestVersion !== undefined && requestVersion !== portalLoadVersionRef.current) return;
       if (summary) setFeeSummary(summary);
       if (settings) setPaymentSettings(settings);
       setPaymentHistory(Array.isArray(history) ? history : []);
@@ -246,15 +302,18 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
   };
 
   const loadPortalData = async (targetStudentId: string) => {
+    clearStudentScopedData();
     if (!targetStudentId) {
       setLoading(false);
       return;
     }
 
+    const requestVersion = portalLoadVersionRef.current;
     setLoading(true);
     setPortalError(null);
     try {
       const details = await api.getStudentById(targetStudentId);
+      if (requestVersion !== portalLoadVersionRef.current) return;
       setStudent(details.student);
       setFees(details.fees || []);
       setResults(details.results || []);
@@ -263,36 +322,42 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
       // Attendance summary & records
       try {
         const att = await api.getStudentAttendance(targetStudentId);
-        setAttendanceData(att);
+        if (requestVersion === portalLoadVersionRef.current) setAttendanceData(att);
       } catch (attErr: any) {
-        console.warn('Attendance load notice:', attErr);
-        setPortalError(attErr?.message || 'Unable to load attendance summary.');
+        if (requestVersion === portalLoadVersionRef.current) {
+          console.warn('Attendance load notice:', attErr);
+          setPortalError(attErr?.message || 'Unable to load attendance summary.');
+        }
       }
 
       // Notices
       try {
         const anns = await api.getAnnouncements({ audience: 'Students' });
-        setAnnouncements(anns);
+        if (requestVersion === portalLoadVersionRef.current) setAnnouncements(anns);
       } catch (annErr) {
-        console.warn('Notices load notice:', annErr);
+        if (requestVersion === portalLoadVersionRef.current) console.warn('Notices load notice:', annErr);
       }
 
       // Notifications & Fee Payments
       await loadNotifications();
-      await loadPaymentData(targetStudentId);
+      await loadPaymentData(targetStudentId, requestVersion);
     } catch (err: any) {
-      console.warn('Student portal details notice:', err);
-      setPortalError(err?.message || 'Unable to load student academic records at this time.');
+      if (requestVersion === portalLoadVersionRef.current) {
+        console.warn('Student portal details notice:', err);
+        setPortalError(err?.message || 'Unable to load student academic records at this time.');
+      }
     } finally {
-      setLoading(false);
+      if (requestVersion === portalLoadVersionRef.current) setLoading(false);
     }
   };
 
   const loadParentChildren = async () => {
     if (user?.role === 'parent') {
+      const requestVersion = ++parentChildrenLoadVersionRef.current;
       setPortalError(null);
       try {
         const myKids = await api.getMyStudents();
+        if (requestVersion !== parentChildrenLoadVersionRef.current) return;
         setLinkedStudents(myKids);
         if (myKids.length > 0) {
           const target =
@@ -300,12 +365,16 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
           setSelectedStudentId(target);
           await loadPortalData(target);
         } else {
-          setStudent(null);
+          setSelectedStudentId('');
+          clearStudentScopedData();
+          await loadNotifications();
           setLoading(false);
         }
       } catch (e: any) {
+        if (requestVersion !== parentChildrenLoadVersionRef.current) return;
         console.warn('Could not load parent children:', e);
         setPortalError(e?.message || 'Unable to load linked children records.');
+        clearStudentScopedData();
         setLoading(false);
       }
     }
@@ -313,6 +382,9 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
 
   useEffect(() => {
     if (!user) {
+      parentChildrenLoadVersionRef.current += 1;
+      setLinkedStudents([]);
+      clearStudentScopedData();
       setLoading(false);
       return;
     }
@@ -495,8 +567,11 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
 
     try {
       const res = await api.unlinkChild(childToUnlink.id);
+      parentChildrenLoadVersionRef.current += 1;
       setUnlinkSuccess(res.message || `Successfully unlinked ${childToUnlink.full_name}.`);
       setLinkedStudents(res.linked_students);
+      // Invalidate in-flight child requests immediately after the server confirms unlink.
+      clearStudentScopedData();
       await refreshUser();
 
       if (res.linked_students.length > 0) {
@@ -505,7 +580,9 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
         await loadPortalData(nextId);
       } else {
         setSelectedStudentId('');
-        setStudent(null);
+        clearStudentScopedData();
+        await loadNotifications();
+        setLoading(false);
       }
 
       setTimeout(() => {
@@ -523,6 +600,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
   const handleOpenPayModal = (targetFee?: FeeRecord) => {
     setPayModalError(null);
     setPayModalSuccess(null);
+    setPayMethod('Bank Deposit');
+    setPayBankName('Askari Bank Limited');
+    setPayDepositSlipRef('');
+    setPaySlipAttachmentUrl('');
+    setPayParentPhone(user?.phone || '');
+    setPayNotes('');
     if (targetFee) {
       setPayingFee(targetFee);
       setPayAmount(targetFee.pending_amount);
@@ -553,6 +636,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
       return;
     }
 
+    const requestVersion = portalLoadVersionRef.current;
     setPayModalSubmitting(true);
     setPayModalError(null);
     setPayModalSuccess(null);
@@ -563,7 +647,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
         student_id: payingFee.student_id,
         amount: amt,
         method: payMethod,
-        gateway_provider: payMethod === 'Online Gateway' ? payGatewayProvider : undefined,
         bank_name: payMethod === 'Bank Deposit' ? payBankName : undefined,
         deposit_date: payMethod === 'Bank Deposit' ? payDepositDate : undefined,
         deposit_slip_ref: payMethod === 'Bank Deposit' ? payDepositSlipRef : undefined,
@@ -572,27 +655,32 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
         notes: payNotes,
       });
 
+      if (requestVersion !== portalLoadVersionRef.current) return;
       setPayModalSuccess(res.message || 'Payment processed successfully.');
       if (selectedStudentId) {
         const details = await api.getStudentById(selectedStudentId).catch(() => null);
+        if (requestVersion !== portalLoadVersionRef.current) return;
         if (details?.fees) setFees(details.fees);
-        await loadPaymentData(selectedStudentId);
+        await loadPaymentData(selectedStudentId, requestVersion);
       }
 
       if (res.payment.status === 'Paid') {
         setTimeout(() => {
-          setViewingReceiptPayment(res.payment);
+          if (requestVersion === portalLoadVersionRef.current) setViewingReceiptPayment(res.payment);
         }, 1200);
       }
 
       setTimeout(() => {
+        if (requestVersion !== portalLoadVersionRef.current) return;
         setShowPayModal(false);
         setPayModalSuccess(null);
       }, 2000);
     } catch (err: any) {
-      setPayModalError(err.message || 'Failed to submit fee payment.');
+      if (requestVersion === portalLoadVersionRef.current) {
+        setPayModalError(err.message || 'Failed to submit fee payment.');
+      }
     } finally {
-      setPayModalSubmitting(false);
+      if (requestVersion === portalLoadVersionRef.current) setPayModalSubmitting(false);
     }
   };
 
@@ -603,10 +691,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
 
     setPortalAiMessages(prev => [...prev, { sender: 'user', text: queryText }]);
     setPortalAiInput('');
+    const requestVersion = portalLoadVersionRef.current;
     setPortalAiLoading(true);
 
     try {
       const res = await api.queryPortalAi(queryText);
+      if (requestVersion !== portalLoadVersionRef.current) return;
       setPortalAiMessages(prev => [
         ...prev,
         {
@@ -618,6 +708,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
         },
       ]);
     } catch (err: any) {
+      if (requestVersion !== portalLoadVersionRef.current) return;
       setPortalAiMessages(prev => [
         ...prev,
         {
@@ -626,7 +717,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
         },
       ]);
     } finally {
-      setPortalAiLoading(false);
+      if (requestVersion === portalLoadVersionRef.current) setPortalAiLoading(false);
     }
   };
 
@@ -3110,15 +3201,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={() => setPayMethod('Online Gateway')}
-                    className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
-                      payMethod === 'Online Gateway'
-                        ? 'bg-emerald-900 text-white border-emerald-900 shadow-xs'
-                        : 'bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-50'
-                    }`}
+                    disabled
+                    title="Online payment gateway is not connected yet"
+                    className="py-2 px-3 rounded-xl border border-neutral-200 text-xs font-semibold flex items-center justify-center gap-1.5 bg-neutral-100 text-neutral-400 cursor-not-allowed"
                   >
                     <DollarSign className="w-3.5 h-3.5" />
-                    <span>Online Gateway (Instant)</span>
+                    <span>Online Gateway (Coming Soon)</span>
                   </button>
                   <button
                     type="button"
@@ -3135,46 +3223,9 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
                 </div>
               </div>
 
-              {/* Option A: Online Gateway Mode */}
-              {payMethod === 'Online Gateway' && (
-                <div className="space-y-3 p-3.5 bg-emerald-50/50 rounded-xl border border-emerald-200 text-xs">
-                  <span className="font-bold text-emerald-950 block">Select Mobile Wallet / FinTech Provider:</span>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(['JazzCash', 'Easypaisa', 'Raast'] as const).map(gw => (
-                      <button
-                        key={gw}
-                        type="button"
-                        onClick={() => setPayGatewayProvider(gw)}
-                        className={`py-2 px-2 text-center rounded-lg border text-xs font-bold transition-colors cursor-pointer ${
-                          payGatewayProvider === gw
-                            ? 'bg-emerald-800 text-white border-emerald-800'
-                            : 'bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-50'
-                        }`}
-                      >
-                        {gw}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="space-y-1 pt-1">
-                    <label className="text-[11px] font-semibold text-neutral-700 block">
-                      {payGatewayProvider} Mobile Account Number:
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. 0300 1234567"
-                      defaultValue={user?.phone || '03001234567'}
-                      className="w-full py-2 px-3 rounded-lg border border-neutral-300 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-emerald-700 bg-white"
-                      required
-                    />
-                  </div>
-
-                  <div className="flex items-center gap-1.5 text-[11px] text-emerald-900 pt-1">
-                    <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0" />
-                    <span>Instant sandbox verification active &middot; Automated official receipt issued</span>
-                  </div>
-                </div>
-              )}
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                Online payments through JazzCash, Easypaisa and Raast are not connected yet. No online charge or instant receipt will be simulated. Please submit a bank deposit/transfer for school verification.
+              </div>
 
               {/* Option B: Bank Deposit Mode */}
               {payMethod === 'Bank Deposit' && (

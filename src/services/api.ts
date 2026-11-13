@@ -23,6 +23,9 @@ import {
   PaymentTransaction,
   PaymentSettings,
   OutstandingFeeSummary,
+  ExpenseRecord,
+  PayrollRecord,
+  VerifiedFeeCollectionRecord,
 } from '../types';
 
 const LEGACY_LOCALSTORAGE_TOKEN_KEY = 'shawan_auth_token';
@@ -183,6 +186,23 @@ export async function establishAuthenticatedSession(fallbackToken?: string): Pro
     setStoredToken(fallbackToken);
     return await request<{ user: User; studentProfile?: Student | null; teacherProfile?: Teacher | null }>('/auth/me');
   }
+}
+
+async function fetchAllPages<T>(endpoint: string): Promise<T[]> {
+  const all: T[] = [];
+  let page = 1;
+  const maxPages = 200;
+  while (page <= maxPages) {
+    const params = new URLSearchParams({ paginate: 'true', limit: '500', page: String(page) });
+    const response = await request<{ data: T[]; pagination?: { hasNext?: boolean } }>(`${endpoint}${endpoint.includes('?') ? '&' : '?'}${params.toString()}`);
+    if (!response || !Array.isArray(response.data)) {
+      throw new Error('The server returned an invalid paginated report response.');
+    }
+    all.push(...response.data);
+    if (!response.pagination?.hasNext) return all;
+    page += 1;
+  }
+  throw new Error('The report contains too many records to load safely in one request.');
 }
 
 export const api = {
@@ -397,6 +417,7 @@ export const api = {
     }),
 
   // Students
+  getAllStudents: () => fetchAllPages<Student>('/students'),
   getStudents: (params?: { search?: string; class_name?: string; section?: string; status?: string }) => {
     const query = new URLSearchParams(params as Record<string, string>).toString();
     return request<Student[]>(`/students${query ? `?${query}` : ''}`);
@@ -417,6 +438,7 @@ export const api = {
     request<{ message: string; student: Student }>(`/students/${id}`, { method: 'DELETE' }),
 
   // Teachers
+  getAllTeachers: () => fetchAllPages<Teacher>('/teachers'),
   getTeachers: () => request<Teacher[]>('/teachers'),
   createTeacher: (teacher: Partial<Teacher> & { password?: string }) =>
     request<{ teacher: Teacher; account_created?: boolean; temporary_password?: string }>('/teachers', {
@@ -467,6 +489,7 @@ export const api = {
     request<{ message: string; assignment: any }>(`/admin/teacher-assignments/${id}`, { method: 'DELETE' }),
 
   // Enrollment Management
+  getAllEnrollments: () => fetchAllPages<any>('/admin/enrollments'),
   getEnrollments: (params?: { student_id?: string; class_name?: string; section?: string; academic_year?: string; status?: string }) => {
     const query = new URLSearchParams(params as Record<string, string>).toString();
     return request<any[]>(`/admin/enrollments${query ? `?${query}` : ''}`);
@@ -499,6 +522,7 @@ export const api = {
     request<{ message: string; application: AdmissionApplication }>(`/admissions/${id}`, { method: 'DELETE' }),
 
   // Attendance
+  getAllAttendance: () => fetchAllPages<AttendanceRecord>('/attendance'),
   getAttendance: (params?: { date?: string; class_name?: string; section?: string; student_id?: string }) => {
     const query = new URLSearchParams(params as Record<string, string>).toString();
     return request<AttendanceRecord[]>(`/attendance${query ? `?${query}` : ''}`);
@@ -515,6 +539,7 @@ export const api = {
     }>(`/attendance/student/${studentId}`),
 
   // Fees
+  getAllFees: () => fetchAllPages<FeeRecord>('/fees'),
   getFees: (params?: { student_id?: string; class_name?: string; status?: string; month?: string }) => {
     const query = new URLSearchParams(params as Record<string, string>).toString();
     return request<FeeRecord[]>(`/fees${query ? `?${query}` : ''}`);
@@ -1128,6 +1153,30 @@ export const api = {
     request<{ success: boolean; message: string }>(`/teacher/homework/${id}`, {
       method: 'DELETE',
     }),
+
+  // Finance operations (admin-only API)
+  getFinanceCollections: (params?: { month?: string; class_name?: string }) => {
+    const query = new URLSearchParams(params as Record<string, string>).toString();
+    return request<VerifiedFeeCollectionRecord[]>(`/finance/collections${query ? `?${query}` : ''}`);
+  },
+  getFinanceExpenses: (params?: { from?: string; to?: string; category?: string }) => {
+    const query = new URLSearchParams(params as any).toString();
+    return request<ExpenseRecord[]>(`/finance/expenses${query ? `?${query}` : ''}`);
+  },
+  createFinanceExpense: (data: { title: string; category: string; amount: number; expense_date: string; payment_method: string; reference?: string; notes?: string }) =>
+    request<ExpenseRecord>('/finance/expenses', { method: 'POST', body: JSON.stringify(data) }),
+  updateFinanceExpense: (id: string, data: Record<string, any>) =>
+    request<ExpenseRecord>(`/finance/expenses/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteFinanceExpense: (id: string) =>
+    request<{ success: boolean; message: string }>(`/finance/expenses/${id}`, { method: 'DELETE' }),
+  getFinancePayroll: (params?: { year?: number; month?: number; status?: string }) => {
+    const query = new URLSearchParams(params as any).toString();
+    return request<PayrollRecord[]>(`/finance/payroll${query ? `?${query}` : ''}`);
+  },
+  createFinancePayroll: (data: { staff_id: string; staff_name: string; designation: string; salary_month: number; salary_year: number; basic_salary: number; allowances?: number; deductions?: number; notes?: string }) =>
+    request<PayrollRecord>('/finance/payroll', { method: 'POST', body: JSON.stringify(data) }),
+  recordFinanceSalaryPayment: (id: string, data: { amount: number; payment_date: string; payment_method: string; idempotency_key: string }) =>
+    request<PayrollRecord>(`/finance/payroll/${id}/payment`, { method: 'POST', body: JSON.stringify(data) }),
 
   getPublicHomework: (params?: { class_name?: string; section?: string }) => {
     const query = new URLSearchParams(params as any).toString();

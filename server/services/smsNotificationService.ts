@@ -8,6 +8,21 @@ export interface SmsDispatchResult {
   timestamp: string;
 }
 
+/** The current provider is a simulator; never report a simulated message as delivered. */
+export function buildSimulatedSmsResult(
+  message: string,
+  destinationPhone?: string,
+  timestamp = new Date().toISOString()
+): SmsDispatchResult {
+  return {
+    sent: false,
+    message,
+    status: 'Skipped',
+    ...(destinationPhone ? { destination_phone: destinationPhone } : {}),
+    timestamp,
+  };
+}
+
 export const DEFAULT_PAYMENT_SETTINGS = {
   gateways: {
     jazzcash_enabled: true,
@@ -173,16 +188,8 @@ export async function sendPaymentSubmissionSms(payment: {
     school_name: 'Shawan School & College',
   });
 
-  // Simulated SMS transmission with telecom audit logging
-  console.log(`[SMS-GATEWAY] [OUTBOUND-SUBMISSION] To: ${parentPhone} | Message: "${messageText}"`);
-
-  return {
-    sent: true,
-    message: messageText,
-    status: 'Delivered',
-    destination_phone: parentPhone,
-    timestamp,
-  };
+  // No telecom provider is configured: retain a preview for the audit trail without claiming delivery.
+  return buildSimulatedSmsResult(messageText, parentPhone, timestamp);
 }
 
 export async function sendPaymentApprovalSms(payment: {
@@ -227,15 +234,8 @@ export async function sendPaymentApprovalSms(payment: {
     school_name: 'Shawan School & College',
   });
 
-  console.log(`[SMS-GATEWAY] [OUTBOUND-CONFIRMATION] To: ${parentPhone} | Message: "${messageText}"`);
-
-  return {
-    sent: true,
-    message: messageText,
-    status: 'Delivered',
-    destination_phone: parentPhone,
-    timestamp,
-  };
+  // No telecom provider is configured: retain a preview for the audit trail without claiming delivery.
+  return buildSimulatedSmsResult(messageText, parentPhone, timestamp);
 }
 
 export async function sendPaymentRejectionSms(payment: {
@@ -279,13 +279,6 @@ export async function sendPaymentRejectionSms(payment: {
     school_name: 'Shawan School & College',
   });
 
-  console.log(`[SMS-GATEWAY] [OUTBOUND-REJECTION] To: ${parentPhone} | Message: "${messageText}"`);
-
-  return {
-    sent: true,
-    message: messageText,
-    status: 'Delivered',
-    destination_phone: parentPhone,
-    timestamp,
-  };
+  // No telecom provider is configured: retain a preview for the audit trail without claiming delivery.
+  return buildSimulatedSmsResult(messageText, parentPhone, timestamp);
 }

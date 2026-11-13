@@ -119,7 +119,7 @@ const TeacherTaskSchema = new Schema<ITeacherTask>(
 );
 
 TeacherTaskSchema.index({ teacher_id: 1, status: 1 });
-TeacherTaskSchema.index({ due_date: 1 });
+
 
 export function toTeacherTaskDto(doc: any): TeacherTaskDto {
   const id = String(doc?.task_id || doc?._id || '');

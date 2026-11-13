@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, useState, useEffect } from 'react';
 import { RefreshCw, AlertCircle } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { api, buildApiUrl } from './services/api';
@@ -25,9 +25,21 @@ import { GallerySection } from './components/GallerySection';
 import { ContactLocationSection } from './components/ContactLocationSection';
 import { Footer } from './components/Footer';
 import { LoginModal } from './components/LoginModal';
-import { StudentPortal } from './components/StudentPortal';
-import { TeacherPortal } from './components/TeacherPortal';
-import { AdminDashboard } from './components/AdminDashboard';
+const StudentPortal = React.lazy(() => import('./components/StudentPortal').then(module => ({ default: module.StudentPortal })));
+const TeacherPortal = React.lazy(() => import('./components/TeacherPortal').then(module => ({ default: module.TeacherPortal })));
+const AdminDashboard = React.lazy(() => import('./components/AdminDashboard').then(module => ({ default: module.AdminDashboard })));
+
+function PortalLoadingFallback() {
+  return (
+    <div className="min-h-screen bg-neutral-50 flex items-center justify-center p-6">
+      <div className="rounded-2xl border border-neutral-200 bg-white px-6 py-8 text-center shadow-sm">
+        <RefreshCw className="mx-auto mb-3 h-6 w-6 animate-spin text-emerald-800" />
+        <p className="text-sm font-semibold text-neutral-900">Loading secure portal…</p>
+        <p className="mt-1 text-xs text-neutral-500">Preparing your dashboard.</p>
+      </div>
+    </div>
+  );
+}
 
 function getScrollBehavior(): ScrollBehavior {
   if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
@@ -124,7 +136,7 @@ function SchoolApp() {
             if (errStr.includes('bad auth') || errStr.includes('authentication failed')) {
               detailedMessage = `Database authentication failed (${healthData.error}). Please verify the MongoDB Atlas username and password in Railway environment variables and MongoDB Atlas Database Access.`;
             } else if (errStr.includes('timed out') || errStr.includes('whitelisted') || errStr.includes('network') || errStr.includes('enotfound')) {
-              detailedMessage = `MongoDB Atlas network unreachable (${healthData.error}). Please ensure the server IP is allowlisted in MongoDB Atlas Network Access (or allow 0.0.0.0/0 for cloud deployments).`;
+              detailedMessage = `MongoDB Atlas network unreachable (${healthData.error}). Check Railway outbound network access and the MongoDB Atlas Network Access allowlist. Avoid opening database access to all IP addresses; use the narrowest supported network rule.`;
             } else {
               detailedMessage = `MongoDB Atlas connection error: ${healthData.error}. Please verify database configuration and retry.`;
             }
@@ -150,7 +162,7 @@ function SchoolApp() {
         'Backend connection failed (Failed to fetch). The browser could not communicate with the backend server. If using Vercel, please ensure VITE_API_BASE_URL is pointing to your active Railway backend URL (e.g. https://<service>.up.railway.app) and redeploy.';
     } else if (/not allowed to do action/i.test(detailedMessage)) {
       detailedMessage =
-        'MongoDB Atlas permission denied (user is not allowed to do action [find]). In MongoDB Atlas -> Security -> Database Access, click Edit on user "shawan_prod_app" and set Built-in Role to "Read and write to any database" (or "Atlas admin"), then click Update User.';
+        'MongoDB Atlas permission denied. Verify that the configured database user has the minimum required read/write permissions for this application database. Do not share or paste database credentials.';
     }
 
     setLoadError(detailedMessage);
@@ -231,7 +243,7 @@ function SchoolApp() {
         <div className="text-center space-y-3">
           <div className="w-10 h-10 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto" />
           <h1 className="text-white text-lg font-bold font-display tracking-tight">
-            Shawan School &amp; College
+            School and College Management System with AI Assistant
           </h1>
           <p className="text-neutral-400 text-xs">Paharpur, Dera Ismail Khan, Pakistan</p>
         </div>
@@ -247,7 +259,7 @@ function SchoolApp() {
             <AlertCircle className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-neutral-900 font-display">Shawan School &amp; College</h1>
+            <h1 className="text-lg font-bold text-neutral-900 font-display">School and College Management System with AI Assistant</h1>
             <p className="text-xs text-neutral-600 mt-1 leading-relaxed">
               {loadError || 'Unable to connect to the institutional server.'}
             </p>
@@ -267,22 +279,17 @@ function SchoolApp() {
 
   // Render Student / Parent Portal View
   if (currentView === 'portal') {
-    return <StudentPortal onBackToWebsite={() => setCurrentView('public')} />;
+    return <Suspense fallback={<PortalLoadingFallback />}><StudentPortal onBackToWebsite={() => setCurrentView('public')} /></Suspense>;
   }
 
   // Render Admin Console View
   if (currentView === 'admin') {
-    return (
-      <AdminDashboard
-        onBackToWebsite={() => setCurrentView('public')}
-        onRefreshSiteSettings={fetchPublicData}
-      />
-    );
+    return <Suspense fallback={<PortalLoadingFallback />}><AdminDashboard onBackToWebsite={() => setCurrentView('public')} onRefreshSiteSettings={fetchPublicData} /></Suspense>;
   }
 
   // Render Teacher Portal View
   if (currentView === 'teacher') {
-    return <TeacherPortal onBackToWebsite={() => setCurrentView('public')} />;
+    return <Suspense fallback={<PortalLoadingFallback />}><TeacherPortal onBackToWebsite={() => setCurrentView('public')} /></Suspense>;
   }
 
   // Render Public Website
