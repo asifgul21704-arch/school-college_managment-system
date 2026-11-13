@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { buildStudentParentClaimFilter } from './parentAccess.ts';
 import { isClassAssignedToTeacher, normalizeClassAccessLabel } from './classAccess.ts';
+import { isTeacherSubjectAssigned } from './teacherHomeworkAccess.ts';
 
 const routes = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
 const envConfig = readFileSync(new URL('./config/env.ts', import.meta.url), 'utf8');
@@ -202,14 +203,22 @@ test('teacher dashboard unread count cannot aggregate every teacher private noti
   assert.doesNotMatch(dashboard, /\{ role: 'teacher' \}/);
 });
 
-test('teacher homework creation is limited to assigned class, section, and subject', () => {
+test('teacher homework creation is restricted to the authenticated teacher assignment scope', () => {
   const start = routes.indexOf("router.post('/teacher/homework'");
   const end = routes.indexOf('\n});', start) + 4;
   assert.ok(start >= 0 && end > start);
   const route = routes.slice(start, end);
-  assert.match(route, /isClassAssignedToTeacher\(teacher\.classes \|\| \[\], cleanClassName\)/);
-  assert.match(route, /TeacherAssignmentModel\.find\([\s\S]*section:/);
-  assert.match(route, /allowedSubjects\.includes\(cleanSubject\.toLowerCase\(\)\)/);
-  assert.match(route, /assign homework for your assigned subjects/);
+  assert.match(route, /canAssignTeacherHomework\(/);
+  assert.match(route, /Homework must match your assigned class, section, and subject/);
   assert.match(route, /teacher_id: teacher\.id/);
+});
+
+test('teacher subject scope uses exact subject names and supports explicit compound subjects', () => {
+  assert.equal(isTeacherSubjectAssigned('Mathematics', [], 'Mathematics'), true);
+  assert.equal(isTeacherSubjectAssigned('Mathematics & Science', [], 'Science'), true);
+  assert.equal(isTeacherSubjectAssigned('English, Urdu', [], 'Urdu'), true);
+  assert.equal(isTeacherSubjectAssigned('Computer Science', ['Physics'], 'Physics'), true);
+  assert.equal(isTeacherSubjectAssigned('Mathematics', [], 'Math'), false);
+  assert.equal(isTeacherSubjectAssigned('Physics', [], 'Physical Education'), false);
+  assert.equal(isTeacherSubjectAssigned('', [], 'Mathematics'), false);
 });
