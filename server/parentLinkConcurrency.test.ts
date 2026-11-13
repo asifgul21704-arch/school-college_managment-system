@@ -371,3 +371,15 @@ test('fee list endpoint rejects roles outside the declared school roles', () => 
   assert.match(route, /requireRole\(\['super_admin', 'admin', 'teacher', 'parent', 'student'\]\)/);
   assert.match(route, /Teachers do not have access to fee records/);
 });
+
+test('public parent signup uses atomic child claim instead of overwriting an existing parent link', () => {
+  const start = routes.indexOf("router.post('/auth/register-parent'");
+  const end = routes.indexOf('\n});', start) + 4;
+  assert.ok(start >= 0 && end > start);
+  const route = routes.slice(start, end);
+  assert.match(route, /claimStudentForParent\(\s*pendingStudentDoc, newUserId, createdUser\._id\.toString\(\)/);
+  assert.match(route, /if \(!claimedStudent\)[\s\S]*deleteOne\(\{ _id: createdUser\._id \}\)[\s\S]*409/);
+  assert.doesNotMatch(route, /studentDoc\.parent_user_id\s*=\s*newUserId/);
+  assert.match(route, /ParentModel\.create\([\s\S]*catch \(parentCreateError\)/);
+  assert.match(route, /parent_user_id: newUserId[\s\S]*parent_user_id: ''/);
+});
