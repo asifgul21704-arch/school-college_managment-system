@@ -2182,10 +2182,10 @@ export async function processAdminAiQuery(
       context,
       'AI_PREPARE_SMS_ACTION',
       'SMS_ALERT',
-      `Admin initiated sensitive notification for ${isFee ? 'fee reminder' : 'absent alert'}. Confirmation required.`
+      `Admin requested an alert draft for ${isFee ? 'fee reminder' : 'absent alert'}. Confirmation records an audit entry only; no delivery occurs.`
     );
     return {
-      text: `⚠️ **Admin Confirmation Required**\n\nYou have requested to dispatch notifications. In accordance with school safety protocols, this sensitive action requires explicit admin confirmation before processing.\n\nPlease review the details below and confirm to proceed.`,
+      text: `⚠️ **Admin Confirmation Required**\n\nYou have requested an administrative alert draft. Confirming records the draft for audit only; no SMS or parent-facing notification will be delivered because a verified SMS gateway is not connected.\n\nPlease review the details below and confirm to proceed.`,
       toolUsed: 'prepareSmsAction',
       requiresConfirmation: true,
       pendingAction: smsPrep.pendingAction,
@@ -2210,7 +2210,7 @@ export async function processAdminAiQuery(
       `Admin generated fee reminder draft for ${draftRes.unpaidStudentCount} unpaid students.`
     );
     return {
-      text: `### 📋 Prepared Fee Reminder Notification Draft\n\n**Recipients on Record:** ${draftRes.unpaidStudentCount} students with unpaid fees\n**Total Outstanding Dues:** PKR ${draftRes.totalOutstanding.toLocaleString()}\n\n---\n#### 📱 Urdu Template (SMS / WhatsApp):\n\`\`\`\n${draftRes.draftUrdu}\n\`\`\`\n\n#### 🌐 English Template:\n\`\`\`\n${draftRes.draftEnglish}\n\`\`\`\n\n*Action Ready: Say "Send fee reminder SMS alert" to trigger the verified broadcast confirmation dialog.*`,
+      text: `### 📋 Prepared Fee Reminder Notification Draft\n\n**Recipients on Record:** ${draftRes.unpaidStudentCount} students with unpaid fees\n**Total Outstanding Dues:** PKR ${draftRes.totalOutstanding.toLocaleString()}\n\n---\n#### 📱 Urdu Template (SMS / WhatsApp):\n\`\`\`\n${draftRes.draftUrdu}\n\`\`\`\n\n#### 🌐 English Template:\n\`\`\`\n${draftRes.draftEnglish}\n\`\`\`\n\n*To record an administrator-only fee reminder draft, request "Prepare fee reminder alert". No SMS will be sent until a verified gateway is connected.*`,
       toolUsed: 'draftFeeReminders',
       data: draftRes,
       auditLogId: auditId,
