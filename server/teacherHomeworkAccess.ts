@@ -7,6 +7,11 @@ export interface TeacherAssignmentScope {
   subject: string;
 }
 
+function normalizeSectionLabel(value: unknown): string {
+  const raw = String(value ?? '').trim().toLowerCase();
+  return normalizeClassAccessLabel(raw.startsWith('section ') ? raw.slice(8) : raw);
+}
+
 function normalizeSubjectLabel(value: unknown): string {
   return String(value ?? '').trim().toLowerCase().split(' ').filter(Boolean).join(' ');
 }
@@ -35,10 +40,10 @@ export function isTeacherAssignedToClassSection(
   );
   // Older teacher profiles may have class-level assignments without section rows.
   if (classAssignments.length === 0) return true;
-  const targetSection = normalizeClassAccessLabel(section);
+  const targetSection = normalizeSectionLabel(section);
   if (!targetSection) return false;
   return classAssignments.some(
-    assignment => normalizeClassAccessLabel(assignment.section) === targetSection
+    assignment => normalizeSectionLabel(assignment.section) === targetSection
   );
 }
 
@@ -69,7 +74,7 @@ export async function canAssignTeacherHomework(
   }
   const matchingAssignments = assignments.filter(assignment =>
     isClassAssignedToTeacher([assignment.class_name], className) &&
-    normalizeClassAccessLabel(assignment.section) === normalizeClassAccessLabel(section)
+    normalizeSectionLabel(assignment.section) === normalizeSectionLabel(section)
   );
   return isTeacherSubjectAssigned(
     teacher.subject,
