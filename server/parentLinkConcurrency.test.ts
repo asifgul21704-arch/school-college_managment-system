@@ -396,6 +396,16 @@ test('fee list endpoint rejects roles outside the declared school roles', () => 
   assert.match(route, /Teachers do not have access to fee records/);
 });
 
+test('admin parent linking uses the same atomic one-owner claim as parent self-service', () => {
+  const start = routes.indexOf("router.post('/admin/parent-links/link'");
+  const end = routes.indexOf("// 6. Admin Unlink Student from Parent", start);
+  assert.ok(start >= 0 && end > start);
+  const route = routes.slice(start, end);
+  assert.match(route, /claimStudentForParent\(studentDoc, canonicalParentId, parentUser\._id\.toString\(\)\)/);
+  assert.match(route, /already linked to another parent account/);
+  assert.doesNotMatch(route, /studentDoc\.parent_user_id\s*=\s*canonicalParentId/);
+});
+
 test('parent child discovery queries only unclaimed students or records owned by the current parent', () => {
   const routeStart = routes.indexOf("router.post('/parents/find-child'");
   const routeEnd = routes.indexOf("// 2. Confirm & Link Verified Child", routeStart);
