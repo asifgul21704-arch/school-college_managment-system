@@ -11931,7 +11931,7 @@ router.post('/teacher/homework', authenticateToken, requireExactRole(['teacher']
     const cleanClassName = sanitizePlainText(class_name, 120);
     const cleanSection = sanitizePlainText(section, 60);
     const cleanSubject = sanitizePlainText(subject, 120);
-    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id)));
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
     const authorizedScope = await canAssignTeacherHomework(
       teacher, teacherIds, cleanClassName, cleanSection, cleanSubject
     );
