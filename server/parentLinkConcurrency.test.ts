@@ -295,3 +295,20 @@ test('teacher AI confirmed actions revalidate live section and subject assignmen
   assert.match(route, /Student is outside your assigned class and section/);
   assert.match(route, /Subject is outside your teaching assignment/);
 });
+
+test('teacher homework read and delete routes revalidate current assignment scope', () => {
+  const readStart = routes.indexOf("router.get('/teacher/homework'");
+  const readEnd = routes.indexOf('\n});', readStart) + 4;
+  assert.ok(readStart >= 0 && readEnd > readStart);
+  const readRoute = routes.slice(readStart, readEnd);
+  assert.match(readRoute, /getTeacherAssignmentScopes\(teacherIds\)/);
+  assert.match(readRoute, /authorizedDocs = docs\.filter[\s\S]*isTeacherAssignedToClassSection/);
+
+  const deleteStart = routes.indexOf("router.delete('/teacher/homework/:id'");
+  const deleteEnd = routes.indexOf('\n});', deleteStart) + 4;
+  assert.ok(deleteStart >= 0 && deleteEnd > deleteStart);
+  const deleteRoute = routes.slice(deleteStart, deleteEnd);
+  assert.match(deleteRoute, /ownedHomework = await HomeworkModel\.findOne/);
+  assert.match(deleteRoute, /isTeacherAssignedToClassSection/);
+  assert.match(deleteRoute, /findOneAndDelete\([\s\S]*ownedHomework\._id/);
+});
