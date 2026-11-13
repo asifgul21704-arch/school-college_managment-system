@@ -237,6 +237,8 @@ financeRouter.post('/payroll/:id/payment', async (req: AuthenticatedRequest, res
     }
     const existing = await PayrollModel.findOne({ record_id: req.params.id });
     if (!existing) return res.status(404).json({ error: 'Payroll record not found.' });
+    const alreadyRecorded = existing.payment_history?.some((payment: any) => payment.idempotency_key === idempotencyKey);
+    if (alreadyRecorded) return res.status(409).json({ error: 'This payment request was already recorded. Refresh payroll; do not submit it again.' });
     const previousPaid = Number(existing.paid_amount || 0);
     const remaining = Number(existing.net_salary || 0) - previousPaid;
     if (roundedAmount > remaining) return res.status(400).json({ error: 'Payment exceeds the remaining salary balance.' });
