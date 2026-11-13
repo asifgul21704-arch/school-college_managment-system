@@ -1011,6 +1011,99 @@ test('real MongoDB: teacher dashboards and attendance are scoped to exact assign
   assert.match(teacherAiLowAttendance.body.text, /Assigned Section Student/);
   assert.doesNotMatch(teacherAiLowAttendance.body.text, /Unassigned Section Student|Different Class Student/);
 
+  const unconfirmedAiAttendance = await request('/teacher/ai/execute-action', teacherToken, {
+    method: 'POST',
+    body: {
+      actionType: 'MARK_ATTENDANCE',
+      confirmed: false,
+      payload: { student_id: 'TEACHER-SCOPE-STUDENT-A', section: 'A', date: today, status: 'Absent' },
+    },
+  });
+  assert.equal(unconfirmedAiAttendance.status, 400);
+  assert.equal(
+    (await AttendanceModel.findOne({ student_id: 'TEACHER-SCOPE-STUDENT-A', date: today }).lean())?.status,
+    'Present'
+  );
+
+  const wrongSectionAiAttendance = await request('/teacher/ai/execute-action', teacherToken, {
+    method: 'POST',
+    body: {
+      actionType: 'MARK_ATTENDANCE',
+      confirmed: true,
+      payload: { student_id: 'TEACHER-SCOPE-STUDENT-A', section: 'B', date: today, status: 'Absent' },
+    },
+  });
+  assert.equal(wrongSectionAiAttendance.status, 403);
+
+  const confirmedAiAttendance = await request('/teacher/ai/execute-action', teacherToken, {
+    method: 'POST',
+    body: {
+      actionType: 'MARK_ATTENDANCE',
+      confirmed: true,
+      payload: { student_id: 'TEACHER-SCOPE-STUDENT-A', section: 'A', date: today, status: 'Present' },
+    },
+  });
+  assert.equal(confirmedAiAttendance.status, 200, JSON.stringify(confirmedAiAttendance.body));
+  assert.equal(
+    (await AttendanceModel.findOne({ student_id: 'TEACHER-SCOPE-STUDENT-A', date: today }).lean())?.status,
+    'Present'
+  );
+
+  const wrongSectionAiMarks = await request('/teacher/ai/execute-action', teacherToken, {
+    method: 'POST',
+    body: {
+      actionType: 'RECORD_MARKS',
+      confirmed: true,
+      payload: {
+        student_id: 'TEACHER-SCOPE-STUDENT-B',
+        exam_id: 'AI-SCOPE-TEST-EXAM',
+        subject_name: 'Mathematics',
+        total_marks: 100,
+        obtained_marks: 80,
+      },
+    },
+  });
+  assert.equal(wrongSectionAiMarks.status, 403);
+  assert.equal(await ResultModel.countDocuments({ exam_id: 'AI-SCOPE-TEST-EXAM' }), 0);
+
+  const wrongSubjectAiMarks = await request('/teacher/ai/execute-action', teacherToken, {
+    method: 'POST',
+    body: {
+      actionType: 'RECORD_MARKS',
+      confirmed: true,
+      payload: {
+        student_id: 'TEACHER-SCOPE-STUDENT-A',
+        exam_id: 'AI-SCOPE-TEST-EXAM',
+        subject_name: 'Science',
+        total_marks: 100,
+        obtained_marks: 80,
+      },
+    },
+  });
+  assert.equal(wrongSubjectAiMarks.status, 403);
+  assert.equal(await ResultModel.countDocuments({ exam_id: 'AI-SCOPE-TEST-EXAM' }), 0);
+
+  const confirmedAiMarks = await request('/teacher/ai/execute-action', teacherToken, {
+    method: 'POST',
+    body: {
+      actionType: 'RECORD_MARKS',
+      confirmed: true,
+      payload: {
+        student_id: 'TEACHER-SCOPE-STUDENT-A',
+        exam_id: 'AI-SCOPE-TEST-EXAM',
+        exam_title: 'AI Scope Test',
+        subject_name: 'Mathematics',
+        total_marks: 100,
+        obtained_marks: 80,
+      },
+    },
+  });
+  assert.equal(confirmedAiMarks.status, 200, JSON.stringify(confirmedAiMarks.body));
+  assert.equal(await ResultModel.countDocuments({
+    exam_id: 'AI-SCOPE-TEST-EXAM',
+    student_id: 'TEACHER-SCOPE-STUDENT-A',
+  }), 1);
+
   const stats = await request('/dashboard/stats', teacherToken);
   assert.equal(stats.status, 200, JSON.stringify(stats.body));
   assert.equal(stats.body.totalStudents, 1);
