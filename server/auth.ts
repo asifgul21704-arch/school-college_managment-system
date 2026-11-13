@@ -5,6 +5,7 @@ import mongoose from 'mongoose';
 import { UserModel, type UserRole } from './models/User.ts';
 import { RevokedTokenModel } from './models/RevokedToken.ts';
 import { RateLimitBucketModel } from './models/RateLimitBucket.ts';
+import { isProductionEnvironment } from './config/runtime.ts';
 
 const DEFAULT_INSECURE_SECRET = 'shawan-school-and-college-secure-jwt-secret-2026-paharpur';
 export const SESSION_COOKIE_NAME = 'shawan_session';
@@ -155,7 +156,7 @@ function isRequestHttps(req: Request): boolean {
 }
 
 export function setSessionCookie(req: Request, res: Response, token: string): void {
-  const isProd = process.env.NODE_ENV === 'production';
+  const isProd = isProductionEnvironment();
   const isHttps = isRequestHttps(req);
   const hasCrossOriginConfig = Boolean(process.env.CORS_ORIGIN && process.env.CORS_ORIGIN.trim());
   const useSecure = isProd && (isHttps || hasCrossOriginConfig);
@@ -174,7 +175,7 @@ export function setSessionCookie(req: Request, res: Response, token: string): vo
 }
 
 export function clearSessionCookie(req: Request, res: Response): void {
-  const isProd = process.env.NODE_ENV === 'production';
+  const isProd = isProductionEnvironment();
   const isHttps = isRequestHttps(req);
   const hasCrossOriginConfig = Boolean(process.env.CORS_ORIGIN && process.env.CORS_ORIGIN.trim());
   const useSecure = isProd && (isHttps || hasCrossOriginConfig);
@@ -201,7 +202,7 @@ const EXAMPLE_PLACEHOLDER_SECRET = 'replace_with_minimum_32_character_cryptograp
  */
 export function getJwtSecret(): string {
   const rawSecret = typeof process.env.JWT_SECRET === 'string' ? process.env.JWT_SECRET.trim() : '';
-  const isProd = process.env.NODE_ENV === 'production';
+  const isProd = isProductionEnvironment();
   if (isProd) {
     if (!rawSecret) {
       throw new Error(
