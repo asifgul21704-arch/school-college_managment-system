@@ -201,3 +201,15 @@ test('teacher dashboard unread count cannot aggregate every teacher private noti
   assert.match(dashboard, /buildNotificationVisibilityFilter\(req\.user!\.role, allowedNotificationUserIds\)/);
   assert.doesNotMatch(dashboard, /\{ role: 'teacher' \}/);
 });
+
+test('teacher homework creation is limited to assigned class, section, and subject', () => {
+  const start = routes.indexOf("router.post('/teacher/homework'");
+  const end = routes.indexOf('// 20.7', start);
+  assert.ok(start >= 0 && end > start);
+  const route = routes.slice(start, end);
+  assert.match(route, /isClassAssignedToTeacher\(teacher\.classes \|\| \[\], cleanClassName\)/);
+  assert.match(route, /TeacherAssignmentModel\.find\([\s\S]*section:/);
+  assert.match(route, /allowedSubjects\.includes\(cleanSubject\.toLowerCase\(\)\)/);
+  assert.match(route, /assign homework for your assigned subjects/);
+  assert.match(route, /teacher_id: teacher\.id/);
+});
