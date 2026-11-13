@@ -10,14 +10,15 @@ export function buildStudentParentClaimFilter(
   const cleanStudentId = String(studentId ?? '').trim();
   if (!cleanStudentId) return { _id: null };
 
-  const allowedOwners = Array.from(new Set(
-    [null, '', canonicalUserId, mongoUserId]
-      .map(value => value === null ? null : String(value ?? '').trim())
-      .filter((value): value is string | null => value === null || value !== '')
-  ));
+  const ownerCandidates: Array<string | null> = [null, ''];
+  for (const rawOwner of [canonicalUserId, mongoUserId]) {
+    const owner = String(rawOwner ?? '').trim();
+    if (owner && !ownerCandidates.includes(owner)) ownerCandidates.push(owner);
+  }
 
   return {
+    // Keep the original BSON ObjectId type when callers pass a Mongo document _id.
     _id: studentId,
-    parent_user_id: { $in: allowedOwners },
+    parent_user_id: { $in: ownerCandidates },
   };
 }
