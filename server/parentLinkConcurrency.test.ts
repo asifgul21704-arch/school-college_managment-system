@@ -39,6 +39,11 @@ test('both parent linking endpoints use one atomic conditional ownership update'
   assert.match(secondFlow, /\$addToSet: \{ linked_student_ids: canonicalStudentId \}/);
   assert.doesNotMatch(firstFlow, /studentDoc\.save\(\)/);
   assert.doesNotMatch(secondFlow, /studentDoc\.save\(\)/);
+
+  const unlinkEnd = routes.indexOf('// Parent directory & profile CRUD', unlinkStart);
+  const unlinkFlow = routes.slice(unlinkStart, unlinkEnd);
+  assert.match(unlinkFlow, /StudentModel\.updateOne\([\s\S]*parent_user_id: \{ \$in:/);
+  assert.doesNotMatch(unlinkFlow, /studentDoc\.save\(\)/);
 });
 
 test('parent payment history is limited to currently linked children', () => {
