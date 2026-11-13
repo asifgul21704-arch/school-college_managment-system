@@ -11000,10 +11000,16 @@ router.get('/teacher/dashboard', authenticateToken, requireExactRole(['teacher']
       ResultModel.find().sort({ created_at: -1, _id: -1 }).lean(),
       TeacherAssignmentModel.find({ teacher_id: { $in: teacherIds } }).lean(),
       TeacherTaskModel.find({ teacher_id: { $in: teacherIds } }).sort({ due_date: 1 }).lean(),
-      NotificationModel.countDocuments({
-        $or: [{ user_id: req.user!.id }, { user_id: teacher.id }, { role: 'teacher' }],
-        read: false,
-      }).catch(() => 0),
+      (async () => {
+        const allowedNotificationUserIds = await resolveNotificationAllowedUserIds(req.user!);
+        if (!allowedNotificationUserIds.includes(teacher.id)) {
+          allowedNotificationUserIds.push(teacher.id);
+        }
+        return NotificationModel.countDocuments({
+          read: false,
+          ...buildNotificationVisibilityFilter(req.user!.role, allowedNotificationUserIds),
+        });
+      })().catch(() => 0),
     ]);
 
     const assignments = assignmentDocs.map(toTeacherAssignmentDto);
