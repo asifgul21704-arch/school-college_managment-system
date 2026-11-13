@@ -12385,20 +12385,27 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
       }
     }
 
-    const words = lower
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .split(/\s+/)
+    const words = (lower.match(/[a-z0-9]+/g) || [])
       .filter(w => w.length >= 3 && !['what', 'show', 'attendance', 'result', 'marks', 'about', 'student', 'class'].includes(w));
     let candidates: StudentDto[] = [];
     for (const w of words) {
-      const matches = teacherStudents.filter(s => s.full_name.toLowerCase().includes(w));
+      const matches = teacherStudents.filter(s =>
+        (s.full_name.toLowerCase().match(/[a-z0-9]+/g) || []).includes(w)
+      );
       if (matches.length > 1) {
         candidates = matches;
         break;
       }
     }
     if (candidates.length > 1) {
-      const exactFullMatches = candidates.filter(c => lower.includes(c.full_name.toLowerCase()));
+      const promptTokens = lower.match(/[a-z0-9]+/g) || [];
+      const exactFullMatches = candidates.filter(c => {
+        const nameTokens = c.full_name.toLowerCase().match(/[a-z0-9]+/g) || [];
+        return nameTokens.length > 0 && nameTokens.length <= promptTokens.length &&
+          promptTokens.some((_, index) =>
+            nameTokens.every((token, offset) => promptTokens[index + offset] === token)
+          );
+      });
       if (exactFullMatches.length !== 1) {
         return res.json({
           disambiguationRequired: true,
@@ -12427,7 +12434,11 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
     }
 
     if (lower.includes('timetable') || lower.includes('schedule') || lower.includes('period') || lower.includes('next class')) {
-      const ttDocs = await TimetableModel.find().sort({ created_at: 1, _id: 1 }).lean();
+      const ttDocs = await TimetableModel.find({
+        teacher_name: {
+          $regex: new RegExp('^\\s*' + escapeRegexLiteral(teacher.name) + '\\s*$', 'i'),
+        },
+      }).sort({ created_at: 1, _id: 1 }).lean();
       const teacherTimetable = ttDocs.map(toTimetableDto).filter(t =>
         String(t.teacher_name || '').trim().toLowerCase() === String(teacher.name || '').trim().toLowerCase()
       );
