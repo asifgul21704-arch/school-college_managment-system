@@ -15,6 +15,8 @@ import { TeacherAssignmentModel } from './models/TeacherAssignment.ts';
 import { AttendanceModel } from './models/Attendance.ts';
 import { ExamModel } from './models/Exam.ts';
 import { ResultModel } from './models/Result.ts';
+import { ExpenseModel } from './models/Expense.ts';
+import { PayrollModel } from './models/Payroll.ts';
 
 const TEST_DATABASE_NAME = 'school_management_integration_test';
 const mongoUri = process.env.MONGODB_TEST_URI || '';
@@ -1332,4 +1334,148 @@ test('real MongoDB: teacher dashboards and attendance are scoped to exact assign
   assert.equal(issuedVoucher.status, 201, JSON.stringify(issuedVoucher.body));
   assert.equal(issuedVoucher.body.total_amount, 2500);
   assert.equal(issuedVoucher.body.pending_amount, 2500);
+});
+
+
+test('real MongoDB: finance reports, expense CRUD, and idempotent payroll payments are enforced', async () => {
+  const admin = await UserModel.create({
+    record_id: 'FINANCE-INTEGRATION-ADMIN',
+    email: 'finance.admin@example.test',
+    password_hash: 'integration-only-hash',
+    name: 'Finance Integration Admin',
+    role: 'super_admin',
+    status: 'active',
+  });
+  const teacher = await UserModel.create({
+    record_id: 'FINANCE-INTEGRATION-TEACHER-USER',
+    email: 'finance.teacher@example.test',
+    password_hash: 'integration-only-hash',
+    name: 'Finance Integration Teacher',
+    role: 'teacher',
+    status: 'active',
+  });
+  const staff = await TeacherModel.create({
+    record_id: 'FINANCE-INTEGRATION-STAFF',
+    name: 'Finance Integration Teacher',
+    subject: 'Mathematics',
+    status: 'Active',
+    contact_no: '03000000009',
+  });
+  const adminToken = authToken({ id: admin.record_id!, email: admin.email, role: 'super_admin', name: admin.name });
+  const teacherToken = authToken({ id: teacher.record_id!, email: teacher.email, role: 'teacher', name: teacher.name });
+
+  const teacherFinanceDenied = await request('/finance/expenses', teacherToken);
+  assert.equal(teacherFinanceDenied.status, 403);
+
+  const invalidExpense = await request('/finance/expenses', adminToken, {
+    method: 'POST',
+    body: { title: 'Invalid date', category: 'Supplies', amount: 100, expense_date: '2026-02-30', payment_method: 'Cash' },
+  });
+  assert.equal(invalidExpense.status, 400);
+  const createdExpense = await request('/finance/expenses', adminToken, {
+    method: 'POST',
+    body: { title: 'Integration Supplies', category: 'Supplies', amount: 1250.25, expense_date: '2026-11-13', payment_method: 'Cash' },
+  });
+  assert.equal(createdExpense.status, 201, JSON.stringify(createdExpense.body));
+  assert.equal(createdExpense.body.amount, 1250.25);
+  const updatedExpense = await request(`/finance/expenses/${encodeURIComponent(createdExpense.body.id)}`, adminToken, {
+    method: 'PUT',
+    body: { amount: 1750.75 },
+  });
+  assert.equal(updatedExpense.status, 200);
+  assert.equal(updatedExpense.body.amount, 1750.75);
+  assert.equal((await request('/finance/expenses?from=2026-02-30', adminToken)).status, 400);
+  assert.equal((await request('/finance/expenses?from=2026-11-30&to=2026-11-01', adminToken)).status, 400);
+  const listedExpenses = await request('/finance/expenses?from=2026-11-01&to=2026-11-30', adminToken);
+  assert.equal(listedExpenses.status, 200);
+  assert.ok(listedExpenses.body.some((row: any) => row.id === createdExpense.body.id));
+  const deletedExpense = await request(`/finance/expenses/${encodeURIComponent(createdExpense.body.id)}`, adminToken, { method: 'DELETE' });
+  assert.equal(deletedExpense.status, 200);
+  assert.equal(await ExpenseModel.countDocuments({ record_id: createdExpense.body.id }), 0);
+
+  const invalidYear = await request('/finance/payroll?year=20xx', adminToken);
+  const invalidMonth = await request('/finance/payroll?month=13', adminToken);
+  const invalidStatus = await request('/finance/payroll?status=Everything', adminToken);
+  assert.equal(invalidYear.status, 400);
+  assert.equal(invalidMonth.status, 400);
+  assert.equal(invalidStatus.status, 400);
+
+  const payroll = await request('/finance/payroll', adminToken, {
+    method: 'POST',
+    body: {
+      staff_id: staff.record_id,
+      staff_name: 'Untrusted Name',
+      designation: 'Untrusted Designation',
+      salary_month: 11,
+      salary_year: 2026,
+      basic_salary: 50000,
+      allowances: 5000,
+      deductions: 5000,
+    },
+  });
+  assert.equal(payroll.status, 201, JSON.stringify(payroll.body));
+  assert.equal(payroll.body.staff_name, 'Finance Integration Teacher');
+  assert.equal(payroll.body.designation, 'Mathematics');
+  assert.equal(payroll.body.net_salary, 50000);
+  const payrollId = payroll.body.id as string;
+
+  const missingKey = await request(`/finance/payroll/${encodeURIComponent(payrollId)}/payment`, adminToken, {
+    method: 'POST',
+    body: { amount: 20000, payment_date: '2026-11-13', payment_method: 'Bank Transfer' },
+  });
+  assert.equal(missingKey.status, 400);
+
+  const paymentPayload = {
+    amount: 20000,
+    payment_date: '2026-11-13',
+    payment_method: 'Bank Transfer',
+    idempotency_key: 'finance-integration-payment-1',
+  };
+  const firstPayment = await request(`/finance/payroll/${encodeURIComponent(payrollId)}/payment`, adminToken, { method: 'POST', body: paymentPayload });
+  assert.equal(firstPayment.status, 200, JSON.stringify(firstPayment.body));
+  assert.equal(firstPayment.body.paid_amount, 20000);
+  const duplicatePayment = await request(`/finance/payroll/${encodeURIComponent(payrollId)}/payment`, adminToken, { method: 'POST', body: paymentPayload });
+  assert.equal(duplicatePayment.status, 409);
+  const afterDuplicate = await PayrollModel.findOne({ record_id: payrollId }).lean();
+  assert.equal(afterDuplicate?.paid_amount, 20000);
+  assert.equal(afterDuplicate?.payment_history.length, 1);
+
+  const finalPayment = await request(`/finance/payroll/${encodeURIComponent(payrollId)}/payment`, adminToken, {
+    method: 'POST',
+    body: { amount: 30000, payment_date: '2026-11-13', payment_method: 'Bank Transfer', idempotency_key: 'finance-integration-payment-2' },
+  });
+  assert.equal(finalPayment.status, 200);
+  assert.equal(finalPayment.body.paid_amount, 50000);
+  assert.equal(finalPayment.body.status, 'Paid');
+
+  const concurrentPayroll = await request('/finance/payroll', adminToken, {
+    method: 'POST',
+    body: {
+      staff_id: staff.record_id,
+      staff_name: staff.name,
+      designation: staff.subject,
+      salary_month: 12,
+      salary_year: 2026,
+      basic_salary: 10000,
+      allowances: 0,
+      deductions: 0,
+    },
+  });
+  assert.equal(concurrentPayroll.status, 201);
+  const concurrentId = concurrentPayroll.body.id as string;
+  const concurrentPayments = await Promise.all([
+    request(`/finance/payroll/${encodeURIComponent(concurrentId)}/payment`, adminToken, {
+      method: 'POST',
+      body: { amount: 6000, payment_date: '2026-12-13', payment_method: 'Cash', idempotency_key: 'finance-concurrent-payment-a' },
+    }),
+    request(`/finance/payroll/${encodeURIComponent(concurrentId)}/payment`, adminToken, {
+      method: 'POST',
+      body: { amount: 6000, payment_date: '2026-12-13', payment_method: 'Cash', idempotency_key: 'finance-concurrent-payment-b' },
+    }),
+  ]);
+  assert.equal(concurrentPayments.filter(result => result.status === 200).length, 1);
+  assert.ok(concurrentPayments.every(result => [200, 400, 409].includes(result.status)));
+  const concurrentStored = await PayrollModel.findOne({ record_id: concurrentId }).lean();
+  assert.equal(concurrentStored?.paid_amount, 6000);
+  assert.equal(concurrentStored?.payment_history.length, 1);
 });
