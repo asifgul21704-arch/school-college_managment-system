@@ -1,8 +1,8 @@
 import { TeacherAssignmentModel } from './models/TeacherAssignment.ts';
-import { isClassAssignedToTeacher } from './classAccess.ts';
+import { isClassAssignedToTeacher, normalizeClassAccessLabel } from './classAccess.ts';
 
 function normalizeSubjectLabel(value: unknown): string {
-  return String(value ?? '').trim().toLowerCase().replace(/\\s+/g, ' ');
+  return String(value ?? '').trim().toLowerCase().split(' ').filter(Boolean).join(' ');
 }
 
 export function isTeacherSubjectAssigned(
@@ -30,13 +30,15 @@ export async function canAssignTeacherHomework(
 
   const assignments = await TeacherAssignmentModel.find({
     teacher_id: { $in: teacherIds },
-    class_name: className,
-    section,
-  }).select('subject').lean();
+  }).select('class_name section subject').lean();
+  const matchingAssignments = assignments.filter((assignment: any) =>
+    isClassAssignedToTeacher([String(assignment.class_name || '')], className) &&
+    normalizeClassAccessLabel(assignment.section) === normalizeClassAccessLabel(section)
+  );
 
   return isTeacherSubjectAssigned(
     teacher.subject,
-    assignments.map((assignment: any) => assignment.subject),
+    matchingAssignments.map((assignment: any) => assignment.subject),
     subject
   );
 }
