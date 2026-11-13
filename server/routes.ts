@@ -11629,41 +11629,29 @@ router.post('/teacher/results', authenticateToken, requireExactRole(['teacher'])
     const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
 
     const assignedClasses = teacher.classes || [];
-    const isAssigned = isClassAssignedToTeacher(assignedClasses, studentDoc.class_name);
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+    const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
+    const isAssigned = isTeacherAssignedToClassSection(
+      assignedClasses, assignmentScopes, studentDoc.class_name, studentDoc.section || 'A'
+    );
     if (!isAssigned) {
-      return res.status(403).json({ error: `Access denied: You are not assigned to class "${studentDoc.class_name}".` });
+      return res.status(403).json({ error: 'Access denied: You are not assigned to this student section.' });
     }
-
-    const teacherIdAliases = Array.from(new Set([teacher.id].filter(Boolean)));
-    const assignmentSubjects = await TeacherAssignmentModel.find({
-      teacher_id: { $in: teacherIdAliases },
-      class_name: { $regex: new RegExp(`^${escapeRegexLiteral(studentDoc.class_name)}$`, 'i') },
-    })
-      .select('subject')
-      .lean();
-    const allowedSubjNames = [
-      teacher.subject,
-      ...assignmentSubjects.map((a: any) => String(a.subject || '')),
-    ]
-      .filter(Boolean)
-      .map(s => s.toLowerCase());
 
     const cleanSubjectName = sanitizePlainText(subject_name, 120);
-    const reqSubjLower = cleanSubjectName.toLowerCase();
-    const isSubjectAllowed = allowedSubjNames.some(
-      tSubj =>
-        tSubj.includes(reqSubjLower) ||
-        reqSubjLower.includes(tSubj) ||
-        tSubj.split('&').some(part => part.trim().length > 2 && reqSubjLower.includes(part.trim())) ||
-        reqSubjLower.split(' ').some(word => word.length > 3 && tSubj.includes(word))
+    const matchingAssignments = assignmentScopes.filter(assignment =>
+      isTeacherAssignedToClassSection(
+        [assignment.class_name], [assignment], studentDoc.class_name, studentDoc.section || 'A'
+      )
     );
-
+    const isSubjectAllowed = isTeacherSubjectAssigned(
+      teacher.subject, matchingAssignments.map(assignment => assignment.subject), cleanSubjectName
+    );
     if (!isSubjectAllowed) {
       return res.status(403).json({
-        error: `Access denied: You are not authorized to record marks for "${cleanSubjectName}". Assigned subject: "${teacher.subject}".`,
+        error: 'Access denied: You are not authorized to record marks for this subject.',
       });
     }
-
     const tm = Number(total_marks !== undefined ? total_marks : 100);
     const om = Number(obtained_marks);
 
