@@ -329,6 +329,41 @@ test('real MongoDB: stale parent session loses unlinked-child access and payment
   assert.equal(feeB?.pending_amount, 2000);
   assert.equal(feeB?.payment_history.length, 1);
 
+  // Reusing an already settled deposit slip / transaction ID must be rejected.
+  const duplicateSlip = await request('/parent/payments/initiate', parentToken, {
+    method: 'POST',
+    body: {
+      fee_id: 'VCH-INTEGRATION-B',
+      student_id: 'STU-INTEGRATION-B',
+      amount: 1000,
+      method: 'Bank Deposit',
+      deposit_slip_ref: 'SLIP-INTEGRATION-APPROVE',
+    },
+  });
+  assert.equal(duplicateSlip.status, 409);
+
+  // Concurrent approvals must have exactly one winner and must credit the voucher only once.
+  const concurrentSubmission = await request('/parent/payments/initiate', parentToken, {
+    method: 'POST',
+    body: {
+      fee_id: 'VCH-INTEGRATION-B',
+      student_id: 'STU-INTEGRATION-B',
+      amount: 1000,
+      method: 'Bank Deposit',
+      deposit_slip_ref: 'SLIP-INTEGRATION-CONCURRENT',
+    },
+  });
+  assert.equal(concurrentSubmission.status, 201, JSON.stringify(concurrentSubmission.body));
+  const concurrentApprovals = await Promise.all([
+    request(`/admin/payments/${concurrentSubmission.body.payment.id}/approve`, adminToken, { method: 'POST', body: {} }),
+    request(`/admin/payments/${concurrentSubmission.body.payment.id}/approve`, adminToken, { method: 'POST', body: {} }),
+  ]);
+  assert.deepEqual(concurrentApprovals.map(result => result.status).sort((a, b) => a - b), [200, 409]);
+  feeB = await FeeModel.findOne({ voucher_id: 'VCH-INTEGRATION-B' }).lean();
+  assert.equal(feeB?.paid_amount, 2000);
+  assert.equal(feeB?.pending_amount, 1000);
+  assert.equal(feeB?.payment_history.length, 2);
+
   const finalHistory = await request('/parent/payments/history', parentToken);
   assert.equal(finalHistory.status, 200);
   assert.equal(finalHistory.body.some((payment: any) => payment.student_id === 'STU-INTEGRATION-A'), false);
