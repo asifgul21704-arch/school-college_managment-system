@@ -243,6 +243,25 @@ test('real MongoDB: stale parent session loses unlinked-child access and payment
   assert.deepEqual(intruderAfterBlockedAdminLink?.linked_student_ids || [], []);
   assert.equal((await StudentModel.findOne({ record_id: 'STU-INTEGRATION-A' }).lean())?.parent_user_id, parent.record_id);
 
+  await StudentModel.create({
+    record_id: 'STU-INTEGRATION-ADMIN-UNCLAIMED',
+    admission_no: 'ADM-INTEGRATION-ADMIN-UNCLAIMED',
+    roll_no: '03',
+    full_name: 'Admin Link Unclaimed Student',
+    father_name: 'Unrelated Guardian',
+    gender: 'Male',
+    class_name: 'Class 7',
+    section: 'A',
+    parent_user_id: '',
+    academic_status: 'Active',
+  });
+  const allowedAdminLink = await request('/admin/parent-links/link', adminToken, {
+    method: 'POST',
+    body: { parent_id: intruder.record_id, student_id: 'STU-INTEGRATION-ADMIN-UNCLAIMED' },
+  });
+  assert.equal(allowedAdminLink.status, 200, JSON.stringify(allowedAdminLink.body));
+  assert.equal((await StudentModel.findOne({ record_id: 'STU-INTEGRATION-ADMIN-UNCLAIMED' }).lean())?.parent_user_id, intruder.record_id);
+
   const portalBeforeUnlink = await request('/portal/ai/query', parentToken, {
     method: 'POST',
     body: { prompt: 'Give me an overview of my children' },
