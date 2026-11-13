@@ -11203,6 +11203,8 @@ router.get('/teacher/classes', authenticateToken, requireExactRole(['teacher']),
 
     const todayDate = new Date().toISOString().split('T')[0];
     const assignedClasses = teacher.classes || [];
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+    const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
     const [allClassDocs, allSectionDocs, allStudentDocs, todayAttDocs] = await Promise.all([
       ClassModel.find().lean(),
       SectionModel.find().sort({ created_at: 1, _id: 1 }).lean(),
@@ -11213,15 +11215,26 @@ router.get('/teacher/classes', authenticateToken, requireExactRole(['teacher']),
     const classList = assignedClasses.map(className => {
       const classInfo = allClassDocs.find((c: any) => c.name.toLowerCase() === className.toLowerCase());
       const studentsInClass = allStudentDocs.filter(
-        (s: any) => (s.class_name || '').toLowerCase() === className.toLowerCase()
+        (student: any) =>
+          (student.class_name || '').toLowerCase() === className.toLowerCase() &&
+          isTeacherAssignedToClassSection(
+            assignedClasses, assignmentScopes, String(student.class_name || ''), String(student.section || 'A')
+          )
       );
       const mongoSections = allSectionDocs
-        .filter((sec: any) => sec.class_name.toLowerCase() === className.toLowerCase())
+        .filter((sec: any) =>
+          sec.class_name.toLowerCase() === className.toLowerCase() &&
+          isTeacherAssignedToClassSection(assignedClasses, assignmentScopes, className, String(sec.name || 'A'))
+        )
         .map((sec: any) => sec.name);
       const studentSections = studentsInClass.map((s: any) => s.section).filter(Boolean);
       const sections = Array.from(new Set([...mongoSections, ...studentSections]));
       const todayAttendanceMarked = todayAttDocs.some(
-        (a: any) => (a.class_name || '').toLowerCase() === className.toLowerCase()
+        (attendance: any) =>
+          (attendance.class_name || '').toLowerCase() === className.toLowerCase() &&
+          isTeacherAssignedToClassSection(
+            assignedClasses, assignmentScopes, className, String(attendance.section || 'A')
+          )
       );
 
       return {
@@ -11812,8 +11825,7 @@ router.get('/teacher/timetable', authenticateToken, requireExactRole(['teacher']
 
     const ttDocs = await TimetableModel.find().sort({ created_at: 1, _id: 1 }).lean();
     const timetable = ttDocs.map(toTimetableDto).filter(t =>
-      t.teacher_name.toLowerCase().includes(teacher.name.toLowerCase()) ||
-      teacher.name.toLowerCase().includes(t.teacher_name.toLowerCase())
+      String(t.teacher_name || '').trim().toLowerCase() === String(teacher.name || '').trim().toLowerCase()
     );
 
     const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
