@@ -2797,18 +2797,31 @@ router.post('/admin/parent-links/link', authenticateToken, requireRole(['super_a
     const canonicalParentId = parentUser.record_id || parentUser._id.toString();
     const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
 
-    const nextLinked = Array.isArray(parentUser.linked_student_ids) ? [...parentUser.linked_student_ids] : [];
-    if (!nextLinked.includes(canonicalStudentId)) {
-      nextLinked.push(canonicalStudentId);
+    // Admin linking must obey the same atomic one-parent ownership claim as self-service linking.
+    const claimedStudent = await claimStudentForParent(studentDoc, canonicalParentId, parentUser._id.toString());
+    if (!claimedStudent) {
+      return res.status(409).json({
+        error: 'This student is already linked to another parent account. Unlink the existing relationship before assigning a new parent.',
+      });
     }
-    parentUser.linked_student_ids = nextLinked;
-    if (!parentUser.linked_id) {
-      parentUser.linked_id = canonicalStudentId;
-    }
-    await parentUser.save();
 
-    studentDoc.parent_user_id = canonicalParentId;
-    await studentDoc.save();
+    const updatedParent = await UserModel.findOneAndUpdate(
+      { _id: parentUser._id, role: 'parent' },
+      {
+        $addToSet: { linked_student_ids: canonicalStudentId },
+        ...(!parentUser.linked_id ? { $set: { linked_id: canonicalStudentId } } : {}),
+      },
+      { new: true, runValidators: true }
+    );
+    if (!updatedParent) {
+      if (!studentDoc.parent_user_id) {
+        await StudentModel.updateOne(
+          { _id: studentDoc._id, parent_user_id: canonicalParentId },
+          { $set: { parent_user_id: '' } }
+        );
+      }
+      return res.status(404).json({ error: 'Parent account not found.' });
+    }
 
     await ParentModel.findOneAndUpdate(
       { $or: [{ user_id: canonicalParentId }, { email: parentUser.email.toLowerCase() }] },
@@ -2831,12 +2844,12 @@ router.post('/admin/parent-links/link', authenticateToken, requireRole(['super_a
       'Admin Linked Student to Parent',
       'ParentLink',
       canonicalStudentId,
-      `Parent: ${parentUser.name}, Student: ${studentDoc.full_name}`
+      `Parent: ${parentUser.name}, Student: ${claimedStudent.full_name}`
     );
 
     return res.json({
       success: true,
-      message: `Linked student ${studentDoc.full_name} to parent ${parentUser.name}`,
+      message: `Linked student ${claimedStudent.full_name} to parent ${parentUser.name}`,
     });
   } catch (err: any) {
     return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to link student to parent') });
