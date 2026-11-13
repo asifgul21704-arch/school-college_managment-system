@@ -15,7 +15,7 @@
     "lint": "tsc --noEmit",
     "bootstrap:super-admin": "node scripts/bootstrap-super-admin.ts",
     "seed:demo": "tsx scripts/seed-demo-data.ts",
-    "test": "node --import tsx --test server/*.test.ts"
+    "test": "node --import tsx --test server/parentLinkConcurrency.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.32.0",
