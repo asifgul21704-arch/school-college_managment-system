@@ -984,7 +984,7 @@ test('real MongoDB: teacher dashboards and attendance are scoped to exact assign
     body: { prompt: 'How many students are enrolled in my assigned classes?' },
   });
   assert.equal(teacherAiOverview.status, 200, JSON.stringify(teacherAiOverview.body));
-  assert.match(teacherAiOverview.body.text, /Total Students Across Your Classes:\*\* 1/);
+  assert.match(teacherAiOverview.body.text, /Total Students Across Your Classes:\*\* \*\*1\*\*/);
   assert.doesNotMatch(teacherAiOverview.body.text, /Unassigned Section Student|Different Class Student/);
 
   const assignedStudentAiAction = await request('/teacher/ai/query', teacherToken, {
