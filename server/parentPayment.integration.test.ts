@@ -631,3 +631,49 @@ test('real MongoDB: concurrent parent link and confirmation claims have one owne
   });
   assert.equal(confirmedOwners, 1);
 });
+
+
+test('real MongoDB: concurrent public parent signup cannot overwrite a child claim', async () => {
+  await StudentModel.create({
+    record_id: 'SIGNUP-CLAIM-STUDENT',
+    admission_no: 'SIGNUP-CLAIM-ADM',
+    roll_no: 'SIGNUP-01',
+    full_name: 'Signup Claim Student',
+    father_name: 'Signup Guardian',
+    dob: '2014-08-09',
+    gender: 'Male',
+    class_name: 'Class 3',
+    section: 'A',
+    academic_status: 'Active',
+  });
+
+  const signup = (email: string, fullName: string) => request('/auth/register-parent', '', {
+    method: 'POST',
+    body: {
+      full_name: fullName,
+      email,
+      password: 'IntegrationPass123!',
+      confirm_password: 'IntegrationPass123!',
+      child_admission_no: 'SIGNUP-CLAIM-ADM',
+      child_dob: '2014-08-09',
+    },
+  });
+
+  const attempts = await Promise.all([
+    signup('signup.claim.a@example.test', 'Signup Parent A'),
+    signup('signup.claim.b@example.test', 'Signup Parent B'),
+  ]);
+  assert.deepEqual(attempts.map(result => result.status).sort((a, b) => a - b), [201, 409]);
+
+  const createdUsers = await UserModel.find({
+    email: { $in: ['signup.claim.a@example.test', 'signup.claim.b@example.test'] },
+  }).lean();
+  assert.equal(createdUsers.length, 1);
+  assert.equal(createdUsers[0].role, 'parent');
+  assert.deepEqual(createdUsers[0].linked_student_ids, ['SIGNUP-CLAIM-STUDENT']);
+
+  const claimedStudent = await StudentModel.findOne({ record_id: 'SIGNUP-CLAIM-STUDENT' }).lean();
+  assert.equal(claimedStudent?.parent_user_id, createdUsers[0].record_id);
+  const parentRecords = await ParentModel.countDocuments({ user_id: createdUsers[0].record_id });
+  assert.equal(parentRecords, 1);
+});
