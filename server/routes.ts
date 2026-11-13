@@ -10814,9 +10814,8 @@ router.post('/portal/ai/query', aiRateLimiter, authenticateToken, requireRole(['
       return res.status(403).json({ error: 'Access denied: You may only query your own authorized academic records.' });
     }
 
-    const allStudentsDocs = await StudentModel.find().lean();
-    const allStudents: StudentDto[] = allStudentsDocs.map(toStudentDto);
-
+    // Resolve only the authenticated user's own records. Do not load the school-wide
+    // student directory for portal requests.
     // ====================================================
     // STUDENT PORTAL AI
     // ====================================================
@@ -10832,16 +10831,7 @@ router.post('/portal/ai/query', aiRateLimiter, authenticateToken, requireRole(['
         new Set([student.id, studentDoc.record_id, studentDoc._id ? studentDoc._id.toString() : ''].filter(Boolean))
       );
 
-      // Prevent querying other students by name or roll number (using word boundary check)
-      const otherStudents = allStudents.filter(s => s.id !== student.id);
-      for (const other of otherStudents) {
-        const otherFirst = other.full_name.split(' ')[0].toLowerCase();
-        const otherWordRegex = new RegExp(`\\b${escapeRegexLiteral(otherFirst)}\\b`, 'i');
-        if (otherFirst.length > 2 && otherWordRegex.test(lower) && !student.full_name.toLowerCase().includes(otherFirst)) {
-          return res.status(403).json({ error: 'Access denied: You may only query your own student records.' });
-        }
-      }
-
+      // All subsequent student data queries are scoped to this authenticated student's aliases.
       await recordMongoAudit(req.user!, 'Queried Student Portal AI', 'Student', student.id, `Query: "${prompt.substring(0, 60)}"`);
 
       // 1. Attendance & Absences
@@ -10980,32 +10970,34 @@ router.post('/portal/ai/query', aiRateLimiter, authenticateToken, requireRole(['
     // ====================================================
     if (userRole === 'parent') {
       const parentStudentIds = await getLinkedStudentIdsForParent(req.user!);
-      const linkedStudents = allStudents.filter(s => parentStudentIds.has(s.id));
+      const parentIds = Array.from(parentStudentIds).filter(Boolean);
+      const linkedStudentDocs = parentIds.length
+        ? await StudentModel.find({
+            $or: [
+              { record_id: { $in: parentIds } },
+              { id: { $in: parentIds } },
+              { user_id: { $in: parentIds } },
+              { admission_no: { $in: parentIds } },
+              ...(parentIds.every(id => mongoose.isValidObjectId(id))
+                ? [{ _id: { $in: parentIds } }]
+                : []),
+            ],
+          }).lean()
+        : [];
+      const linkedStudents: StudentDto[] = linkedStudentDocs.map(toStudentDto);
       if (linkedStudents.length === 0) {
         return res.status(404).json({ error: 'No linked children found for this parent account.' });
       }
 
-      // Check if user is inquiring about an unrelated student by name (word boundary check)
-      const unlinkedStudents = allStudents.filter(s => !parentStudentIds.has(s.id));
-      for (const unlinked of unlinkedStudents) {
-        const unlinkedFirst = unlinked.full_name.split(' ')[0].toLowerCase();
-        const unlinkedWordRegex = new RegExp(`\\b${escapeRegexLiteral(unlinkedFirst)}\\b`, 'i');
-        if (unlinkedFirst.length > 2 && unlinkedWordRegex.test(lower)) {
-          const isAlsoLinkedName = linkedStudents.some(ls => ls.full_name.toLowerCase().includes(unlinkedFirst));
-          if (!isAlsoLinkedName) {
-            return res.status(403).json({ error: 'Access denied: You may only query records for your linked child.' });
-          }
-        }
-      }
-
       await recordMongoAudit(req.user!, 'Queried Parent Portal AI', 'Parent', req.user!.id, `Query: "${prompt.substring(0, 60)}"`);
 
+      const linkedDocsByDtoId = new Map(
+        linkedStudentDocs.map((doc: any) => [String(doc.record_id || doc.id || doc._id), doc])
+      );
       const getChildAliases = (childDto: StudentDto): Set<string> => {
-        const rawDoc = allStudentsDocs.find(
-          (d: any) => (d.record_id || d._id.toString()) === childDto.id || d._id.toString() === childDto.id
-        );
+        const rawDoc: any = linkedDocsByDtoId.get(childDto.id);
         return new Set<string>(
-          [childDto.id, rawDoc?.record_id, rawDoc?._id ? rawDoc._id.toString() : ''].filter(Boolean) as string[]
+          [childDto.id, rawDoc?.id, rawDoc?.record_id, rawDoc?._id ? rawDoc._id.toString() : ''].filter(Boolean) as string[]
         );
       };
 
