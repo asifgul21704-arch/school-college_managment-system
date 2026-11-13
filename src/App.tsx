@@ -231,7 +231,7 @@ function SchoolApp() {
         <div className="text-center space-y-3">
           <div className="w-10 h-10 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto" />
           <h1 className="text-white text-lg font-bold font-display tracking-tight">
-            Shawan School &amp; College
+            School &amp; College Management System with AI Assistant
           </h1>
           <p className="text-neutral-400 text-xs">Paharpur, Dera Ismail Khan, Pakistan</p>
         </div>
@@ -247,7 +247,7 @@ function SchoolApp() {
             <AlertCircle className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-neutral-900 font-display">Shawan School &amp; College</h1>
+            <h1 className="text-lg font-bold text-neutral-900 font-display">School &amp; College Management System with AI Assistant</h1>
             <p className="text-xs text-neutral-600 mt-1 leading-relaxed">
               {loadError || 'Unable to connect to the institutional server.'}
             </p>

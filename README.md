@@ -1,8 +1,8 @@
-# Shawan School & College Management System
+# School and College Management System with AI Assistant
 
-**Live Demo:** [https://school-college-managment-system-tpc.vercel.app/](https://school-college-managment-system-tpc.vercel.app/)
+**Live Demo:** [Open the production app](https://school-collegemanagment-system-production.up.railway.app/)
 
-A full-stack school and college management application built with React, TypeScript, Vite, Node.js, Express, and MongoDB/Mongoose.
+A full-stack School and College Management System with an integrated AI Assistant, built with React, TypeScript, Vite, Node.js, Express, and MongoDB/Mongoose.
 
 ## Project overview
 
@@ -110,4 +110,4 @@ The repository includes Railway configuration. Configure the production environm
 
 ## Project status
 
-Active development. Build, lint, database connectivity, and role-based runtime behavior should be verified in the target environment before each release.
+Production deployment is hosted on Railway. Automated unit/static tests, isolated MongoDB integration tests, TypeScript checks, and the frontend production build run through GitHub Actions. Build, lint, database connectivity, and role-based runtime behavior should be verified in the target environment before each release.

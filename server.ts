@@ -258,7 +258,7 @@ async function startServer() {
   }
 
   const httpServer = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Server] Shawan School and College server running at http://0.0.0.0:${PORT}`);
+    console.log(`[Server] School and College Management System with AI Assistant server running at http://0.0.0.0:${PORT}`);
     if (!isProd) {
       startDevAtlasWatcher();
       (async () => {
