@@ -29,7 +29,7 @@ import {
   clearSessionCookie,
 } from './auth.ts';
 import { buildStudentParentClaimFilter } from './parentAccess.ts';
-import { isClassAssignedToTeacher } from './classAccess.ts';
+import { isClassAssignedToTeacher, normalizeClassAccessLabel } from './classAccess.ts';
 import { canAssignTeacherHomework, getTeacherAssignmentScopes, isTeacherAssignedToClassSection, isTeacherSubjectAssigned } from './teacherHomeworkAccess.ts';
 import {
   detectInquiryIntent,
