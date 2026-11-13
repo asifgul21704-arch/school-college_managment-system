@@ -28,6 +28,8 @@ export default defineConfig(() => {
       },
     },
     server: {
+      // Permit the production Railway hostname when Vite middleware handles requests.
+      allowedHosts: ['school-collegemanagment-system-production.up.railway.app'],
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
