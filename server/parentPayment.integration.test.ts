@@ -9,6 +9,7 @@ import { ParentModel } from './models/Parent.ts';
 import { StudentModel } from './models/Student.ts';
 import { FeeModel } from './models/Fee.ts';
 import { FeePaymentModel } from './models/FeePayment.ts';
+import { NotificationModel } from './models/Notification.ts';
 
 const TEST_DATABASE_NAME = 'school_management_integration_test';
 const mongoUri = process.env.MONGODB_TEST_URI || '';
@@ -393,4 +394,74 @@ test('real MongoDB: stale parent session loses unlinked-child access and payment
   assert.equal(finalHistory.body.some((payment: any) => payment.student_id === 'STU-INTEGRATION-A'), false);
   assert.ok(finalHistory.body.some((payment: any) => payment.payment_reference === submitted.body.payment.payment_reference));
   assert.ok(finalHistory.body.some((payment: any) => payment.payment_reference === rejectedSubmission.body.payment.payment_reference));
+});
+
+
+test('real MongoDB: notification reads, unread counts, and read mutations stay within user scope', async () => {
+  const parent = await UserModel.findOne({ email: 'parent.integration@example.test' }).lean();
+  const admin = await UserModel.findOne({ email: 'admin.integration@example.test' }).lean();
+  assert.ok(parent);
+  assert.ok(admin);
+
+  const notifications = await NotificationModel.create([
+    { user_id: 'STU-INTEGRATION-A', role: 'student', title: 'Unlinked child notice', message: 'Must not be visible after unlink.', read: false },
+    { user_id: 'STU-INTEGRATION-B', role: 'student', title: 'Linked child notice', message: 'Visible to the linked parent.', read: false },
+    { user_id: 'ADMIN-INTEGRATION-1', role: 'admin', title: 'Admin private notice', message: 'Only this administrator can see it.', read: false },
+    { user_id: '', role: 'admin', title: 'Admin broadcast', message: 'Administrator-only broadcast.', read: false },
+    { user_id: '', role: 'all', title: 'Shared notice', message: 'Visible to all authenticated roles.', read: false },
+    { user_id: '', role: 'teacher', title: 'Teacher role notice', message: 'Role labels are not broadcasts.', read: false },
+  ]);
+
+  const parentToken = authToken({
+    id: parent.record_id!,
+    email: parent.email,
+    role: 'parent',
+    name: parent.name,
+    linked_student_ids: ['STU-INTEGRATION-A', 'STU-INTEGRATION-B'],
+  });
+  const adminToken = authToken({
+    id: admin.record_id!,
+    email: admin.email,
+    role: 'super_admin',
+    name: admin.name,
+  });
+
+  const parentList = await request('/notifications', parentToken);
+  assert.equal(parentList.status, 200);
+  const parentTitles = new Set(parentList.body.map((item: any) => item.title));
+  assert.equal(parentTitles.has('Linked child notice'), true);
+  assert.equal(parentTitles.has('Shared notice'), true);
+  assert.equal(parentTitles.has('Unlinked child notice'), false);
+  assert.equal(parentTitles.has('Admin private notice'), false);
+  assert.equal(parentTitles.has('Admin broadcast'), false);
+  assert.equal(parentTitles.has('Teacher role notice'), false);
+
+  const parentUnread = await request('/notifications/unread-count', parentToken);
+  assert.equal(parentUnread.status, 200);
+  assert.equal(parentUnread.body.unreadCount, 2);
+
+  const deniedRead = await request(`/notifications/${notifications[0]._id}/read`, parentToken, { method: 'PUT', body: {} });
+  assert.equal(deniedRead.status, 403);
+  const allowedRead = await request(`/notifications/${notifications[1]._id}/read`, parentToken, { method: 'PUT', body: {} });
+  assert.equal(allowedRead.status, 200);
+
+  const markAll = await request('/notifications/mark-all-read', parentToken, { method: 'PUT', body: {} });
+  assert.equal(markAll.status, 200);
+  const remainingPrivate = await NotificationModel.findById(notifications[0]._id).lean();
+  const adminBroadcast = await NotificationModel.findById(notifications[3]._id).lean();
+  const teacherBroadcast = await NotificationModel.findById(notifications[5]._id).lean();
+  const sharedNotice = await NotificationModel.findById(notifications[4]._id).lean();
+  assert.equal(remainingPrivate?.read, false);
+  assert.equal(adminBroadcast?.read, false);
+  assert.equal(teacherBroadcast?.read, false);
+  assert.equal(sharedNotice?.read, true);
+
+  const adminList = await request('/notifications', adminToken);
+  assert.equal(adminList.status, 200);
+  const adminTitles = new Set(adminList.body.map((item: any) => item.title));
+  assert.equal(adminTitles.has('Admin private notice'), true);
+  assert.equal(adminTitles.has('Admin broadcast'), true);
+  assert.equal(adminTitles.has('Shared notice'), true);
+  assert.equal(adminTitles.has('Linked child notice'), false);
+  assert.equal(adminTitles.has('Unlinked child notice'), false);
 });
