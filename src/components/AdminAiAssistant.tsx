@@ -42,7 +42,7 @@ interface Message {
 
 interface AdminAiAssistantProps { initialPrompt?: string; onPromptConsumed?: () => void; }
 
-export const AdminAiAssistant: React.FC<AdminAiAssistantProps> = ({ initialPrompt, onPromptConsumed }) => {
+export const AdminAiAssistant = ({ initialPrompt, onPromptConsumed }: AdminAiAssistantProps) => {
   const { user } = useAuth();
 
   const [messages, setMessages] = useState<Message[]>([
