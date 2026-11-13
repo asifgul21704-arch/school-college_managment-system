@@ -12058,6 +12058,8 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
 
     const lower = prompt.toLowerCase().trim();
     const assignedClasses = teacher.classes || [];
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+    const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
 
     const forbiddenTerms = [
       'salary', 'salaries', 'staff pay', 'password', 'passwords', 'jwt', 'secret',
@@ -12071,10 +12073,15 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
 
     const allStudentDocs = await StudentModel.find().lean();
     const allStudents: StudentDto[] = allStudentDocs.map(toStudentDto);
-
-    const otherStudents = allStudents.filter(
-      s => !isClassAssignedToTeacher(assignedClasses, s.class_name)
+    const teacherStudents = allStudents.filter(student =>
+      isTeacherAssignedToClassSection(
+        assignedClasses, assignmentScopes, student.class_name, student.section || 'A'
+      )
     );
+
+    const otherStudents = allStudents.filter(student => !teacherStudents.some(
+      assigned => assigned.id === student.id
+    ));
     for (const other of otherStudents) {
       const otherFirst = other.full_name.split(' ')[0].toLowerCase();
       const otherWordRegex = new RegExp(`\\b${escapeRegexLiteral(otherFirst)}\\b`, 'i');
@@ -12094,11 +12101,7 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
 
     await recordMongoAudit(req.user!, 'Queried Teacher AI', 'TeacherAI', teacher.id, `Query: "${prompt.substring(0, 60)}"`);
 
-    const teacherStudents = allStudents.filter(s =>
-      isClassAssignedToTeacher(assignedClasses, s.class_name)
-    );
-
-    if (lower.startsWith('mark ') || (lower.includes('mark') && (lower.includes('absent') || lower.includes('present') || lower.includes('leave')))) {
+        if (lower.startsWith('mark ') || (lower.includes('mark') && (lower.includes('absent') || lower.includes('present') || lower.includes('leave')))) {
       const matched = teacherStudents.filter(s => lower.includes(s.full_name.toLowerCase()) || lower.includes(s.full_name.split(' ')[0].toLowerCase()));
       if (matched.length === 1) {
         const targetStudent = matched[0];
@@ -12191,7 +12194,7 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
       reply += `* **Academic Status:** ${teacher.status} (${teacher.experience} experience)\n\n`;
       reply += `**Class Breakdown:**\n`;
       for (const className of assignedClasses) {
-        const count = allStudents.filter(s => s.class_name.toLowerCase() === className.toLowerCase()).length;
+        const count = teacherStudents.filter(s => s.class_name.toLowerCase() === className.toLowerCase()).length;
         reply += `* **${className}:** ${count} enrolled students\n`;
       }
       return res.json({ text: reply, toolUsed: 'getMyAssignedClasses' });
@@ -12200,8 +12203,7 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
     if (lower.includes('timetable') || lower.includes('schedule') || lower.includes('period') || lower.includes('next class')) {
       const ttDocs = await TimetableModel.find().sort({ created_at: 1, _id: 1 }).lean();
       const teacherTimetable = ttDocs.map(toTimetableDto).filter(t =>
-        t.teacher_name.toLowerCase().includes(teacher.name.toLowerCase()) ||
-        teacher.name.toLowerCase().includes(t.teacher_name.toLowerCase())
+        String(t.teacher_name || '').trim().toLowerCase() === String(teacher.name || '').trim().toLowerCase()
       );
       let reply = `### 🕒 Weekly Teaching Schedule: ${teacher.name}\n`;
       if (teacherTimetable.length === 0) {
@@ -12231,8 +12233,11 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
       let reply = `### ⚠️ Low Attendance Warning in Your Classes (<75%)\n`;
       let lowCount = 0;
       for (const c of assignedClasses) {
-        const classStudentDocs = allStudentDocs.filter(
-          (doc: any) => String(doc.class_name || '').toLowerCase() === c.toLowerCase()
+        const classStudentDocs = allStudentDocs.filter((doc: any) =>
+          String(doc.class_name || '').toLowerCase() === c.toLowerCase() &&
+          isTeacherAssignedToClassSection(
+            assignedClasses, assignmentScopes, String(doc.class_name || ''), String(doc.section || 'A')
+          )
         );
         for (const doc of classStudentDocs) {
           const s = toStudentDto(doc);
@@ -12258,7 +12263,9 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
       const todayAttDocs = await AttendanceModel.find({ date: today }).lean();
       const todayAtt = todayAttDocs
         .map(toAttendanceDto)
-        .filter(a => isClassAssignedToTeacher(assignedClasses, a.class_name));
+        .filter(a => isTeacherAssignedToClassSection(
+          assignedClasses, assignmentScopes, a.class_name, a.section || 'A'
+        ));
       const absents = todayAtt.filter(a => a.status === 'Absent');
       const presents = todayAtt.filter(a => a.status === 'Present');
       const total = todayAtt.length;
@@ -12281,7 +12288,9 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
       const allResDocs = await ResultModel.find().sort({ created_at: -1, _id: -1 }).lean();
       const classResults = allResDocs
         .map(toResultDto)
-        .filter(r => isClassAssignedToTeacher(assignedClasses, r.class_name));
+        .filter(r => isTeacherAssignedToClassSection(
+          assignedClasses, assignmentScopes, r.class_name, r.section || 'A'
+        ));
 
       let reply = `### 🏆 Examination Academic Performance\n`;
       if (classResults.length === 0) {
