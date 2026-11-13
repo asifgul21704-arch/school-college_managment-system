@@ -11430,9 +11430,11 @@ router.post('/teacher/attendance', authenticateToken, requireExactRole(['teacher
     }
 
     const assignedClasses = teacher.classes || [];
+    const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+    const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
     const isAssigned = isClassAssignedToTeacher(assignedClasses, String(class_name));
     if (!isAssigned) {
-      return res.status(403).json({ error: `Access denied: You are not assigned to class "${class_name}".` });
+      return res.status(403).json({ error: 'Access denied: You are not assigned to this class.' });
     }
 
     const resolvedEntries: Array<{ studentDoc: any; canonicalStudentId: string; rec: any }> = [];
@@ -11441,9 +11443,24 @@ router.post('/teacher/attendance', authenticateToken, requireExactRole(['teacher
         return res.status(400).json({ error: `Invalid attendance status "${rec.status}".` });
       }
       const studentDoc = await findStudentByAnyId(String(rec.student_id || ''));
-      if (!studentDoc || studentDoc.class_name.toLowerCase() !== String(class_name).trim().toLowerCase()) {
+      if (!studentDoc) {
+        return res.status(403).json({ error: 'Access denied: Student is not in your assigned class.' });
+      }
+      const studentSection = String(studentDoc.section || 'A');
+      const requestedSection = sanitizePlainText(section || rec.section || studentSection, 60) || 'A';
+      const studentClassMatches = isClassAssignedToTeacher([studentDoc.class_name], String(class_name));
+      const teacherHasSection = isTeacherAssignedToClassSection(
+        assignedClasses, assignmentScopes, studentDoc.class_name, studentSection
+      );
+      const requestedSectionMatches = isTeacherAssignedToClassSection(
+        [studentDoc.class_name],
+        [{ class_name: studentDoc.class_name, section: studentSection, subject: '' }],
+        studentDoc.class_name,
+        requestedSection
+      );
+      if (!studentClassMatches || !teacherHasSection || !requestedSectionMatches) {
         return res.status(403).json({
-          error: `Access denied: Student "${rec.student_name || rec.student_id}" does not belong to assigned class "${class_name}".`,
+          error: 'Access denied: Student does not belong to your assigned class and section.',
         });
       }
       resolvedEntries.push({
