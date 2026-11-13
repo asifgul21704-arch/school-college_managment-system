@@ -8,6 +8,8 @@ import { isTeacherSubjectAssigned, isTeacherAssignedToClassSection } from './tea
 const routes = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
 const envConfig = readFileSync(new URL('./config/env.ts', import.meta.url), 'utf8');
 const authConfig = readFileSync(new URL('./auth.ts', import.meta.url), 'utf8');
+const aiServiceConfig = readFileSync(new URL('./services/aiAssistantService.ts', import.meta.url), 'utf8');
+const adminAiUi = readFileSync(new URL('../src/components/AdminAiAssistant.tsx', import.meta.url), 'utf8');
 
 test('parent claim filter permits only unclaimed or same-owner student records', () => {
   assert.deepEqual(buildStudentParentClaimFilter('student-mongo-id', 'parent-record-id', 'parent-mongo-id'), {
@@ -292,6 +294,19 @@ test('teacher AI query scopes student, attendance, and result data to assigned s
   assert.match(route, /const promptTokens: string\[\] = lower\.match\(\/\[a-z0-9\]\+\/g\)/);
   assert.match(route, /const containsStudentName = \(student: StudentDto\)/);
   assert.doesNotMatch(route, /lower\.includes\(s\.full_name\.toLowerCase\(\)\)/);
+});
+
+test('admin AI clearly records alert drafts without claiming SMS delivery', () => {
+  const actionStart = aiServiceConfig.indexOf('async executeConfirmedAction(');
+  const actionEnd = aiServiceConfig.indexOf('\n  },', actionStart);
+  assert.ok(actionStart >= 0 && actionEnd > actionStart);
+  const action = aiServiceConfig.slice(actionStart, actionEnd);
+  assert.match(action, /smsDispatched: false/);
+  assert.match(action, /No SMS was sent/);
+  assert.match(action, /AI_ACTION_RECORDED_/);
+  assert.doesNotMatch(adminAiUi, /Action Executed & Verified/);
+  assert.match(adminAiUi, /SMS dispatched:/);
+  assert.match(adminAiUi, /res\.recordedCount/);
 });
 
 test('teacher AI confirmed actions revalidate live section and subject assignments', () => {
