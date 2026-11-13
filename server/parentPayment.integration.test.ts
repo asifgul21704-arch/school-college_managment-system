@@ -1420,6 +1420,44 @@ test('real MongoDB: finance reports, expense CRUD, and idempotent payroll paymen
   const teacherFinanceDenied = await request('/finance/expenses', teacherToken);
   assert.equal(teacherFinanceDenied.status, 403);
 
+  await FeePaymentModel.create([
+    {
+      fee_id: 'FINANCE-COLLECTION-VERIFIED-FEE',
+      student_id: 'FINANCE-COLLECTION-STUDENT',
+      payment_reference: 'FINANCE-COLLECTION-VERIFIED',
+      receipt_no: 'FINANCE-REC-VERIFIED',
+      date: '2026-11-13',
+      amount: 2400,
+      method: 'Cash',
+      status: 'Paid',
+      verification_status: 'Verified',
+      student_name: 'Finance Collection Student',
+      class_name: 'Class 5',
+      fee_month: 'November',
+      year: 2026,
+    },
+    {
+      fee_id: 'FINANCE-COLLECTION-PENDING-FEE',
+      student_id: 'FINANCE-COLLECTION-STUDENT',
+      payment_reference: 'FINANCE-COLLECTION-PENDING',
+      receipt_no: 'FINANCE-REC-PENDING',
+      date: '2026-11-13',
+      amount: 900,
+      method: 'Cash',
+      status: 'Pending Verification',
+      verification_status: 'Pending',
+      student_name: 'Finance Collection Student',
+      class_name: 'Class 5',
+      fee_month: 'November',
+      year: 2026,
+    },
+  ]);
+  const verifiedCollections = await request('/finance/collections?month=2026-11', adminToken);
+  assert.equal(verifiedCollections.status, 200);
+  assert.deepEqual(verifiedCollections.body.map((row: any) => row.receipt_no), ['FINANCE-REC-VERIFIED']);
+  const invalidCollectionMonth = await request('/finance/collections?month=2026-13', adminToken);
+  assert.equal(invalidCollectionMonth.status, 400);
+
   const invalidExpense = await request('/finance/expenses', adminToken, {
     method: 'POST',
     body: { title: 'Invalid date', category: 'Supplies', amount: 100, expense_date: '2026-02-30', payment_method: 'Cash' },
