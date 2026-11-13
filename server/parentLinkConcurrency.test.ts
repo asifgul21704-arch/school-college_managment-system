@@ -77,7 +77,7 @@ test('parent payment initiation is restricted to parent and student roles', () =
   const end = routes.indexOf("// 4. Parent Payment History", start);
   assert.ok(start >= 0 && end > start);
   const route = routes.slice(start, end);
-  assert.match(route, /requireRole\(['parent', 'student'\]\)/);
+  assert.match(route, /requireRole\(\['parent', 'student'\]\)/);
 });
 
 test('manual payment approval is locked and checks the exact voucher balance before marking paid', () => {
