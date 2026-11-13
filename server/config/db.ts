@@ -1,5 +1,6 @@
 import './env.ts';
 import mongoose from 'mongoose';
+import { isProductionEnvironment } from './runtime.ts';
 
 export interface MongoConnectionStatus {
   connected: boolean;
@@ -102,7 +103,7 @@ export function sanitizeErrorMessage(message: string): string {
  */
 export async function connectDB(): Promise<typeof mongoose> {
   const customUri = process.env.MONGODB_URI?.trim();
-  const isProduction = process.env.NODE_ENV === 'production';
+  const isProduction = isProductionEnvironment();
 
   // If already connected, return mongoose
   if (mongoose.connection.readyState === 1) {
