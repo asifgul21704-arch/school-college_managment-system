@@ -281,9 +281,12 @@ test('teacher AI query scopes student, attendance, and result data to assigned s
   assert.ok(start >= 0 && end > start);
   const route = routes.slice(start, end);
   assert.match(route, /getTeacherAssignmentScopes\(teacherIds\)/);
-  assert.match(route, /const teacherStudents = allStudents\.filter[\s\S]*isTeacherAssignedToClassSection/);
-  assert.match(route, /filter\(a => isTeacherAssignedToClassSection/);
-  assert.match(route, /filter\(r => isTeacherAssignedToClassSection/);
+  assert.match(route, /const teacherScopeClauses = assignedClassNames\.flatMap/);
+  assert.match(route, /const teacherScopeFilter = teacherScopeClauses\.length/);
+  assert.match(route, /StudentModel\.find\(teacherScopeFilter\)/);
+  assert.match(route, /AttendanceModel\.find\(teacherScopeFilter\)/);
+  assert.match(route, /ResultModel\.find\(teacherScopeFilter\)/);
+  assert.doesNotMatch(route, /StudentModel\.find\(\)\.lean\(\)/);
 });
 
 test('teacher AI confirmed actions revalidate live section and subject assignments', () => {
