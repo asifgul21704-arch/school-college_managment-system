@@ -952,7 +952,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
   ];
 
   return (
-    <div className="ssc-portal-shell min-h-screen w-full max-w-full overflow-x-hidden flex flex-col">
+    <div className="ssc-portal-shell ssc-student-shell min-h-screen w-full max-w-full overflow-x-hidden flex flex-col">
       {/* Portal Top Bar */}
       <header className="ssc-portal-topbar text-white border-b py-2.5 px-3 sm:px-8 flex items-center justify-between gap-2 sticky top-0 z-40 shadow-sm">
         <div className="flex items-center gap-2.5 min-w-0">
@@ -1005,6 +1005,28 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
 
       {/* Main Body */}
       <main id="main-content" className="max-w-7xl mx-auto w-full px-3 sm:px-6 lg:px-8 py-6 sm:py-8 flex-1">
+        <aside className="ssc-role-sidebar" aria-label="Student portal navigation">
+          <div className="ssc-role-sidebar-brand"><span className="ssc-brand-mark"><GraduationCap size={19}/></span><div><strong>Student Portal</strong><small>Academic workspace</small></div></div>
+          <nav className="ssc-role-nav">
+            {[
+              {id:'overview',label:'Dashboard',icon:BookOpen},
+              {id:'profile',label:'My Profile',icon:UserIcon},
+              {id:'attendance',label:'Attendance',icon:Calendar},
+              {id:'timetable',label:'Class Timetable',icon:Clock},
+              {id:'results',label:'Examination Results',icon:Award},
+              {id:'fees',label:'Fees & Payments',icon:CreditCard},
+              {id:'notices',label:'Announcements',icon:Bell},
+              {id:'notifications',label:'Notifications',icon:CheckCheck},
+              {id:'inquiries',label:'Help & Inquiries',icon:MessageSquareText},
+              {id:'ai',label:'AI Study Assistant',icon:Sparkles},
+            ].map(item => {
+              const Icon = item.icon;
+              return <button type="button" key={item.id} onClick={() => setActiveTab(item.id as typeof activeTab)} className={`ssc-role-nav-item ${activeTab === item.id ? 'active' : ''}`}><Icon size={17}/><span>{item.label}</span>{item.id === 'notifications' && unreadCount > 0 ? <em>{unreadCount}</em> : null}</button>;
+            })}
+          </nav>
+          <div className="ssc-sidebar-foot"><span className="ssc-online-dot"/> Connected to school portal</div>
+        </aside>
+        <div className="ssc-role-content min-w-0 space-y-5">
         {portalError && (
           <div
             role="alert"
@@ -3046,7 +3068,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ onBackToWebsite })
             </form>
           </div>
         )}
-      </main>
+              </div>
+</main>
 
       {/* ==================================================== */}
       {/* ONLINE FEE PAYMENT MODAL                             */}
