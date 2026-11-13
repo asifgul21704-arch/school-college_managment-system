@@ -40,7 +40,9 @@ interface Message {
   auditLogId?: string;
 }
 
-export const AdminAiAssistant: React.FC = () => {
+interface AdminAiAssistantProps { initialPrompt?: string; onPromptConsumed?: () => void; }
+
+export const AdminAiAssistant: React.FC<AdminAiAssistantProps> = ({ initialPrompt, onPromptConsumed }) => {
   const { user } = useAuth();
 
   const [messages, setMessages] = useState<Message[]>([
@@ -202,6 +204,18 @@ export const AdminAiAssistant: React.FC = () => {
       setLoading(false);
     }
   };
+
+  const consumedPromptRef = useRef('');
+  useEffect(() => {
+    if (!initialPrompt) {
+      consumedPromptRef.current = '';
+      return;
+    }
+    if (consumedPromptRef.current === initialPrompt) return;
+    consumedPromptRef.current = initialPrompt;
+    void handleSend(initialPrompt);
+    onPromptConsumed?.();
+  }, [initialPrompt]);
 
   const handleConfirmAction = async () => {
     if (!pendingConfirmAction) return;
