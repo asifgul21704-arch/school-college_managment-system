@@ -756,6 +756,16 @@ test('parent/student permissions, unlink invalidation, and payment history work 
     payment_method: 'Cash',
   }, adminToken);
   assert.equal(invalidDateExpense.status, 400);
+  const invalidExpenseDateFilter = await api('GET', '/finance/expenses?from=2026-02-30', undefined, adminToken);
+  assert.equal(invalidExpenseDateFilter.status, 400);
+  const reversedExpenseDateRange = await api('GET', '/finance/expenses?from=2026-11-30&to=2026-11-01', undefined, adminToken);
+  assert.equal(reversedExpenseDateRange.status, 400);
+  const invalidPayrollYearFilter = await api('GET', '/finance/payroll?year=20xx', undefined, adminToken);
+  assert.equal(invalidPayrollYearFilter.status, 400);
+  const invalidPayrollMonthFilter = await api('GET', '/finance/payroll?month=13', undefined, adminToken);
+  assert.equal(invalidPayrollMonthFilter.status, 400);
+  const invalidPayrollStatusFilter = await api('GET', '/finance/payroll?status=Everything', undefined, adminToken);
+  assert.equal(invalidPayrollStatusFilter.status, 400);
 
   const expenseCreated = await api('POST', '/finance/expenses', {
     title: 'E2E Classroom Supplies',
