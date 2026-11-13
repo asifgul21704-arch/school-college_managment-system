@@ -5,6 +5,7 @@ import { buildStudentParentClaimFilter } from './parentAccess.ts';
 
 const routes = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
 const envConfig = readFileSync(new URL('./config/env.ts', import.meta.url), 'utf8');
+const authConfig = readFileSync(new URL('./auth.ts', import.meta.url), 'utf8');
 
 test('parent claim filter permits only unclaimed or same-owner student records', () => {
   assert.deepEqual(buildStudentParentClaimFilter('student-mongo-id', 'parent-record-id', 'parent-mongo-id'), {
@@ -117,4 +118,47 @@ test('payment rejection is an atomic one-time transition before notifications ar
   assert.match(route, /status: 'Rejected'/);
   assert.match(route, /findOneAndUpdate\(/);
   assert.doesNotMatch(route, /paymentDoc\.save\(\)/);
+});
+
+test('private notifications are scoped to their user and admin broadcasts stay admin-only', () => {
+  const helperStart = routes.indexOf('function buildNotificationVisibilityFilter');
+  const routeStart = routes.indexOf("router.get('/notifications'");
+  const routeEnd = routes.indexOf('// ==========================================\n// 15. USER MANAGEMENT', routeStart);
+  assert.ok(helperStart >= 0 && routeStart > helperStart && routeEnd > routeStart);
+  const notificationCode = routes.slice(helperStart, routeEnd);
+  assert.match(notificationCode, /\{ user_id: \{ \$in: allowedUserIds \} \}/);
+  assert.match(notificationCode, /\{ role: 'all' \}/);
+  assert.match(notificationCode, /userRole === 'super_admin' \|\| userRole === 'admin'/);
+  assert.doesNotMatch(notificationCode, /\{ role: userRole \}/);
+  assert.match(notificationCode, /findOneAndUpdate\([\s\S]*buildNotificationVisibilityFilter/);
+  assert.match(notificationCode, /buildNotificationVisibilityFilter\(userRole, allowedUserIds\)/);
+});
+
+test('notification read and mark-all-read use the same private visibility filter', () => {
+  const start = routes.indexOf("router.get('/notifications'");
+  const end = routes.indexOf('// ==========================================\n// 15. USER MANAGEMENT', start);
+  const code = routes.slice(start, end);
+  assert.equal((code.match(/buildNotificationVisibilityFilter\(userRole, allowedUserIds\)/g) || []).length, 4);
+  assert.match(code, /read: false,[\s\S]*buildNotificationVisibilityFilter\(userRole, allowedUserIds\)/);
+});
+
+test('authenticated requests resolve current user state rather than trusting stale token role or links', () => {
+  const authStart = authConfig.indexOf('export async function authenticateToken');
+  const authEnd = authConfig.indexOf('export async function authenticateOptionalToken', authStart);
+  assert.ok(authStart >= 0 && authEnd > authStart);
+  const authRoute = authConfig.slice(authStart, authEnd);
+  assert.match(authRoute, /resolveLiveUserFromDecoded\(decoded\)/);
+  assert.match(authRoute, /role: liveUser\.role/);
+  assert.match(authRoute, /linked_student_ids: Array\.isArray\(liveUser\.linked_student_ids\)/);
+  assert.match(authRoute, /isTokenRevokedAsync\(token\)/);
+});
+
+test('unlink removes all known child aliases from user and parent relationship records', () => {
+  const start = routes.indexOf("router.post('/parents/unlink-child'");
+  const end = routes.indexOf('// Parent directory & profile CRUD', start);
+  assert.ok(start >= 0 && end > start);
+  const unlink = routes.slice(start, end);
+  assert.match(unlink, /\$pull: \{ linked_student_ids: \{ \$in: Array\.from\(idsToPull\) \} \}/);
+  assert.match(unlink, /parent_user_id: \{ \$in:/);
+  assert.match(unlink, /ParentModel\.updateMany\([\s\S]*\$pull: \{ linked_students: \{ \$in: Array\.from\(idsToPull\) \} \}/);
 });
