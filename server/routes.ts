@@ -2122,7 +2122,7 @@ async function claimStudentForParent(studentDoc: any, canonicalUserId: string, m
   return StudentModel.findOneAndUpdate(
     buildStudentParentClaimFilter(studentDoc._id, canonicalUserId, mongoUserId),
     { $set: { parent_user_id: canonicalUserId } },
-    { new: true, runValidators: true }
+    { returnDocument: 'after', runValidators: true }
   );
 }
 
@@ -2170,7 +2170,7 @@ router.post('/parents/link-student', sensitiveActionRateLimiter, authenticateTok
         $addToSet: { linked_student_ids: canonicalStudentId },
         $set: { linked_id: canonicalStudentId },
       },
-      { new: true, runValidators: true }
+      { returnDocument: 'after', runValidators: true }
     );
 
     await ParentModel.findOneAndUpdate(
@@ -2329,7 +2329,7 @@ router.post('/parents/confirm-link-child', sensitiveActionRateLimiter, authentic
         $addToSet: { linked_student_ids: canonicalStudentId },
         $set: { linked_id: canonicalStudentId },
       },
-      { new: true, runValidators: true }
+      { returnDocument: 'after', runValidators: true }
     );
 
     await ParentModel.findOneAndUpdate(
@@ -2811,7 +2811,7 @@ router.post('/admin/parent-links/link', authenticateToken, requireRole(['super_a
         $addToSet: { linked_student_ids: canonicalStudentId },
         ...(!parentUser.linked_id ? { $set: { linked_id: canonicalStudentId } } : {}),
       },
-      { new: true, runValidators: true }
+      { returnDocument: 'after', runValidators: true }
     );
     if (!updatedParent) {
       if (!studentDoc.parent_user_id) {
@@ -7546,7 +7546,7 @@ router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['supe
     const paymentDoc = await FeePaymentModel.findOneAndUpdate(
       { _id: paymentId, status: 'Pending Verification', verification_status: 'Pending' },
       { $set: { status: 'Processing' } },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (!paymentDoc) {
@@ -7628,7 +7628,7 @@ router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['supe
           received_by: req.user!.name,
         },
       },
-      { new: true }
+      { returnDocument: 'after' }
     );
     if (!approvedPayment) {
       throw new Error('Fee balance was updated but payment finalization failed; manual reconciliation is required.');
@@ -7718,7 +7718,7 @@ router.post('/admin/payments/:id/reject', authenticateToken, requireRole(['super
           verified_at: new Date().toISOString(),
         },
       },
-      { new: true }
+      { returnDocument: 'after' }
     );
     if (!paymentDoc) {
       const existingPayment = await FeePaymentModel.findById(paymentId).lean();
@@ -10022,7 +10022,7 @@ router.put('/notifications/:id/read', authenticateToken, async (req: Authenticat
         ...buildNotificationVisibilityFilter(userRole, allowedUserIds),
       },
       { $set: { read: true } },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (!notif) {
