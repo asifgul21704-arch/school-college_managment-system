@@ -7352,6 +7352,13 @@ router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent
       });
     }
   } catch (err: any) {
+    // The unique transaction_id index is the final guard when two requests submit
+    // the same deposit slip concurrently after both pass the preflight lookup.
+    if (err?.code === 11000) {
+      return res.status(409).json({
+        error: 'Duplicate payment rejected: This deposit slip or transaction reference has already been recorded.',
+      });
+    }
     return sendRouteError(res, err, 'Failed to process fee payment');
   }
 });
