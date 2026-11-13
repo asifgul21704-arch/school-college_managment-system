@@ -12315,19 +12315,21 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
 
     await recordMongoAudit(req.user!, 'Queried Teacher AI', 'TeacherAI', teacher.id, `Query: "${prompt.substring(0, 60)}"`);
 
+    // Match complete name tokens, not substrings: "Unassigned" must never
+    // accidentally match a student whose first name is "Assigned".
+    const promptTokens: string[] = lower.match(/[a-z0-9]+/g) || [];
+    const containsStudentName = (student: StudentDto): boolean => {
+      const nameTokens: string[] = student.full_name.toLowerCase().match(/[a-z0-9]+/g) || [];
+      const firstName = nameTokens[0];
+      if (!firstName) return false;
+      if (promptTokens.includes(firstName)) return true;
+      if (nameTokens.length > promptTokens.length) return false;
+      return promptTokens.some((_, index) =>
+        nameTokens.every((token, offset) => promptTokens[index + offset] === token)
+      );
+    };
+
     if (lower.startsWith('mark ') || (lower.includes('mark') && (lower.includes('absent') || lower.includes('present') || lower.includes('leave')))) {
-      // Match complete name tokens, not substrings: "Unassigned" must never
-      // accidentally match a student whose first name is "Assigned".
-      const promptTokens = lower.match(/[a-z0-9]+/g) || [];
-      const containsStudentName = (student: StudentDto) => {
-        const nameTokens = student.full_name.toLowerCase().match(/[a-z0-9]+/g) || [];
-        if (nameTokens.length === 0) return false;
-        if (promptTokens.includes(nameTokens[0])) return true;
-        if (nameTokens.length > promptTokens.length) return false;
-        return promptTokens.some((_, index) =>
-          nameTokens.every((token, offset) => promptTokens[index + offset] === token)
-        );
-      };
       const matched = teacherStudents.filter(containsStudentName);
       if (matched.length === 1) {
         const targetStudent = matched[0];
@@ -12385,22 +12387,22 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
       }
     }
 
-    const words = (lower.match(/[a-z0-9]+/g) || [])
+    const words: string[] = (lower.match(/[a-z0-9]+/g) || [])
       .filter(w => w.length >= 3 && !['what', 'show', 'attendance', 'result', 'marks', 'about', 'student', 'class'].includes(w));
     let candidates: StudentDto[] = [];
     for (const w of words) {
-      const matches = teacherStudents.filter(s =>
-        (s.full_name.toLowerCase().match(/[a-z0-9]+/g) || []).includes(w)
-      );
+      const matches = teacherStudents.filter(s => {
+        const nameTokens: string[] = s.full_name.toLowerCase().match(/[a-z0-9]+/g) || [];
+        return nameTokens.includes(w);
+      });
       if (matches.length > 1) {
         candidates = matches;
         break;
       }
     }
     if (candidates.length > 1) {
-      const promptTokens = lower.match(/[a-z0-9]+/g) || [];
       const exactFullMatches = candidates.filter(c => {
-        const nameTokens = c.full_name.toLowerCase().match(/[a-z0-9]+/g) || [];
+        const nameTokens: string[] = c.full_name.toLowerCase().match(/[a-z0-9]+/g) || [];
         return nameTokens.length > 0 && nameTokens.length <= promptTokens.length &&
           promptTokens.some((_, index) =>
             nameTokens.every((token, offset) => promptTokens[index + offset] === token)
