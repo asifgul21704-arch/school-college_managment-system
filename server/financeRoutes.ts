@@ -2,7 +2,7 @@ import express, { type Response } from 'express';
 import mongoose from 'mongoose';
 import { authenticateToken, requireRole, type AuthenticatedRequest } from './auth.ts';
 import { ExpenseModel, PayrollModel, AuditLogModel, FeePaymentModel, TeacherModel } from './models/index.ts';
-import { calculatePayrollNet, getPayrollStatus, isValidIsoDate } from './financeUtils.ts';
+import { calculatePayrollNet, getPayrollStatus, isValidIsoDate, isValidPaymentIdempotencyKey } from './financeUtils.ts';
 
 export const financeRouter = express.Router();
 financeRouter.use(authenticateToken, requireRole(['super_admin', 'admin']));
@@ -212,7 +212,7 @@ financeRouter.post('/payroll/:id/payment', async (req: AuthenticatedRequest, res
     const idempotencyKey = cleanText(req.body?.idempotency_key, 100);
     const methods = ['Cash', 'Bank Transfer', 'Cheque', 'JazzCash', 'Easypaisa', 'Other'];
     if (!Number.isFinite(roundedAmount) || roundedAmount < 0.01 || !isValidIsoDate(paymentDate) || !methods.includes(method) ||
-      !/^[a-zA-Z0-9-]{8,100}$/.test(idempotencyKey)) {
+      !isValidPaymentIdempotencyKey(idempotencyKey)) {
       return res.status(400).json({ error: 'Provide a payment amount of at least PKR 0.01, valid date, payment method and unique payment request key.' });
     }
     const existing = await PayrollModel.findOne({ record_id: req.params.id });
