@@ -234,6 +234,7 @@ test('teacher section scope denies access to other sections when explicit assign
 
 test('legacy class-level teacher assignment remains compatible when no section assignments exist', () => {
   assert.equal(isTeacherAssignedToClassSection(['Grade 2'], [], '2', 'B'), true);
+  assert.equal(isTeacherAssignedToClassSection(['Grade 2'], [{ class_name: 'Grade 2', section: '', subject: 'Math' }], '2', 'B'), true);
   assert.equal(isTeacherAssignedToClassSection(['Grade 2'], [], '3', 'B'), false);
 });
 
