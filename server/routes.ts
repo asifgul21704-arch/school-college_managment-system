@@ -6985,7 +6985,7 @@ router.delete('/fees/:id', authenticateToken, requireRole(['super_admin', 'admin
 // ==========================================
 
 // 1. Get Outstanding Fee Summary for Parent or Student
-router.get('/parent/fees/summary', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/parent/fees/summary', authenticateToken, requireRole(['parent', 'student', 'super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   try {
     const user = req.user!;
@@ -7127,18 +7127,33 @@ router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent
     return res.status(400).json({ error: 'Fee voucher ID is required' });
   }
 
-  // Authorization check: parent must have child linked
+  // Resolve the exact student identity the caller is authorized to pay for.
+  let authorizedStudentAliases = new Set<string>();
+
   if (user.role === 'parent') {
     const linked = await getLinkedStudentIdsForParent(user);
-    if (!linked.has(cleanStudentId)) {
+    const targetStudent = await findStudentByAnyId(cleanStudentId);
+    if (!targetStudent) {
+      return res.status(403).json({ error: 'Access denied: The requested student is not linked to your parent account' });
+    }
+    authorizedStudentAliases = new Set(
+      [cleanStudentId, targetStudent.record_id, targetStudent._id?.toString(), targetStudent.admission_no]
+        .filter(Boolean)
+        .map((value: unknown) => String(value))
+    );
+    if (!Array.from(authorizedStudentAliases).some(id => linked.has(id))) {
       return res.status(403).json({ error: 'Access denied: You can only make payments for your linked children' });
     }
   } else if (user.role === 'student') {
     const studentDoc = await StudentModel.findOne({
       $or: [{ user_id: user.id }, { email: user.email.toLowerCase() }],
     }).lean();
-    const myId = studentDoc?.record_id || studentDoc?._id.toString();
-    if (myId !== cleanStudentId) {
+    authorizedStudentAliases = new Set(
+      [studentDoc?.record_id, studentDoc?._id?.toString(), studentDoc?.admission_no]
+        .filter(Boolean)
+        .map((value: unknown) => String(value))
+    );
+    if (!authorizedStudentAliases.has(cleanStudentId)) {
       return res.status(403).json({ error: 'Access denied: Students can only pay their own fee vouchers' });
     }
   }
@@ -7147,6 +7162,9 @@ router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent
     const feeDoc = await FeeModel.findOne(buildFeeLookupFilter(cleanFeeId)).lean();
     if (!feeDoc) {
       return res.status(404).json({ error: 'Fee voucher not found' });
+    }
+    if (!authorizedStudentAliases.has(String(feeDoc.student_id || ''))) {
+      return res.status(403).json({ error: 'Access denied: This fee voucher does not belong to the selected student' });
     }
 
     const currentPending = Number(feeDoc.pending_amount) || 0;
