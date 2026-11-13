@@ -1684,6 +1684,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             teachers={teachers}
             classes={classes}
             events={events}
+            isTeacher={isTeacher}
             onNavigate={section => setActiveSection(section)}
             onAskAI={prompt => {
               setAiInitialPrompt(prompt);
