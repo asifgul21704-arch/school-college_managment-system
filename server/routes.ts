@@ -6140,7 +6140,7 @@ router.delete('/admissions/:id', authenticateToken, requireRole(['super_admin', 
 // 8. ATTENDANCE SYSTEM (MONGODB-AUTHORITATIVE)
 // ==========================================
 
-router.get('/attendance', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/attendance', authenticateToken, requireRole(['super_admin', 'admin', 'teacher', 'parent', 'student']), async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   try {
     const { date, class_name, section, student_id } = req.query;
@@ -6200,6 +6200,10 @@ router.get('/attendance', authenticateToken, async (req: AuthenticatedRequest, r
     if (req.user?.role === 'teacher') {
       const teacher = await getAuthenticatedTeacherMongo(req);
       const assignedClasses = teacher?.classes || [];
+      const teacherIds = teacher
+        ? Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))))
+        : [];
+      const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
 
       if (class_name) {
         if (!isClassAssignedToTeacher(assignedClasses, String(class_name))) {
@@ -6210,8 +6214,10 @@ router.get('/attendance', authenticateToken, async (req: AuthenticatedRequest, r
       let studentAliasIds: Set<string> | null = null;
       if (student_id) {
         const st = await findStudentByAnyId(String(student_id));
-        if (!st || !isClassAssignedToTeacher(assignedClasses, st.class_name)) {
-          return res.status(403).json({ error: 'Access denied: You may only view attendance for students in your assigned classes.' });
+        if (!st || !isTeacherAssignedToClassSection(
+          assignedClasses, assignmentScopes, st.class_name, st.section || 'A'
+        )) {
+          return res.status(403).json({ error: 'Access denied: You may only view attendance for students in your assigned class section.' });
         }
         studentAliasIds = new Set<string>(
           [String(student_id), st.record_id, st._id ? st._id.toString() : ''].filter(Boolean) as string[]
@@ -6226,7 +6232,9 @@ router.get('/attendance', authenticateToken, async (req: AuthenticatedRequest, r
 
       let result = docs
         .map(toAttendanceDto)
-        .filter(a => isClassAssignedToTeacher(assignedClasses, a.class_name));
+        .filter(a => isTeacherAssignedToClassSection(
+          assignedClasses, assignmentScopes, a.class_name, a.section || 'A'
+        ));
       if (class_name) result = result.filter(a => a.class_name.toLowerCase() === String(class_name).toLowerCase());
       if (section) result = result.filter(a => a.section.toLowerCase() === String(section).toLowerCase());
       if (studentAliasIds) result = result.filter(a => studentAliasIds!.has(a.student_id));
@@ -6529,7 +6537,7 @@ router.get('/attendance/student/:studentId', authenticateToken, requireRole(['su
 // 9. FEE MANAGEMENT (MONGODB-AUTHORITATIVE)
 // ==========================================
 
-router.get('/fees', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/fees', authenticateToken, requireRole(['super_admin', 'admin', 'teacher', 'parent', 'student']), async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   try {
     const { student_id, class_name, status, month } = req.query;
@@ -8354,7 +8362,7 @@ router.delete('/exams/:id', authenticateToken, requireRole(['super_admin', 'admi
   }
 });
 
-router.get('/results', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/results', authenticateToken, requireRole(['super_admin', 'admin', 'teacher', 'parent', 'student']), async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   try {
     const { exam_id, student_id, class_name } = req.query;
@@ -8428,6 +8436,10 @@ router.get('/results', authenticateToken, async (req: AuthenticatedRequest, res:
     if (req.user?.role === 'teacher') {
       const teacher = await getAuthenticatedTeacherMongo(req);
       const assignedClasses = teacher?.classes || [];
+      const teacherIds = teacher
+        ? Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))))
+        : [];
+      const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
 
       if (class_name) {
         if (!isClassAssignedToTeacher(assignedClasses, String(class_name))) {
@@ -8437,15 +8449,19 @@ router.get('/results', authenticateToken, async (req: AuthenticatedRequest, res:
 
       if (student_id) {
         const targetStudent = await findStudentByAnyId(String(student_id));
-        if (!targetStudent || !isClassAssignedToTeacher(assignedClasses, targetStudent.class_name)) {
-          return res.status(403).json({ error: 'Access denied: You may only view results for students in your assigned classes.' });
+        if (!targetStudent || !isTeacherAssignedToClassSection(
+          assignedClasses, assignmentScopes, targetStudent.class_name, targetStudent.section || 'A'
+        )) {
+          return res.status(403).json({ error: 'Access denied: You may only view results for students in your assigned class section.' });
         }
       }
 
       const docs = await ResultModel.find().sort({ created_at: -1, _id: -1 }).lean();
       let result = docs
         .map(toResultDto)
-        .filter(r => isClassAssignedToTeacher(assignedClasses, r.class_name));
+        .filter(r => isTeacherAssignedToClassSection(
+          assignedClasses, assignmentScopes, r.class_name, r.section || 'A'
+        ));
       if (exam_id) result = result.filter(r => r.exam_id === String(exam_id));
       if (resolvedStudentAliases) result = result.filter(r => resolvedStudentAliases!.has(r.student_id));
       if (class_name) result = result.filter(r => r.class_name.toLowerCase() === String(class_name).toLowerCase());
