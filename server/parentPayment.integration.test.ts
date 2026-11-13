@@ -234,6 +234,14 @@ test('real MongoDB: stale parent session loses unlinked-child access and payment
   });
   assert.equal(intruderDiscovery.status, 404);
   assert.equal(intruderDiscovery.body.matches, undefined);
+  const adminCannotReassignClaimedStudent = await request('/admin/parent-links/link', adminToken, {
+    method: 'POST',
+    body: { parent_id: intruder.record_id, student_id: 'STU-INTEGRATION-A' },
+  });
+  assert.equal(adminCannotReassignClaimedStudent.status, 409);
+  const intruderAfterBlockedAdminLink = await UserModel.findOne({ record_id: intruder.record_id }).lean();
+  assert.deepEqual(intruderAfterBlockedAdminLink?.linked_student_ids || [], []);
+  assert.equal((await StudentModel.findOne({ record_id: 'STU-INTEGRATION-A' }).lean())?.parent_user_id, parent.record_id);
 
   const portalBeforeUnlink = await request('/portal/ai/query', parentToken, {
     method: 'POST',
