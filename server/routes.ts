@@ -7097,7 +7097,7 @@ router.get('/payments/settings', async (_req: Request, res: Response) => {
 });
 
 // 3. Initiate Payment (Parent Portal: Online Gateway Sandbox or Bank Deposit)
-router.post('/parent/payments/initiate', authenticateToken, sensitiveActionRateLimiter, async (req: AuthenticatedRequest, res: Response) => {
+router.post('/parent/payments/initiate', authenticateToken, requireRole(['parent', 'student']), sensitiveActionRateLimiter, async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   const user = req.user!;
   const {
@@ -7383,19 +7383,37 @@ router.get('/admin/payments', authenticateToken, requireRole(['super_admin', 'ad
 router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
   if (!ensureMongoReady(res)) return;
   const paymentId = String(req.params.id || '').trim();
+  let paymentLocked = false;
+  let feeBalanceApplied = false;
+
+  const releasePaymentLock = async (id: unknown) => {
+    await FeePaymentModel.updateOne(
+      { _id: id, status: 'Processing', verification_status: 'Pending' },
+      { $set: { status: 'Pending Verification' } }
+    );
+  };
 
   try {
-    const paymentDoc = await FeePaymentModel.findById(paymentId);
-    if (!paymentDoc) {
-      return res.status(404).json({ error: 'Payment record not found' });
-    }
+    // Compare-and-set lock: only one administrator can approve a pending payment.
+    const paymentDoc = await FeePaymentModel.findOneAndUpdate(
+      { _id: paymentId, status: 'Pending Verification', verification_status: 'Pending' },
+      { $set: { status: 'Processing' } },
+      { new: true }
+    );
 
-    if (paymentDoc.verification_status === 'Verified' || paymentDoc.status === 'Paid') {
-      return res.status(400).json({ error: 'This payment has already been verified and marked as Paid.' });
+    if (!paymentDoc) {
+      const existingPayment = await FeePaymentModel.findById(paymentId).lean();
+      if (!existingPayment) {
+        return res.status(404).json({ error: 'Payment record not found' });
+      }
+      return res.status(409).json({ error: 'This payment is already being processed or has already been reviewed.' });
     }
+    paymentLocked = true;
 
     const feeDoc = await FeeModel.findOne(buildFeeLookupFilter(paymentDoc.fee_id)).lean();
     if (!feeDoc) {
+      await releasePaymentLock(paymentDoc._id);
+      paymentLocked = false;
       return res.status(404).json({ error: 'Associated fee voucher not found in database' });
     }
 
@@ -7404,6 +7422,8 @@ router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['supe
     const currentTotal = Number(feeDoc.total_amount) || 0;
 
     if (paymentDoc.amount > currentPending) {
+      await releasePaymentLock(paymentDoc._id);
+      paymentLocked = false;
       return res.status(400).json({
         error: `Approved payment amount (PKR ${paymentDoc.amount.toLocaleString()}) exceeds current remaining balance (PKR ${currentPending.toLocaleString()}).`,
       });
@@ -7423,19 +7443,9 @@ router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['supe
       notes: `Bank Deposit Approved by ${req.user!.name} (Ref: ${paymentDoc.payment_reference})`,
     };
 
-    // Update payment document
-    paymentDoc.status = 'Paid';
-    paymentDoc.verification_status = 'Verified';
-    paymentDoc.receipt_no = receiptNo;
-    paymentDoc.verified_by_id = req.user!.id;
-    paymentDoc.verified_by_name = req.user!.name;
-    paymentDoc.verified_at = new Date().toISOString();
-    paymentDoc.received_by = req.user!.name;
-    await paymentDoc.save();
-
-    // Atomically update fee voucher
+    // Optimistic balance check prevents stale concurrent approvals from overwriting totals.
     const updatedFee = await FeeModel.findOneAndUpdate(
-      { _id: feeDoc._id, pending_amount: { $gte: paymentDoc.amount } },
+      { _id: feeDoc._id, pending_amount: currentPending, paid_amount: currentPaid },
       {
         $set: {
           paid_amount: nextPaid,
@@ -7447,20 +7457,49 @@ router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['supe
       { returnDocument: 'after' }
     ).lean();
 
+    if (!updatedFee) {
+      await releasePaymentLock(paymentDoc._id);
+      paymentLocked = false;
+      return res.status(409).json({
+        error: 'Voucher balance changed during approval. Payment remains pending; refresh and review the latest balance.',
+      });
+    }
+    feeBalanceApplied = true;
+
+    // Finalize only after the voucher balance has been updated successfully.
+    const approvedPayment = await FeePaymentModel.findOneAndUpdate(
+      { _id: paymentDoc._id, status: 'Processing', verification_status: 'Pending' },
+      {
+        $set: {
+          status: 'Paid',
+          verification_status: 'Verified',
+          receipt_no: receiptNo,
+          verified_by_id: req.user!.id,
+          verified_by_name: req.user!.name,
+          verified_at: new Date().toISOString(),
+          received_by: req.user!.name,
+        },
+      },
+      { new: true }
+    );
+    if (!approvedPayment) {
+      throw new Error('Fee balance was updated but payment finalization failed; manual reconciliation is required.');
+    }
+
     // Send SMS Confirmation to parent
     const smsResult = await sendPaymentApprovalSms({
-      payment_reference: paymentDoc.payment_reference,
+      payment_reference: approvedPayment.payment_reference,
       receipt_no: receiptNo,
-      amount: paymentDoc.amount,
-      parent_name: paymentDoc.parent_name,
-      parent_phone: paymentDoc.parent_phone,
-      student_name: paymentDoc.student_name || feeDoc.student_name,
-      class_name: paymentDoc.class_name || feeDoc.class_name,
+      amount: approvedPayment.amount,
+      parent_name: approvedPayment.parent_name,
+      parent_phone: approvedPayment.parent_phone,
+      student_name: approvedPayment.student_name || feeDoc.student_name,
+      class_name: approvedPayment.class_name || feeDoc.class_name,
     });
 
     if (smsResult.sent) {
       await FeePaymentModel.updateOne(
-        { _id: paymentDoc._id },
+        { _id: approvedPayment._id },
         {
           $set: {
             sms_status: smsResult.status,
@@ -7472,12 +7511,12 @@ router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['supe
     }
 
     // Notify Parent in-app
-    if (paymentDoc.parent_user_id) {
+    if (approvedPayment.parent_user_id) {
       await NotificationModel.create({
-        user_id: paymentDoc.parent_user_id,
+        user_id: approvedPayment.parent_user_id,
         role: 'parent',
         title: 'Fee Payment Approved & Receipt Issued',
-        message: `Your deposit of PKR ${paymentDoc.amount.toLocaleString()} for ${paymentDoc.student_name || feeDoc.student_name} has been verified. Official Receipt: ${receiptNo}.`,
+        message: `Your deposit of PKR ${approvedPayment.amount.toLocaleString()} for ${approvedPayment.student_name || feeDoc.student_name} has been verified. Official Receipt: ${receiptNo}.`,
         link: '/student-portal',
       });
     }
@@ -7486,17 +7525,22 @@ router.post('/admin/payments/:id/approve', authenticateToken, requireRole(['supe
       req.user!,
       'Approved Fee Payment',
       'FeePayment',
-      paymentDoc.payment_reference,
-      `Verified deposit of PKR ${paymentDoc.amount} for ${paymentDoc.student_name}. Receipt: ${receiptNo}`
+      approvedPayment.payment_reference,
+      `Verified deposit of PKR ${approvedPayment.amount} for ${approvedPayment.student_name}. Receipt: ${receiptNo}`
     );
 
     return res.json({
       message: 'Payment verified and approved successfully',
-      payment: toFeePaymentDto(paymentDoc),
-      fee: updatedFee ? toFeeDto(updatedFee) : feeDoc,
+      payment: toFeePaymentDto(approvedPayment),
+      fee: toFeeDto(updatedFee),
       receipt_no: receiptNo,
     });
   } catch (err: any) {
+    // Before voucher settlement, release the lock so a transient failure can be retried.
+    // After settlement, keep Processing if finalization failed to prevent duplicate crediting.
+    if (paymentLocked && !feeBalanceApplied) {
+      await releasePaymentLock(paymentId).catch(() => {});
+    }
     return sendRouteError(res, err, 'Failed to approve payment');
   }
 });
