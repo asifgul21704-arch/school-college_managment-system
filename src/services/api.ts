@@ -833,6 +833,8 @@ export const api = {
       success: boolean;
       message: string;
       dispatchedCount?: number;
+      recordedCount?: number;
+      smsDispatched: boolean;
       auditLogId?: string;
     }>('/admin/ai/execute-action', {
       method: 'POST',
