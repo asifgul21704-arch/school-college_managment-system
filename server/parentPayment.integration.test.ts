@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import express from 'express';
 import mongoose from 'mongoose';
 import { router } from './routes.ts';
-import { generateToken } from './auth.ts';
+import { generateToken, revokeToken } from './auth.ts';
 import { UserModel } from './models/User.ts';
 import { ParentModel } from './models/Parent.ts';
 import { StudentModel } from './models/Student.ts';
@@ -477,4 +477,68 @@ test('real MongoDB: notification reads, unread counts, and read mutations stay w
   assert.equal(adminTitles.has('Shared notice'), true);
   assert.equal(adminTitles.has('Linked child notice'), false);
   assert.equal(adminTitles.has('Unlinked child notice'), false);
+});
+
+
+test('real MongoDB: sessions honor live role, account status, password changes, and revocation', async () => {
+  const sessionUser = await UserModel.create({
+    record_id: 'SESSION-INTEGRATION-1',
+    email: 'session.integration@example.test',
+    password_hash: 'integration-only-hash',
+    name: 'Session Integration User',
+    role: 'parent',
+    status: 'active',
+    linked_student_ids: [],
+  });
+
+  const staleParentClaims = authToken({
+    id: sessionUser.record_id!,
+    email: sessionUser.email,
+    role: 'parent',
+    name: sessionUser.name,
+  });
+
+  // Parent token claims cannot access administrator routes.
+  const initiallyDenied = await request('/parents', staleParentClaims);
+  assert.equal(initiallyDenied.status, 403);
+
+  // A role change in MongoDB is reflected immediately without trusting old JWT claims.
+  await UserModel.updateOne({ _id: sessionUser._id }, { $set: { role: 'admin' } });
+  const promotedByLiveRecord = await request('/parents', staleParentClaims);
+  assert.equal(promotedByLiveRecord.status, 200, JSON.stringify(promotedByLiveRecord.body));
+
+  const staleAdminClaims = authToken({
+    id: sessionUser.record_id!,
+    email: sessionUser.email,
+    role: 'super_admin',
+    name: sessionUser.name,
+  });
+  await UserModel.updateOne({ _id: sessionUser._id }, { $set: { role: 'parent' } });
+  const demotedByLiveRecord = await request('/parents', staleAdminClaims);
+  assert.equal(demotedByLiveRecord.status, 403);
+
+  await UserModel.updateOne({ _id: sessionUser._id }, { $set: { password_changed_at: new Date(Date.now() + 1000) } });
+  const invalidatedByPasswordChange = await request('/parent/fees/summary', staleParentClaims);
+  assert.equal(invalidatedByPasswordChange.status, 401);
+
+  await UserModel.updateOne({ _id: sessionUser._id }, { $set: { password_changed_at: null, status: 'inactive' } });
+  const inactiveToken = authToken({
+    id: sessionUser.record_id!,
+    email: sessionUser.email,
+    role: 'parent',
+    name: sessionUser.name,
+  });
+  const inactiveAccountDenied = await request('/parent/fees/summary', inactiveToken);
+  assert.equal(inactiveAccountDenied.status, 403);
+
+  await UserModel.updateOne({ _id: sessionUser._id }, { $set: { status: 'active' } });
+  const revokedToken = authToken({
+    id: sessionUser.record_id!,
+    email: sessionUser.email,
+    role: 'parent',
+    name: sessionUser.name,
+  });
+  await revokeToken(revokedToken, Math.floor(Date.now() / 1000) + 3600, 'integration-test');
+  const revokedSessionDenied = await request('/parent/fees/summary', revokedToken);
+  assert.equal(revokedSessionDenied.status, 401);
 });
