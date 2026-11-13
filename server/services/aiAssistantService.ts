@@ -2024,7 +2024,7 @@ export const ControlledSchoolTools = {
     }
     for (const recipient of recipients) {
       const phone = typeof recipient?.phone === 'string' ? recipient.phone.trim() : '';
-      if (!/^\\+?[0-9][0-9\\s()-]{6,19}$/.test(phone)) {
+      if (!/^\+?[0-9][0-9\s()-]{6,19}$/.test(phone)) {
         throw new Error('Every notification recipient must have a valid phone number.');
       }
       if (typeof recipient?.studentName !== 'string' || !recipient.studentName.trim()) {
