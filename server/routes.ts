@@ -8616,11 +8616,31 @@ router.post('/results', authenticateToken, requireRole(['super_admin', 'admin', 
 
     if (req.user?.role === 'teacher') {
       const teacher = await getAuthenticatedTeacherMongo(req);
-      const assignedClasses = teacher?.classes || [];
-      if (!isClassAssignedToTeacher(assignedClasses, studentDoc.class_name)) {
+      if (!teacher) {
+        return res.status(404).json({ error: 'Teacher profile not linked.' });
+      }
+      const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+      const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
+      const studentSection = studentDoc.section || 'A';
+      if (!isTeacherAssignedToClassSection(teacher.classes || [], assignmentScopes, studentDoc.class_name, studentSection)) {
         return res.status(403).json({
-          error: `Access denied: You are not assigned to class "${studentDoc.class_name}".`,
+          error: 'Access denied: You are not assigned to this student section.',
         });
+      }
+
+      const matchingAssignments = assignmentScopes.filter(assignment =>
+        isTeacherAssignedToClassSection(
+          [assignment.class_name], [assignment], studentDoc.class_name, studentSection
+        )
+      );
+      const allowedSubjects = matchingAssignments.map(assignment => assignment.subject);
+      for (const subjectEntry of subjects) {
+        const subjectName = sanitizePlainText(subjectEntry?.subject_name || subjectEntry?.subject || '', 120);
+        if (!isTeacherSubjectAssigned(teacher.subject, allowedSubjects, subjectName)) {
+          return res.status(403).json({
+            error: `Access denied: You are not authorized to record marks for subject "${subjectName}".`,
+          });
+        }
       }
     }
 
@@ -8749,10 +8769,35 @@ router.delete('/results/:id', authenticateToken, requireRole(['super_admin', 'ad
 
     if (req.user?.role === 'teacher') {
       const teacher = await getAuthenticatedTeacherMongo(req);
-      const assignedClasses = teacher?.classes || [];
-      if (!isClassAssignedToTeacher(assignedClasses, existing.class_name)) {
+      if (!teacher) {
+        return res.status(404).json({ error: 'Teacher profile not linked.' });
+      }
+      const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+      const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
+      const linkedStudent = await findStudentByAnyId(String(existing.student_id || ''));
+      const storedSection = String(existing.section || 'A');
+      const currentSection = String(linkedStudent?.section || 'A');
+      const storedScopeAllowed = isTeacherAssignedToClassSection(
+        teacher.classes || [], assignmentScopes, String(existing.class_name || ''), storedSection
+      );
+      const currentScopeAllowed = Boolean(linkedStudent) && isTeacherAssignedToClassSection(
+        teacher.classes || [], assignmentScopes, String(linkedStudent?.class_name || ''), currentSection
+      );
+      const matchingAssignments = assignmentScopes.filter(assignment =>
+        isTeacherAssignedToClassSection(
+          [assignment.class_name], [assignment], String(existing.class_name || ''), storedSection
+        )
+      );
+      const allowedSubjects = matchingAssignments.map(assignment => assignment.subject);
+      const resultSubjects = Array.isArray(existing.subjects)
+        ? existing.subjects.map((subject: any) => String(subject.subject_name || '')).filter(Boolean)
+        : [];
+      const subjectsAllowed = resultSubjects.length > 0 && resultSubjects.every(subject =>
+        isTeacherSubjectAssigned(teacher.subject, allowedSubjects, subject)
+      );
+      if (!storedScopeAllowed || !currentScopeAllowed || !subjectsAllowed) {
         return res.status(403).json({
-          error: `Access denied: You are not assigned to class "${existing.class_name}".`,
+          error: 'Access denied: You may only manage results for your currently assigned class section and subjects.',
         });
       }
     }
