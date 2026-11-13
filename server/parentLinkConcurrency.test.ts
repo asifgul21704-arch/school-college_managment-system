@@ -162,3 +162,14 @@ test('unlink removes all known child aliases from user and parent relationship r
   assert.match(unlink, /parent_user_id: \{ \$in:/);
   assert.match(unlink, /ParentModel\.updateMany\([\s\S]*\$pull: \{ linked_students: \{ \$in: Array\.from\(idsToPull\) \} \}/);
 });
+
+test('parent document downloads require a current child link even when parent uploaded the file', () => {
+  const start = routes.indexOf("router.get('/documents/:filename'");
+  const end = routes.indexOf('\n});', start) + 4;
+  assert.ok(start >= 0 && end > start);
+  const route = routes.slice(start, end);
+  assert.match(route, /const isStudentScopedDocument = Boolean\(docMeta\.student_id\)/);
+  assert.match(route, /user\.role === 'parent'[\s\S]*getLinkedStudentIdsForParent\(user\)[\s\S]*linkedSet\.has\(docMeta\.student_id\)/);
+  assert.match(route, /else if \(!authorized\) \{[\s\S]*docMeta\.uploaded_by_user_id === user\.id/);
+  assert.ok(route.indexOf('getLinkedStudentIdsForParent(user)') < route.indexOf('docMeta.uploaded_by_user_id === user.id'));
+});
