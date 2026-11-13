@@ -34,10 +34,18 @@ financeRouter.get('/expenses', async (req: AuthenticatedRequest, res: Response) 
   if (!dbReady(res)) return;
   try {
     const filter: Record<string, any> = {};
-    if (req.query.from || req.query.to) {
+    const from = cleanText(req.query.from, 32);
+    const to = cleanText(req.query.to, 32);
+    if ((from && !isValidIsoDate(from)) || (to && !isValidIsoDate(to))) {
+      return res.status(400).json({ error: 'Expense date filters must use real calendar dates in YYYY-MM-DD format.' });
+    }
+    if (from && to && from > to) {
+      return res.status(400).json({ error: 'Expense start date cannot be later than the end date.' });
+    }
+    if (from || to) {
       filter.expense_date = {};
-      if (req.query.from) filter.expense_date.$gte = cleanText(req.query.from, 10);
-      if (req.query.to) filter.expense_date.$lte = cleanText(req.query.to, 10);
+      if (from) filter.expense_date.$gte = from;
+      if (to) filter.expense_date.$lte = to;
     }
     if (req.query.category) filter.category = cleanText(req.query.category, 40);
     const rows = await ExpenseModel.find(filter).sort({ expense_date: -1, created_at: -1 }).limit(2000).lean();
@@ -152,9 +160,21 @@ financeRouter.get('/payroll', async (req: AuthenticatedRequest, res: Response) =
   if (!dbReady(res)) return;
   try {
     const filter: Record<string, any> = {};
-    if (req.query.year) filter.salary_year = Number(req.query.year);
-    if (req.query.month) filter.salary_month = Number(req.query.month);
-    if (req.query.status) filter.status = cleanText(req.query.status, 30);
+    const year = cleanText(req.query.year, 8);
+    const month = cleanText(req.query.month, 4);
+    const status = cleanText(req.query.status, 30);
+    if (year && (!/^\\d{4}$/.test(year) || Number(year) < 2020 || Number(year) > 2100)) {
+      return res.status(400).json({ error: 'Payroll year must be a four-digit year between 2020 and 2100.' });
+    }
+    if (month && !/^(0?[1-9]|1[0-2])$/.test(month)) {
+      return res.status(400).json({ error: 'Payroll month must be between 1 and 12.' });
+    }
+    if (status && !['Unpaid', 'Partially Paid', 'Paid'].includes(status)) {
+      return res.status(400).json({ error: 'Choose a supported payroll status.' });
+    }
+    if (year) filter.salary_year = Number(year);
+    if (month) filter.salary_month = Number(month);
+    if (status) filter.status = status;
     const rows = await PayrollModel.find(filter).sort({ salary_year: -1, salary_month: -1, staff_name: 1 }).limit(2000).lean();
     return res.json(rows.map(row => ({ ...row, id: row.record_id })));
   } catch {
