@@ -383,3 +383,18 @@ test('public parent signup uses atomic child claim instead of overwriting an exi
   assert.match(route, /ParentModel\.create\([\s\S]*catch \(parentCreateError\)/);
   assert.match(route, /parent_user_id: newUserId[\s\S]*parent_user_id: ''/);
 });
+
+test('public teacher directory excludes private identity and contact fields', () => {
+  const start = routes.indexOf("router.get('/teachers'");
+  const end = routes.indexOf('\n});', start) + 4;
+  assert.ok(start >= 0 && end > start);
+  const route = routes.slice(start, end);
+  assert.match(route, /const publicTeachers = teachers\.map\(t => \(\{/);
+  assert.doesNotMatch(route, /\.\.\.t/);
+  for (const privateField of ['user_id', 'father_name', 'cnic', 'contact_no', 'email', 'joining_date']) {
+    assert.doesNotMatch(route, new RegExp('\\b' + privateField + '\\s*:'));
+  }
+  assert.match(route, /name: t\.name/);
+  assert.match(route, /qualification: t\.qualification/);
+  assert.match(route, /subject: t\.subject/);
+});
