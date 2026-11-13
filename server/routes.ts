@@ -11097,8 +11097,7 @@ router.get('/teacher/dashboard', authenticateToken, requireExactRole(['teacher']
     const todayDate = new Date().toISOString().split('T')[0];
 
     const teacherTimetable = allTtDocs.map(toTimetableDto).filter(t =>
-      t.teacher_name.toLowerCase().includes(teacher.name.toLowerCase()) ||
-      teacher.name.toLowerCase().includes(t.teacher_name.toLowerCase())
+      String(t.teacher_name || '').trim().toLowerCase() === String(teacher.name || '').trim().toLowerCase()
     );
     const todayTimetable = teacherTimetable.filter(t => t.day.toLowerCase() === todayDay.toLowerCase());
 
