@@ -1772,6 +1772,7 @@ router.post('/auth/register-parent', authRateLimiter, async (req: Request, res: 
     const newUserId = `usr_${ts}_${randSuffix}`;
     const linkedStudentIds: string[] = [];
     const linkedStudentDtos: StudentDto[] = [];
+    let pendingStudentDoc: any = null;
 
     // Optional child linking during signup requires BOTH matching admission_no AND child_dob
     if (child_admission_no && String(child_admission_no).trim()) {
@@ -1792,9 +1793,7 @@ router.post('/auth/register-parent', authRateLimiter, async (req: Request, res: 
       }
       const sid = studentDoc.record_id || studentDoc._id.toString();
       linkedStudentIds.push(sid);
-      studentDoc.parent_user_id = newUserId;
-      await studentDoc.save();
-      linkedStudentDtos.push(toStudentDto(studentDoc));
+      pendingStudentDoc = studentDoc;
     }
 
     const cleanName = sanitizePlainText(full_name, 150);
@@ -1814,17 +1813,41 @@ router.post('/auth/register-parent', authRateLimiter, async (req: Request, res: 
       status: 'active',
     });
 
-    await ParentModel.create({
-      record_id: `prt_${newUserId}`,
-      user_id: newUserId,
-      name: cleanName,
-      father_name: cleanName,
-      phone: cleanPhone,
-      email: cleanEmail,
-      address: cleanAddress,
-      occupation: cleanOccupation,
-      linked_students: linkedStudentIds,
-    });
+    if (pendingStudentDoc) {
+      const claimedStudent = await claimStudentForParent(
+        pendingStudentDoc, newUserId, createdUser._id.toString()
+      );
+      if (!claimedStudent) {
+        await UserModel.deleteOne({ _id: createdUser._id });
+        return res.status(409).json({
+          error: 'This student is already linked to another parent account. Please contact the school administration.',
+        });
+      }
+      linkedStudentDtos.push(toStudentDto(claimedStudent));
+    }
+
+    try {
+      await ParentModel.create({
+        record_id: `prt_${newUserId}`,
+        user_id: newUserId,
+        name: cleanName,
+        father_name: cleanName,
+        phone: cleanPhone,
+        email: cleanEmail,
+        address: cleanAddress,
+        occupation: cleanOccupation,
+        linked_students: linkedStudentIds,
+      });
+    } catch (parentCreateError) {
+      if (pendingStudentDoc) {
+        await StudentModel.updateOne(
+          { _id: pendingStudentDoc._id, parent_user_id: newUserId },
+          { $set: { parent_user_id: '' } }
+        ).catch(() => {});
+      }
+      await UserModel.deleteOne({ _id: createdUser._id }).catch(() => {});
+      throw parentCreateError;
+    }
 
     const userDto = toUserDto(createdUser);
     await recordMongoAudit(
