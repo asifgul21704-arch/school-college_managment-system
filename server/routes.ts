@@ -12315,8 +12315,20 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
 
     await recordMongoAudit(req.user!, 'Queried Teacher AI', 'TeacherAI', teacher.id, `Query: "${prompt.substring(0, 60)}"`);
 
-        if (lower.startsWith('mark ') || (lower.includes('mark') && (lower.includes('absent') || lower.includes('present') || lower.includes('leave')))) {
-      const matched = teacherStudents.filter(s => lower.includes(s.full_name.toLowerCase()) || lower.includes(s.full_name.split(' ')[0].toLowerCase()));
+    if (lower.startsWith('mark ') || (lower.includes('mark') && (lower.includes('absent') || lower.includes('present') || lower.includes('leave')))) {
+      // Match complete name tokens, not substrings: "Unassigned" must never
+      // accidentally match a student whose first name is "Assigned".
+      const promptTokens = lower.match(/[a-z0-9]+/g) || [];
+      const containsStudentName = (student: StudentDto) => {
+        const nameTokens = student.full_name.toLowerCase().match(/[a-z0-9]+/g) || [];
+        if (nameTokens.length === 0) return false;
+        if (promptTokens.includes(nameTokens[0])) return true;
+        if (nameTokens.length > promptTokens.length) return false;
+        return promptTokens.some((_, index) =>
+          nameTokens.every((token, offset) => promptTokens[index + offset] === token)
+        );
+      };
+      const matched = teacherStudents.filter(containsStudentName);
       if (matched.length === 1) {
         const targetStudent = matched[0];
         let status = 'Absent';
@@ -12346,7 +12358,7 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
     }
 
     if (lower.includes('enter') && lower.includes('marks')) {
-      const matched = teacherStudents.filter(s => lower.includes(s.full_name.toLowerCase()) || lower.includes(s.full_name.split(' ')[0].toLowerCase()));
+      const matched = teacherStudents.filter(containsStudentName);
       if (matched.length === 1) {
         const targetStudent = matched[0];
         const numMatch = lower.match(/\b\d{1,3}\b/);
