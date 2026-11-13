@@ -3907,9 +3907,16 @@ router.get('/teachers', async (req: Request, res: Response) => {
 
     // Redact personal staff phone numbers and private emails on public directory endpoint
     const publicTeachers = teachers.map(t => ({
-      ...t,
-      contact_no: '',
-      email: '',
+      id: t.id,
+      name: t.name,
+      profile_photo: t.profile_photo,
+      qualification: t.qualification,
+      subject: t.subject,
+      specialization: t.specialization,
+      classes: t.classes,
+      experience: t.experience,
+      status: t.status,
+      bio: t.bio,
     }));
     return sendAcademicPaginatedOrArray(req, res, publicTeachers);
   } catch (err: any) {
