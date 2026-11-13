@@ -2009,33 +2009,53 @@ export const ControlledSchoolTools = {
       );
     }
 
-    const recipients = payload?.recipients || [];
-    const message = payload?.message || '';
+    const allowedActions = new Set(['SEND_SMS_ABSENT', 'SEND_SMS_FEES']);
+    if (!allowedActions.has(actionType)) {
+      throw new Error('Unsupported AI action. Only reviewed absent and fee reminder actions are allowed.');
+    }
 
-    // Record notification entries in MongoDB
-    for (const r of recipients) {
+    const recipients = payload?.recipients;
+    const message = typeof payload?.message === 'string' ? payload.message.trim() : '';
+    if (!Array.isArray(recipients) || recipients.length === 0 || recipients.length > 500) {
+      throw new Error('A valid recipient list containing 1 to 500 recipients is required.');
+    }
+    if (!message || message.length > 1000) {
+      throw new Error('A non-empty notification message of at most 1000 characters is required.');
+    }
+    for (const recipient of recipients) {
+      const phone = typeof recipient?.phone === 'string' ? recipient.phone.trim() : '';
+      if (!/^\\+?[0-9][0-9\\s()-]{6,19}$/.test(phone)) {
+        throw new Error('Every notification recipient must have a valid phone number.');
+      }
+      if (typeof recipient?.studentName !== 'string' || !recipient.studentName.trim()) {
+        throw new Error('Every notification recipient must have a valid student name.');
+      }
+    }
+
+    // This records an in-app audit/notification entry only; it does NOT send an SMS.
+    for (const recipient of recipients) {
       await NotificationModel.create({
-        user_id: r.phone || 'parent',
+        user_id: recipient.phone.trim(),
         title: `Administrative Alert: ${actionType}`,
-        message: `${message} [To: ${r.studentName || 'Student'}, Phone: ${r.phone}]`,
+        message: `${message} [To: ${recipient.studentName.trim()}, Phone: ${recipient.phone.trim()}]`,
         type: 'sms',
         read: false,
         created_at: new Date(),
       });
     }
 
-    // Persist to AuditLog
     const auditId = await recordAuditLog(
       context,
-      `AI_ACTION_EXECUTED_${actionType}`,
-      'SMS_GATEWAY',
-      `Admin confirmed and logged notification alert for ${recipients.length} recipients.`
+      `AI_ACTION_RECORDED_${actionType}`,
+      'AI_NOTIFICATION',
+      `Admin confirmed and recorded an in-app notification entry for ${recipients.length} recipients. No SMS was dispatched.`
     );
 
     return {
       success: true,
-      message: `Action recorded and verified! Logged notifications for ${recipients.length} recipient(s). All events recorded in MongoDB AuditLog.`,
-      dispatchedCount: recipients.length,
+      message: `Recorded ${recipients.length} in-app notification entr(y/ies). No SMS was sent; a verified SMS gateway is not connected.`,
+      recordedCount: recipients.length,
+      smsDispatched: false,
       auditLogId: auditId,
     };
   },
