@@ -46,6 +46,7 @@ import {
 } from './services/smsNotificationService.ts';
 import { getMongoStatus, getLastAtlasFallbackError, extractConfiguredDbName, sanitizeErrorMessage } from './config/db.ts';
 import { seedMongoFromLocal, isLocalSeedBlocked } from './config/seed.ts';
+import { isProductionEnvironment } from './config/runtime.ts';
 import {
   UserModel,
   toUserDto,
@@ -115,7 +116,6 @@ import { processAdminAiQuery, ControlledSchoolTools, type AdminAiQueryContext, g
 import { AuditLogModel } from './models/AuditLog.ts';
 import {
   bootstrapInitialSuperAdmin,
-  ensureDefaultSuperAdminIfEmpty,
   verifyBootstrapSecretConstantTime,
   BootstrapValidationError,
   BootstrapConflictError,
@@ -863,7 +863,7 @@ router.get('/health', async (_req: Request, res: Response) => {
 router.get('/mongodb/status', async (req: Request, res: Response) => {
   try {
     const status = await getMongoStatus();
-    if (process.env.NODE_ENV === 'production') {
+    if (isProductionEnvironment()) {
       res.json({
         ...status,
         host: 'configured-cluster',
@@ -919,7 +919,7 @@ router.get('/mongodb/test-connection', authenticateToken, requireRole(['super_ad
       ping: pingRes,
       latencyMs: latency,
       databaseName: mongoose.connection.name,
-      host: process.env.NODE_ENV === 'production' ? 'configured-cluster' : mongoose.connection.host,
+      host: isProductionEnvironment() ? 'configured-cluster' : mongoose.connection.host,
       message: `Ping OK (${latency}ms) to MongoDB database "${mongoose.connection.name}"`,
     });
   } catch (err: any) {
@@ -964,15 +964,6 @@ router.post('/auth/login', authRateLimiter, async (req: Request, res: Response) 
     const cleanEmail = email.trim().toLowerCase();
     let userDoc = await UserModel.findOne({ email: cleanEmail });
 
-    // On a fresh database with 0 administrators, auto-bootstrap the initial admin account
-    if (!userDoc && (cleanEmail === 'admin@shawanschool.edu.pk' || cleanEmail === 'office@shawanschool.edu.pk')) {
-      const superCount = await UserModel.countDocuments({ role: 'super_admin' }).catch(() => 1);
-      if (superCount === 0) {
-        await ensureDefaultSuperAdminIfEmpty().catch(() => {});
-        userDoc = await UserModel.findOne({ email: cleanEmail });
-      }
-    }
-
     // Prevent account enumeration with unified error message
     if (!userDoc || !userDoc.password_hash) {
       return res.status(401).json({ error: 'Invalid email or password' });
@@ -980,7 +971,7 @@ router.post('/auth/login', authRateLimiter, async (req: Request, res: Response) 
 
     let passwordMatch = await bcrypt.compare(password, userDoc.password_hash);
     if (
-      process.env.NODE_ENV !== 'production' &&
+      !isProductionEnvironment() &&
       !passwordMatch &&
       userDoc.email === 'parent@shawanschool.edu.pk' &&
       userDoc.password_hash === '$2b$10$3b/LCmejoXEleVzibuO6neBAhvb.9Zu1N5oQjB0xhlXOq3RwJTD1G' &&
