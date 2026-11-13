@@ -39,7 +39,9 @@ export function isTeacherAssignedToClassSection(
     isClassAssignedToTeacher([assignment.class_name], className)
   );
   // Older teacher profiles may have class-level assignments without section rows.
-  if (classAssignments.length === 0) return true;
+  if (classAssignments.length === 0 || classAssignments.some(assignment => !normalizeSectionLabel(assignment.section))) {
+    return true;
+  }
   const targetSection = normalizeSectionLabel(section);
   if (!targetSection) return false;
   return classAssignments.some(
