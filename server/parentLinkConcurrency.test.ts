@@ -107,3 +107,14 @@ test('fee summary is not accessible to teacher or other unsupported roles', () =
     /router\.get\('\/parent\/fees\/summary', authenticateToken, requireRole\(\['parent', 'student', 'super_admin', 'admin'\]\)/
   );
 });
+
+test('payment rejection is an atomic one-time transition before notifications are sent', () => {
+  const start = routes.indexOf("router.post('/admin/payments/:id/reject'");
+  const end = routes.indexOf("// 8. Admin Payment & SMS Configuration", start);
+  assert.ok(start >= 0 && end > start);
+  const route = routes.slice(start, end);
+  assert.match(route, /status: 'Pending Verification', verification_status: 'Pending'/);
+  assert.match(route, /status: 'Rejected'/);
+  assert.match(route, /findOneAndUpdate\(/);
+  assert.doesNotMatch(route, /paymentDoc\.save\(\)/);
+});
