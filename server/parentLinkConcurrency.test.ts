@@ -312,3 +312,33 @@ test('teacher homework read and delete routes revalidate current assignment scop
   assert.match(deleteRoute, /isTeacherAssignedToClassSection/);
   assert.match(deleteRoute, /findOneAndDelete\([\s\S]*ownedHomework\._id/);
 });
+
+test('student list endpoint restricts teachers to assigned sections and known roles', () => {
+  const start = routes.indexOf("router.get('/students'");
+  const end = routes.indexOf('\n});', start) + 4;
+  assert.ok(start >= 0 && end > start);
+  const route = routes.slice(start, end);
+  assert.match(route, /requireRole\(\['super_admin', 'admin', 'teacher', 'parent', 'student'\]\)/);
+  assert.match(route, /getTeacherAssignmentScopes\(teacherIds\)/);
+  assert.match(route, /result = result\.filter\(student => isTeacherAssignedToClassSection/);
+});
+
+test('student dossier enforces active parent link and teacher section scope', () => {
+  const start = routes.indexOf("router.get('/students/:id'");
+  const end = routes.indexOf('\n});', start) + 4;
+  assert.ok(start >= 0 && end > start);
+  const route = routes.slice(start, end);
+  assert.match(route, /requireRole\(\['super_admin', 'admin', 'teacher', 'parent', 'student'\]\)/);
+  assert.match(route, /linkedSet\.has\(student\.admission_no\)/);
+  assert.doesNotMatch(route, /student\.parent_user_id === req\.user\?\.id/);
+  assert.match(route, /isTeacherAssignedToClassSection/);
+});
+
+test('student attendance endpoint restricts teacher access to assigned sections and known roles', () => {
+  const start = routes.indexOf("router.get('/attendance/student/:studentId'");
+  const end = routes.indexOf('\n});', start) + 4;
+  assert.ok(start >= 0 && end > start);
+  const route = routes.slice(start, end);
+  assert.match(route, /requireRole\(\['super_admin', 'admin', 'teacher', 'parent', 'student'\]\)/);
+  assert.match(route, /isTeacherAssignedToClassSection/);
+});
