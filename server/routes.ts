@@ -8789,7 +8789,7 @@ router.delete('/results/:id', authenticateToken, requireRole(['super_admin', 'ad
         )
       );
       const allowedSubjects = matchingAssignments.map(assignment => assignment.subject);
-      const resultSubjects = Array.isArray(existing.subjects)
+      const resultSubjects: string[] = Array.isArray(existing.subjects)
         ? existing.subjects.map((subject: any) => String(subject.subject_name || '')).filter(Boolean)
         : [];
       const subjectsAllowed = resultSubjects.length > 0 && resultSubjects.every(subject =>
@@ -8852,7 +8852,7 @@ router.patch('/results/:id/publish', authenticateToken, requireRole(['super_admi
         )
       );
       const allowedSubjects = matchingAssignments.map(assignment => assignment.subject);
-      const resultSubjects = Array.isArray(existing.subjects)
+      const resultSubjects: string[] = Array.isArray(existing.subjects)
         ? existing.subjects.map((subject: any) => String(subject.subject_name || '')).filter(Boolean)
         : [];
       const subjectsAllowed = resultSubjects.length > 0 && resultSubjects.every(subject =>
