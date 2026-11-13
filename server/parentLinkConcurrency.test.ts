@@ -396,6 +396,15 @@ test('fee list endpoint rejects roles outside the declared school roles', () => 
   assert.match(route, /Teachers do not have access to fee records/);
 });
 
+test('parent child discovery queries only unclaimed students or records owned by the current parent', () => {
+  const routeStart = routes.indexOf("router.post('/parents/find-child'");
+  const routeEnd = routes.indexOf("// 2. Confirm & Link Verified Child", routeStart);
+  assert.ok(routeStart >= 0 && routeEnd > routeStart);
+  const route = routes.slice(routeStart, routeEnd);
+  assert.match(route, /parent_user_id:\s*\{\s*\$in:\s*\[null,\s*'',\s*\.\.\.currentOwnerIds\]\s*\}/);
+  assert.doesNotMatch(route, /StudentModel\.find\(\)\.lean\(\)/);
+});
+
 test('public parent signup uses atomic child claim instead of overwriting an existing parent link', () => {
   const start = routes.indexOf("router.post('/auth/register-parent'");
   const end = routes.indexOf('\n});', start) + 4;
