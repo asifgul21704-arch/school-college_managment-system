@@ -2,8 +2,7 @@ import React from 'react';
 import {
   Users, GraduationCap, UserPlus, Wallet, CalendarDays, Sparkles,
   BookOpen, ClipboardCheck, FileText, Bell, ArrowUpRight, ChevronRight,
-  CalendarCheck, TrendingUp, Plus, Send, School, Settings,
-  ChartNoAxesCombined, Clock3,
+  TrendingUp, School, Settings, ChartNoAxesCombined, Clock3, Mail,
 } from 'lucide-react';
 
 type OverviewProps = {
@@ -66,6 +65,7 @@ export const ModernAdminOverview: React.FC<OverviewProps> = ({
     { label: 'Fees & payments', detail: 'Vouchers, dues & approvals', icon: Wallet, section: 'fees', tone: 'amber' },
     { label: 'School settings', detail: 'Campus website & settings', icon: Settings, section: 'settings', tone: 'blue' },
     { label: 'Reports & analytics', detail: 'Academic & finance reports', icon: ChartNoAxesCombined, section: 'reports', tone: 'mint' },
+    { label: 'Parent inquiries', detail: `${messages.length} messages in inbox`, icon: Mail, section: 'messages', tone: 'violet' },
   ];
   const teacherModules = [
     { label: 'My students', detail: 'Assigned student records', icon: Users, section: 'students', tone: 'blue' },
