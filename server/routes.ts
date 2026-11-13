@@ -2385,16 +2385,27 @@ router.post('/parents/unlink-child', authenticateToken, requireRole(['parent']),
     ]);
 
     const filteredIds = (userDoc.linked_student_ids || []).filter((id: string) => !idsToPull.has(id));
-    userDoc.linked_student_ids = filteredIds;
-    if (!userDoc.linked_id || idsToPull.has(userDoc.linked_id)) {
-      userDoc.linked_id = filteredIds.length > 0 ? filteredIds[0] : '';
-    }
-    await userDoc.save();
+    const nextActiveChildId =
+      !userDoc.linked_id || idsToPull.has(userDoc.linked_id)
+        ? filteredIds[0] || ''
+        : userDoc.linked_id;
 
-    if (studentDoc.parent_user_id === canonicalUserId) {
-      studentDoc.parent_user_id = '';
-      await studentDoc.save();
-    }
+    await UserModel.updateOne(
+      { _id: userDoc._id },
+      {
+        $pull: { linked_student_ids: { $in: Array.from(idsToPull) } },
+        $set: { linked_id: nextActiveChildId },
+      }
+    );
+
+    // Conditional update prevents a stale unlink request from clearing a new parent's claim.
+    await StudentModel.updateOne(
+      {
+        _id: studentDoc._id,
+        parent_user_id: { $in: [canonicalUserId, userDoc._id.toString()] },
+      },
+      { $set: { parent_user_id: '' } }
+    );
 
     await ParentModel.updateMany(
       { $or: [{ user_id: canonicalUserId }, { email: userDoc.email.toLowerCase() }] },
@@ -2414,7 +2425,7 @@ router.post('/parents/unlink-child', authenticateToken, requireRole(['parent']),
       success: true,
       message: `Successfully unlinked ${studentDoc.full_name} from your account.`,
       linked_students: remainingLinked,
-      active_child_id: userDoc.linked_id || undefined,
+      active_child_id: nextActiveChildId || undefined,
     });
   } catch (err: any) {
     return res.status(500).json({ error: sanitizeErrorMessage(err?.message || 'Failed to unlink child') });
