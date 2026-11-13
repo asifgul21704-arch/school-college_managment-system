@@ -751,3 +751,100 @@ test('real MongoDB: concurrent duplicate deposit slip submissions return one suc
   assert.equal(fee?.pending_amount, 5000);
   assert.equal(fee?.payment_history.length, 0);
 });
+
+test('real MongoDB: failed approval releases its lock and can be safely retried after voucher correction', async () => {
+  const admin = await UserModel.findOne({ email: 'admin.integration@example.test' }).lean();
+  const parent = await UserModel.findOne({ email: 'parent.integration@example.test' }).lean();
+  assert.ok(admin);
+  assert.ok(parent);
+
+  await StudentModel.create({
+    record_id: 'RECOVERY-STUDENT-1',
+    admission_no: 'RECOVERY-ADM-1',
+    roll_no: 'REC-01',
+    full_name: 'Recovery Integration Student',
+    father_name: parent.name,
+    gender: 'Male',
+    class_name: 'Class 7',
+    section: 'A',
+    parent_user_id: parent.record_id,
+    academic_status: 'Active',
+  });
+  await FeeModel.create({
+    voucher_id: 'RECOVERY-VOUCHER-1',
+    student_id: 'RECOVERY-STUDENT-1',
+    student_name: 'Recovery Integration Student',
+    class_name: 'Class 7',
+    fee_month: 'December',
+    year: 2026,
+    total_amount: 1000,
+    paid_amount: 0,
+    pending_amount: 1000,
+    due_date: '2026-12-31',
+    status: 'Unpaid',
+    payment_history: [],
+  });
+  const payment = await FeePaymentModel.create({
+    fee_id: 'RECOVERY-VOUCHER-1',
+    student_id: 'RECOVERY-STUDENT-1',
+    payment_reference: 'PAY-RECOVERY-RETRY-1',
+    receipt_no: '',
+    date: '2026-11-13',
+    amount: 1500,
+    method: 'Bank Deposit',
+    status: 'Pending Verification',
+    verification_status: 'Pending',
+    parent_user_id: parent.record_id,
+    student_name: 'Recovery Integration Student',
+  });
+  const adminToken = authToken({
+    id: admin.record_id!,
+    email: admin.email,
+    role: 'super_admin',
+    name: admin.name,
+  });
+
+  const rejectedForBalance = await request(`/admin/payments/${payment._id}/approve`, adminToken, {
+    method: 'POST',
+    body: {},
+  });
+  assert.equal(rejectedForBalance.status, 400);
+  let storedPayment = await FeePaymentModel.findById(payment._id).lean();
+  let storedFee = await FeeModel.findOne({ voucher_id: 'RECOVERY-VOUCHER-1' }).lean();
+  assert.equal(storedPayment?.status, 'Pending Verification');
+  assert.equal(storedPayment?.verification_status, 'Pending');
+  assert.equal(storedFee?.paid_amount, 0);
+  assert.equal(storedFee?.pending_amount, 1000);
+  assert.equal(storedFee?.payment_history.length, 0);
+
+  // A legitimate voucher correction makes the pending payment approvable.
+  await FeeModel.updateOne(
+    { voucher_id: 'RECOVERY-VOUCHER-1' },
+    { $set: { total_amount: 2000, pending_amount: 2000 } }
+  );
+  const retried = await request(`/admin/payments/${payment._id}/approve`, adminToken, {
+    method: 'POST',
+    body: {},
+  });
+  assert.equal(retried.status, 200, JSON.stringify(retried.body));
+  assert.equal(retried.body.payment.status, 'Paid');
+  assert.ok(retried.body.receipt_no);
+
+  storedPayment = await FeePaymentModel.findById(payment._id).lean();
+  storedFee = await FeeModel.findOne({ voucher_id: 'RECOVERY-VOUCHER-1' }).lean();
+  assert.equal(storedPayment?.status, 'Paid');
+  assert.equal(storedPayment?.verification_status, 'Verified');
+  assert.equal(storedPayment?.receipt_no, retried.body.receipt_no);
+  assert.equal(storedFee?.paid_amount, 1500);
+  assert.equal(storedFee?.pending_amount, 500);
+  assert.equal(storedFee?.payment_history.length, 1);
+
+  const duplicateRetry = await request(`/admin/payments/${payment._id}/approve`, adminToken, {
+    method: 'POST',
+    body: {},
+  });
+  assert.equal(duplicateRetry.status, 409);
+  storedFee = await FeeModel.findOne({ voucher_id: 'RECOVERY-VOUCHER-1' }).lean();
+  assert.equal(storedFee?.paid_amount, 1500);
+  assert.equal(storedFee?.payment_history.length, 1);
+});
