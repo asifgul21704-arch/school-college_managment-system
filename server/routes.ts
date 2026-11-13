@@ -28,6 +28,7 @@ import {
   setSessionCookie,
   clearSessionCookie,
 } from './auth.ts';
+import { buildStudentParentClaimFilter } from './parentAccess.ts';
 import {
   detectInquiryIntent,
   verifyInquiryParent,
@@ -2099,6 +2100,14 @@ async function fetchLinkedStudentsForParentUser(userId: string, email?: string):
   return docs.map(toStudentDto);
 }
 
+async function claimStudentForParent(studentDoc: any, canonicalUserId: string, mongoUserId: string): Promise<any | null> {
+  return StudentModel.findOneAndUpdate(
+    buildStudentParentClaimFilter(studentDoc._id, canonicalUserId, mongoUserId),
+    { $set: { parent_user_id: canonicalUserId } },
+    { new: true, runValidators: true }
+  );
+}
+
 // Parent link student endpoint (secure verification by Admission No and Date of Birth)
 router.post('/parents/link-student', sensitiveActionRateLimiter, authenticateToken, requireRole(['parent']), async (req: AuthenticatedRequest, res: Response) => {
   const { admission_no, dob } = req.body || {};
@@ -2130,16 +2139,21 @@ router.post('/parents/link-student', sensitiveActionRateLimiter, authenticateTok
     const canonicalStudentId = studentDoc.record_id || studentDoc._id.toString();
     const canonicalUserId = userDoc.record_id || userDoc._id.toString();
 
-    const nextLinked = Array.isArray(userDoc.linked_student_ids) ? [...userDoc.linked_student_ids] : [];
-    if (!nextLinked.includes(canonicalStudentId)) {
-      nextLinked.push(canonicalStudentId);
+    const claimedStudent = await claimStudentForParent(studentDoc, canonicalUserId, userDoc._id.toString());
+    if (!claimedStudent) {
+      return res.status(409).json({
+        error: 'This student is already linked to another parent account. Please contact school administration.',
+      });
     }
-    userDoc.linked_student_ids = nextLinked;
-    userDoc.linked_id = canonicalStudentId;
-    await userDoc.save();
 
-    studentDoc.parent_user_id = canonicalUserId;
-    await studentDoc.save();
+    await UserModel.findOneAndUpdate(
+      { _id: userDoc._id },
+      {
+        $addToSet: { linked_student_ids: canonicalStudentId },
+        $set: { linked_id: canonicalStudentId },
+      },
+      { new: true, runValidators: true }
+    );
 
     await ParentModel.findOneAndUpdate(
       { $or: [{ user_id: canonicalUserId }, { email: userDoc.email.toLowerCase() }] },
@@ -7161,112 +7175,12 @@ router.post('/parent/payments/initiate', authenticateToken, sensitiveActionRateL
       method === 'Raast';
 
     if (isOnlineGateway) {
-      // Instant automated sandbox / live verification & settlement
-      const receiptNo = `REC-${Date.now().toString().slice(-6)}${Math.floor(100 + Math.random() * 900)}`;
-      const nextPaid = currentPaid + paymentAmount;
-      const nextPending = Math.max(0, currentTotal - nextPaid);
-      const nextStatus: FeeVoucherStatus = nextPending === 0 ? 'Paid' : 'Partial';
-
-      const paymentRecord = {
-        receipt_no: receiptNo,
-        date: new Date().toISOString().split('T')[0],
-        amount: paymentAmount,
-        method: (gateway_provider === 'JazzCash' || gateway_provider === 'Easypaisa' || method === 'Easypaisa / JazzCash'
-          ? 'Easypaisa / JazzCash'
-          : 'Bank Transfer') as any,
-        transaction_id: paymentRef,
-        notes: `Online Gateway (${gateway_provider || method}) [Verified Instant Settlement]`,
-      };
-
-      const paymentDoc = await FeePaymentModel.create({
-        fee_id: feeDoc.voucher_id || feeDoc._id.toString(),
-        student_id: feeDoc.student_id,
-        payment_reference: paymentRef,
-        receipt_no: receiptNo,
-        transaction_id: paymentRef,
-        date: new Date().toISOString().split('T')[0],
-        amount: paymentAmount,
-        method: paymentRecord.method,
-        status: 'Paid',
-        verification_status: 'Verified',
-        parent_user_id: user.id,
-        parent_name: parentName,
-        parent_phone: resolvedParentPhone,
-        student_name: feeDoc.student_name,
-        admission_no: feeDoc.student_id,
-        class_name: feeDoc.class_name,
-        fee_month: feeDoc.fee_month,
-        year: feeDoc.year,
-        gateway_provider: gateway_provider || method,
-        notes: notes || 'Instant online payment via school portal',
-        received_by: `Gateway (${gateway_provider || method})`,
-        verified_by_id: user.id,
-        verified_by_name: 'Online Payment Gateway',
-        verified_at: new Date().toISOString(),
+      // No payment provider callback/signature verification is configured in this app.
+      // Never create a Paid record or settle a fee from a client-submitted request alone.
+      return res.status(503).json({
+        error: 'Online payments are unavailable until a verified payment gateway integration is configured. Use bank deposit for manual verification.',
       });
-
-      // Atomically update fee voucher
-      const updatedFee = await FeeModel.findOneAndUpdate(
-        { _id: feeDoc._id, pending_amount: { $gte: paymentAmount } },
-        {
-          $set: {
-            paid_amount: nextPaid,
-            pending_amount: nextPending,
-            status: nextStatus,
-          },
-          $push: { payment_history: paymentRecord },
-        },
-        { returnDocument: 'after' }
-      ).lean();
-
-      // Trigger SMS confirmation
-      const smsResult = await sendPaymentApprovalSms({
-        payment_reference: paymentRef,
-        receipt_no: receiptNo,
-        amount: paymentAmount,
-        parent_name: parentName,
-        parent_phone: resolvedParentPhone,
-        student_name: feeDoc.student_name,
-        class_name: feeDoc.class_name,
-      });
-
-      if (smsResult.sent) {
-        await FeePaymentModel.updateOne(
-          { _id: paymentDoc._id },
-          {
-            $set: {
-              sms_status: smsResult.status,
-              sms_message: smsResult.message,
-              sms_sent_at: smsResult.timestamp,
-            },
-          }
-        );
-      }
-
-      // Notifications
-      await NotificationModel.create([
-        {
-          role: 'admin',
-          title: 'Fee Payment Received (Online)',
-          message: `Online payment of PKR ${paymentAmount.toLocaleString()} received for ${feeDoc.student_name} (${feeDoc.class_name}). Ref: ${paymentRef}`,
-          link: '/admin',
-        },
-        {
-          user_id: user.id,
-          role: 'parent',
-          title: 'Fee Payment Confirmed',
-          message: `Your payment of PKR ${paymentAmount.toLocaleString()} for ${feeDoc.student_name} has been processed successfully. Receipt No: ${receiptNo}.`,
-          link: '/student-portal',
-        },
-      ]);
-
-      return res.status(201).json({
-        message: 'Payment completed successfully',
-        payment: toFeePaymentDto(paymentDoc),
-        fee: updatedFee ? toFeeDto(updatedFee) : feeDoc,
-        receipt_no: receiptNo,
-      });
-    } else {
+    } } else {
       // Manual Bank Deposit / Wire Transfer (Requires Admin Verification)
       const cleanSlipRef = String(deposit_slip_ref || notes || '').trim();
 
@@ -7357,22 +7271,20 @@ router.get('/parent/payments/history', authenticateToken, async (req: Authentica
     let query: Record<string, any> = {};
 
     if (user.role === 'parent') {
+      // Historical payments remain visible only while the parent currently owns the link.
+      // Never authorize by payment.parent_user_id: that value survives child unlinking.
       const linked = await getLinkedStudentIdsForParent(user);
-      const studentIds = Array.from(linked);
-      query = {
-        $or: [
-          { parent_user_id: user.id },
-          { student_id: { $in: studentIds } },
-        ],
-      };
+      query = { student_id: { $in: Array.from(linked) } };
     } else if (user.role === 'student') {
       const studentDoc = await StudentModel.findOne({
         $or: [{ user_id: user.id }, { email: user.email.toLowerCase() }],
       }).lean();
-      const myId = studentDoc?.record_id || studentDoc?._id.toString();
-      query = { student_id: myId };
+      const ownStudentIds = studentDoc
+        ? [studentDoc.record_id, studentDoc._id?.toString()].filter(Boolean)
+        : [];
+      query = { student_id: { $in: ownStudentIds } };
     } else {
-      query = {};
+      return res.status(403).json({ error: 'Access denied: Payment history is available only to parents and students.' });
     }
 
     const paymentDocs = await FeePaymentModel.find(query).sort({ created_at: -1 }).limit(100).lean();
