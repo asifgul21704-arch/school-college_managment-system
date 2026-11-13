@@ -807,24 +807,42 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   }, adminToken);
   assert.equal(duplicatePayroll.status, 409);
 
+  const missingPayrollRequestKey = await api('POST', `/finance/payroll/${encodeURIComponent(payrollId)}/payment`, {
+    amount: 1000,
+    payment_date: '2026-11-12',
+    payment_method: 'Bank Transfer',
+  }, adminToken);
+  assert.equal(missingPayrollRequestKey.status, 400);
   const tinyPayrollPayment = await api('POST', `/finance/payroll/${encodeURIComponent(payrollId)}/payment`, {
     amount: 0.001,
     payment_date: '2026-11-12',
     payment_method: 'Bank Transfer',
+    idempotency_key: 'e2e-tiny-payment-001',
   }, adminToken);
   assert.equal(tinyPayrollPayment.status, 400);
   const payrollPartial = await api('POST', `/finance/payroll/${encodeURIComponent(payrollId)}/payment`, {
     amount: 20000,
     payment_date: '2026-11-12',
     payment_method: 'Bank Transfer',
+    idempotency_key: 'e2e-payroll-partial-2026',
   }, adminToken);
   assert.equal(payrollPartial.status, 200, JSON.stringify(payrollPartial.data));
   assert.equal(payrollPartial.data.paid_amount, 20000);
   assert.equal(payrollPartial.data.status, 'Partially Paid');
+  const duplicatePayrollPartial = await api('POST', `/finance/payroll/${encodeURIComponent(payrollId)}/payment`, {
+    amount: 20000,
+    payment_date: '2026-11-12',
+    payment_method: 'Bank Transfer',
+    idempotency_key: 'e2e-payroll-partial-2026',
+  }, adminToken);
+  assert.equal(duplicatePayrollPartial.status, 409);
+  const payrollAfterDuplicate = await api('GET', '/finance/payroll?year=2026&month=11', undefined, adminToken);
+  assert.equal(payrollAfterDuplicate.data.find((row: any) => row.id === payrollId)?.paid_amount, 20000);
   const payrollFinal = await api('POST', `/finance/payroll/${encodeURIComponent(payrollId)}/payment`, {
     amount: 30000,
     payment_date: '2026-11-12',
     payment_method: 'Bank Transfer',
+    idempotency_key: 'e2e-payroll-final-2026',
   }, adminToken);
   assert.equal(payrollFinal.status, 200, JSON.stringify(payrollFinal.data));
   assert.equal(payrollFinal.data.paid_amount, 50000);
@@ -834,6 +852,7 @@ test('parent/student permissions, unlink invalidation, and payment history work 
     amount: 0.01,
     payment_date: '2026-11-12',
     payment_method: 'Bank Transfer',
+    idempotency_key: 'e2e-payroll-overpay-01',
   }, adminToken);
   assert.equal(payrollOverpayment.status, 400);
 
@@ -851,10 +870,10 @@ test('parent/student permissions, unlink invalidation, and payment history work 
   const concurrentPayrollId = concurrentPayroll.data.id as string;
   const competingPayrollPayments = await Promise.all([
     api('POST', `/finance/payroll/${encodeURIComponent(concurrentPayrollId)}/payment`, {
-      amount: 6000, payment_date: '2026-12-12', payment_method: 'Cash',
+      amount: 6000, payment_date: '2026-12-12', payment_method: 'Cash', idempotency_key: 'e2e-concurrent-pay-a',
     }, adminToken),
     api('POST', `/finance/payroll/${encodeURIComponent(concurrentPayrollId)}/payment`, {
-      amount: 6000, payment_date: '2026-12-12', payment_method: 'Cash',
+      amount: 6000, payment_date: '2026-12-12', payment_method: 'Cash', idempotency_key: 'e2e-concurrent-pay-b',
     }, adminToken),
   ]);
   assert.equal(competingPayrollPayments.filter(result => result.status === 200).length, 1);
