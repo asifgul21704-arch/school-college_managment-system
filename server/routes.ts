@@ -11027,7 +11027,7 @@ router.get('/teacher/dashboard', authenticateToken, requireExactRole(['teacher']
 
     const assignedStudents = allStudentDocs
       .map(toStudentDto)
-      .filter(s => isClassAssignedToTeacher(mergedClasses, s.class_name));
+      .filter(s => isTeacherAssignedToClassSection(mergedClasses, assignments, s.class_name, s.section));
 
     const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const todayDay = daysOfWeek[new Date().getDay()];
@@ -11041,7 +11041,7 @@ router.get('/teacher/dashboard', authenticateToken, requireExactRole(['teacher']
 
     const assignedAttendance = allAttDocs
       .map(toAttendanceDto)
-      .filter(a => isClassAssignedToTeacher(mergedClasses, a.class_name));
+      .filter(a => isTeacherAssignedToClassSection(mergedClasses, assignments, a.class_name, a.section));
 
     const markedClasses: string[] = [];
     const pendingClasses: string[] = [];
@@ -11061,7 +11061,7 @@ router.get('/teacher/dashboard', authenticateToken, requireExactRole(['teacher']
 
     const recentResults = allResDocs
       .map(toResultDto)
-      .filter(r => isClassAssignedToTeacher(mergedClasses, r.class_name))
+      .filter(r => isTeacherAssignedToClassSection(mergedClasses, assignments, r.class_name, r.section))
       .slice(0, 5);
 
     const tasks = taskDocs.map(toTeacherTaskDto);
