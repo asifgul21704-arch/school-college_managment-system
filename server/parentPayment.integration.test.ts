@@ -208,6 +208,15 @@ test('real MongoDB: stale parent session loses unlinked-child access and payment
     name: 'Integration Admin',
   });
 
+  const portalBeforeUnlink = await request('/portal/ai/query', parentToken, {
+    method: 'POST',
+    body: { prompt: 'Give me an overview of my children' },
+  });
+  assert.equal(portalBeforeUnlink.status, 200, JSON.stringify(portalBeforeUnlink.body));
+  assert.match(portalBeforeUnlink.body.text, /Integration Student A/);
+  assert.match(portalBeforeUnlink.body.text, /Integration Student B/);
+  assert.doesNotMatch(portalBeforeUnlink.body.text, /Unlinked Student/);
+
   const initialHistory = await request('/parent/payments/history', parentToken);
   assert.equal(initialHistory.status, 200);
   assert.deepEqual(
@@ -228,6 +237,14 @@ test('real MongoDB: stale parent session loses unlinked-child access and payment
   assert.equal(storedStudentA?.parent_user_id, '');
 
   // The same pre-unlink JWT must no longer authorize any A records or historical A payments.
+  const portalAfterUnlink = await request('/portal/ai/query', parentToken, {
+    method: 'POST',
+    body: { prompt: 'Give me an overview of my children' },
+  });
+  assert.equal(portalAfterUnlink.status, 200, JSON.stringify(portalAfterUnlink.body));
+  assert.doesNotMatch(portalAfterUnlink.body.text, /Integration Student A/);
+  assert.match(portalAfterUnlink.body.text, /Integration Student B/);
+
   const historyAfterUnlink = await request('/parent/payments/history', parentToken);
   assert.equal(historyAfterUnlink.status, 200);
   assert.deepEqual(new Set(historyAfterUnlink.body.map((payment: any) => payment.student_id)), new Set(['STU-INTEGRATION-B']));
