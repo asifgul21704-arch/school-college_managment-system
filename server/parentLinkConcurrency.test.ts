@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { buildStudentParentClaimFilter } from './parentAccess.ts';
+import { isClassAssignedToTeacher, normalizeClassAccessLabel } from './classAccess.ts';
 
 const routes = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
 const envConfig = readFileSync(new URL('./config/env.ts', import.meta.url), 'utf8');
@@ -172,4 +173,21 @@ test('parent document downloads require a current child link even when parent up
   assert.match(route, /user\.role === 'parent'[\s\S]*getLinkedStudentIdsForParent\(user\)[\s\S]*linkedSet\.has\(docMeta\.student_id\)/);
   assert.match(route, /else if \(!authorized\) \{[\s\S]*docMeta\.uploaded_by_user_id === user\.id/);
   assert.ok(route.indexOf('getLinkedStudentIdsForParent(user)') < route.indexOf('docMeta.uploaded_by_user_id === user.id'));
+});
+
+test('teacher class access uses exact normalized labels and prevents substring escalation', () => {
+  assert.equal(isClassAssignedToTeacher(['1'], '1'), true);
+  assert.equal(isClassAssignedToTeacher(['Class 1'], '1'), true);
+  assert.equal(isClassAssignedToTeacher(['Grade 1'], 'Class 1'), true);
+  assert.equal(isClassAssignedToTeacher(['1'], '10'), false);
+  assert.equal(isClassAssignedToTeacher(['Class 10'], 'Class 1'), false);
+  assert.equal(isClassAssignedToTeacher(['Grade 11'], 'Grade 1'), false);
+  assert.equal(isClassAssignedToTeacher(['Class 1-A'], 'Class 1'), false);
+  assert.equal(isClassAssignedToTeacher(['Class 1'], ''), false);
+  assert.equal(normalizeClassAccessLabel('  GRADE   10 '), '10');
+});
+
+test('all teacher data-scope routes use the shared exact class access helper', () => {
+  assert.match(routes, /import \{ isClassAssignedToTeacher \} from '\.\/classAccess\.ts'/);
+  assert.doesNotMatch(routes, /target\.includes\(c\) \|\| c\.includes\(target\)/);
 });
