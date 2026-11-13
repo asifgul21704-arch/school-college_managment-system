@@ -112,7 +112,7 @@ const ContactMessageSchema = new Schema<IContactMessage>(
     reference_no: {
       type: String,
       trim: true,
-      sparse: true,
+      index: { sparse: true },
     },
     name: {
       type: String,
@@ -222,7 +222,6 @@ ContactMessageSchema.index({ created_at: -1 });
 ContactMessageSchema.index({ read: 1, created_at: -1 });
 ContactMessageSchema.index({ status: 1, created_at: -1 });
 ContactMessageSchema.index({ parent_user_id: 1, created_at: -1 });
-ContactMessageSchema.index({ reference_no: 1 }, { sparse: true });
 
 export const ContactMessageModel =
   mongoose.models.ContactMessage || mongoose.model<IContactMessage>('ContactMessage', ContactMessageSchema);
