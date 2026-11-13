@@ -15,7 +15,7 @@
     "lint": "tsc --noEmit",
     "bootstrap:super-admin": "node scripts/bootstrap-super-admin.ts",
     "seed:demo": "tsx scripts/seed-demo-data.ts",
-    "test": "node --import tsx --test server/parentLinkConcurrency.test.ts",
+    "test": "node --import tsx --test server/financeUtils.test.ts server/parentLinkConcurrency.test.ts",
     "test:integration": "node --import tsx --test server/parentPayment.integration.test.ts"
   },
   "dependencies": {
