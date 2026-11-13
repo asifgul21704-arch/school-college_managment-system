@@ -542,3 +542,92 @@ test('real MongoDB: sessions honor live role, account status, password changes, 
   const revokedSessionDenied = await request('/parent/fees/summary', revokedToken);
   assert.equal(revokedSessionDenied.status, 401);
 });
+
+
+test('real MongoDB: concurrent parent link and confirmation claims have one owner', async () => {
+  const parentA = await UserModel.create({
+    record_id: 'CLAIM-PARENT-A',
+    email: 'claim.parent.a@example.test',
+    password_hash: 'integration-only-hash',
+    name: 'Claim Parent A',
+    role: 'parent',
+    status: 'active',
+  });
+  const parentB = await UserModel.create({
+    record_id: 'CLAIM-PARENT-B',
+    email: 'claim.parent.b@example.test',
+    password_hash: 'integration-only-hash',
+    name: 'Claim Parent B',
+    role: 'parent',
+    status: 'active',
+  });
+  const tokenA = authToken({ id: parentA.record_id!, email: parentA.email, role: 'parent', name: parentA.name });
+  const tokenB = authToken({ id: parentB.record_id!, email: parentB.email, role: 'parent', name: parentB.name });
+
+  await StudentModel.create([
+    {
+      record_id: 'CLAIM-STUDENT-DOB',
+      admission_no: 'CLAIM-ADM-DOB',
+      roll_no: 'CLAIM-01',
+      full_name: 'Claim Student DOB',
+      father_name: 'Shared Guardian',
+      dob: '2012-04-05',
+      gender: 'Male',
+      class_name: 'Class 4',
+      section: 'A',
+      academic_status: 'Active',
+    },
+    {
+      record_id: 'CLAIM-STUDENT-CONFIRM',
+      admission_no: 'CLAIM-ADM-CONFIRM',
+      roll_no: 'CLAIM-02',
+      full_name: 'Claim Student Confirm',
+      father_name: 'Shared Guardian',
+      dob: '2013-06-07',
+      gender: 'Female',
+      class_name: 'Class 5',
+      section: 'B',
+      academic_status: 'Active',
+    },
+  ]);
+
+  const dobClaims = await Promise.all([
+    request('/parents/link-student', tokenA, {
+      method: 'POST',
+      body: { admission_no: 'CLAIM-ADM-DOB', dob: '2012-04-05' },
+    }),
+    request('/parents/link-student', tokenB, {
+      method: 'POST',
+      body: { admission_no: 'CLAIM-ADM-DOB', dob: '2012-04-05' },
+    }),
+  ]);
+  assert.deepEqual(dobClaims.map(result => result.status).sort((a, b) => a - b), [200, 409]);
+
+  const dobStudent = await StudentModel.findOne({ record_id: 'CLAIM-STUDENT-DOB' }).lean();
+  assert.ok(['CLAIM-PARENT-A', 'CLAIM-PARENT-B'].includes(String(dobStudent?.parent_user_id)));
+  const dobOwners = await UserModel.countDocuments({
+    record_id: { $in: ['CLAIM-PARENT-A', 'CLAIM-PARENT-B'] },
+    linked_student_ids: 'CLAIM-STUDENT-DOB',
+  });
+  assert.equal(dobOwners, 1);
+
+  const confirmClaims = await Promise.all([
+    request('/parents/confirm-link-child', tokenA, {
+      method: 'POST',
+      body: { student_id: 'CLAIM-STUDENT-CONFIRM', father_name: 'Shared Guardian' },
+    }),
+    request('/parents/confirm-link-child', tokenB, {
+      method: 'POST',
+      body: { student_id: 'CLAIM-STUDENT-CONFIRM', father_name: 'Shared Guardian' },
+    }),
+  ]);
+  assert.deepEqual(confirmClaims.map(result => result.status).sort((a, b) => a - b), [200, 409]);
+
+  const confirmedStudent = await StudentModel.findOne({ record_id: 'CLAIM-STUDENT-CONFIRM' }).lean();
+  assert.ok(['CLAIM-PARENT-A', 'CLAIM-PARENT-B'].includes(String(confirmedStudent?.parent_user_id)));
+  const confirmedOwners = await UserModel.countDocuments({
+    record_id: { $in: ['CLAIM-PARENT-A', 'CLAIM-PARENT-B'] },
+    linked_student_ids: 'CLAIM-STUDENT-CONFIRM',
+  });
+  assert.equal(confirmedOwners, 1);
+});
