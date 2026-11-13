@@ -191,3 +191,13 @@ test('all teacher data-scope routes use the shared exact class access helper', (
   assert.match(routes, /import \{ isClassAssignedToTeacher \} from '\.\/classAccess\.ts'/);
   assert.doesNotMatch(routes, /target\.includes\(c\) \|\| c\.includes\(target\)/);
 });
+
+test('teacher dashboard unread count cannot aggregate every teacher private notification', () => {
+  const start = routes.indexOf("router.get('/teacher/dashboard'");
+  const end = routes.indexOf('// 20.2 Teacher Profile', start);
+  assert.ok(start >= 0 && end > start);
+  const dashboard = routes.slice(start, end);
+  assert.match(dashboard, /resolveNotificationAllowedUserIds\(req\.user!\)/);
+  assert.match(dashboard, /buildNotificationVisibilityFilter\(req\.user!\.role, allowedNotificationUserIds\)/);
+  assert.doesNotMatch(dashboard, /\{ role: 'teacher' \}/);
+});
