@@ -17,7 +17,7 @@ export function buildStudentParentClaimFilter(
   ));
 
   return {
-    _id: cleanStudentId,
+    _id: studentId,
     parent_user_id: { $in: allowedOwners },
   };
 }
