@@ -209,6 +209,31 @@ test('real MongoDB: stale parent session loses unlinked-child access and payment
     role: 'super_admin',
     name: 'Integration Admin',
   });
+  const intruder = await UserModel.create({
+    record_id: 'PARENT-INTEGRATION-INTRUDER',
+    email: 'parent.intruder@example.test',
+    password_hash: 'integration-only-hash',
+    name: 'Unrelated Guardian',
+    role: 'parent',
+    status: 'active',
+  });
+  const intruderToken = authToken({
+    id: intruder.record_id!,
+    email: intruder.email,
+    role: 'parent',
+    name: intruder.name,
+  });
+  const intruderDiscovery = await request('/parents/find-child', intruderToken, {
+    method: 'POST',
+    body: {
+      father_name: 'Integration Parent',
+      student_name: 'Integration Student A',
+      class_name: 'Class 5',
+      roll_no: '01',
+    },
+  });
+  assert.equal(intruderDiscovery.status, 404);
+  assert.equal(intruderDiscovery.body.matches, undefined);
 
   const portalBeforeUnlink = await request('/portal/ai/query', parentToken, {
     method: 'POST',
