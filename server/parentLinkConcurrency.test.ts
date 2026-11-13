@@ -408,3 +408,13 @@ test('full teacher profile endpoint is limited to admins and the teacher role', 
   assert.match(route, /You may only view your own teacher profile/);
   assert.match(route, /Personnel staff profiles are restricted/);
 });
+
+test('teacher dashboard timetable uses exact teacher-name matching', () => {
+  const start = routes.indexOf("router.get('/teacher/dashboard'");
+  const end = routes.indexOf('\n});', start) + 4;
+  assert.ok(start >= 0 && end > start);
+  const route = routes.slice(start, end);
+  assert.match(route, /teacherTimetable = allTtDocs/);
+  assert.match(route, /=== String\(teacher\.name/);
+  assert.doesNotMatch(route, /teacher_name\.toLowerCase\(\)\.includes/);
+});
