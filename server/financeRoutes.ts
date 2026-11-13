@@ -163,7 +163,7 @@ financeRouter.get('/payroll', async (req: AuthenticatedRequest, res: Response) =
     const year = cleanText(req.query.year, 8);
     const month = cleanText(req.query.month, 4);
     const status = cleanText(req.query.status, 30);
-    if (year && (!/^\\d{4}$/.test(year) || Number(year) < 2020 || Number(year) > 2100)) {
+    if (year && (!/^\d{4}$/.test(year) || Number(year) < 2020 || Number(year) > 2100)) {
       return res.status(400).json({ error: 'Payroll year must be a four-digit year between 2020 and 2100.' });
     }
     if (month && !/^(0?[1-9]|1[0-2])$/.test(month)) {
