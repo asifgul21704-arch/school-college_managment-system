@@ -286,7 +286,10 @@ test('teacher AI query scopes student, attendance, and result data to assigned s
   assert.match(route, /StudentModel\.find\(teacherScopeFilter\)/);
   assert.match(route, /AttendanceModel\.find\(teacherScopeFilter\)/);
   assert.match(route, /ResultModel\.find\(teacherScopeFilter\)/);
-  assert.doesNotMatch(route, /StudentModel\.find\(\)\.lean\(\)/);
+  assert.doesNotMatch(route, /StudentModel\\.find\\(\\)\\.lean\\(\\)/);
+  assert.match(route, /const promptTokens = lower\.match\(\/\[a-z0-9\]\+\/g\)/);
+  assert.match(route, /const containsStudentName = \(student: StudentDto\)/);
+  assert.doesNotMatch(route, /lower\.includes\(s\.full_name\.toLowerCase\(\)\)/);
 });
 
 test('teacher AI confirmed actions revalidate live section and subject assignments', () => {
