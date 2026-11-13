@@ -20,7 +20,9 @@ async function startServer() {
     process.exit(1);
   }
   const PORT = rawPort;
-  const isProd = process.env.NODE_ENV === 'production';
+  const isProd =
+    process.env.NODE_ENV === 'production' ||
+    process.env.RAILWAY_ENVIRONMENT_NAME === 'production';
 
   // In production, validate critical security secrets immediately before booting
   if (isProd) {
