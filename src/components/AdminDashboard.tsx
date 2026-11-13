@@ -1524,7 +1524,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const activeNavLabel = navItems.find(n => n.id === activeSection)?.label || 'Dashboard';
 
   return (
-    <div className="min-h-screen bg-neutral-100 flex flex-col lg:flex-row">
+    <div className="ssc-admin-shell min-h-screen bg-neutral-100 flex flex-col lg:flex-row">
       {/* Toast notifications */}
       {successMsg && (
         <div
@@ -1548,7 +1548,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* Mobile & Tablet Sticky Header Bar */}
-      <header className="lg:hidden sticky top-0 z-30 bg-neutral-950 text-white border-b border-neutral-800 px-3 sm:px-5 py-2.5 flex items-center justify-between gap-2">
+      <header className="ssc-admin-mobilebar lg:hidden sticky top-0 z-30 bg-neutral-950 text-white border-b border-neutral-800 px-3 sm:px-5 py-2.5 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2.5 min-w-0">
           <button
             type="button"
@@ -1593,7 +1593,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       <aside
         id="admin-sidebar-drawer"
         aria-label="Administrative sections"
-        className={`fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] bg-neutral-950 text-neutral-300 flex flex-col justify-between shrink-0 border-r border-neutral-800 transition-transform duration-200 lg:static lg:w-64 lg:max-w-none lg:translate-x-0 ${
+        className={`ssc-admin-sidebar fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] bg-neutral-950 text-neutral-300 flex flex-col justify-between shrink-0 border-r border-neutral-800 transition-transform duration-200 lg:static lg:w-64 lg:max-w-none lg:translate-x-0 ${
           mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -1673,7 +1673,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       </aside>
 
       {/* Main Administrative Viewport */}
-      <main id="main-content" className="flex-1 min-w-0 p-4 sm:p-6 lg:p-8 overflow-y-auto lg:max-h-screen">
+      <main id="main-content" className="ssc-admin-main flex-1 min-w-0 p-4 sm:p-6 lg:p-8 overflow-y-auto lg:max-h-screen">
         {/* ==================================================== */}
         {/* 1. DASHBOARD OVERVIEW */}
         {/* ==================================================== */}
