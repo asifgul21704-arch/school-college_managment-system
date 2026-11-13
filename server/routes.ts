@@ -10323,9 +10323,12 @@ router.get('/documents/:filename', sensitiveActionRateLimiter, authenticateToken
 
     const user = req.user!;
     const isAdmin = user.role === 'super_admin' || user.role === 'admin';
-    let authorized = isAdmin || docMeta.uploaded_by_user_id === user.id;
+    const isStudentScopedDocument = Boolean(docMeta.student_id);
+    let authorized = isAdmin;
 
-    if (!authorized && docMeta.student_id) {
+    if (!authorized && isStudentScopedDocument) {
+      // A parent must still have the live child link; being the historical uploader
+      // must not preserve access after unlinking.
       if (user.role === 'student') {
         const ownDoc = user.linked_id
           ? await findStudentByAnyId(user.linked_id)
@@ -10335,13 +10338,18 @@ router.get('/documents/:filename', sensitiveActionRateLimiter, authenticateToken
             user.linked_id,
             ownDoc?.record_id,
             ownDoc?._id ? ownDoc._id.toString() : '',
+            ownDoc?.admission_no,
           ].filter(Boolean) as string[]
         );
         authorized = ownIds.has(docMeta.student_id);
       } else if (user.role === 'parent') {
         const linkedSet = await getLinkedStudentIdsForParent(user);
         authorized = linkedSet.has(docMeta.student_id);
+      } else if (user.role === 'teacher') {
+        authorized = docMeta.uploaded_by_user_id === user.id;
       }
+    } else if (!authorized) {
+      authorized = docMeta.uploaded_by_user_id === user.id;
     }
 
     if (!authorized) {
