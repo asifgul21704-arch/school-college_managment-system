@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { buildStudentParentClaimFilter } from './parentAccess.ts';
 
 const routes = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
+const envConfig = readFileSync(new URL('./config/env.ts', import.meta.url), 'utf8');
 
 test('parent claim filter permits only unclaimed or same-owner student records', () => {
   assert.deepEqual(buildStudentParentClaimFilter('student-mongo-id', 'parent-record-id', 'parent-mongo-id'), {
@@ -38,4 +39,30 @@ test('both parent linking endpoints use one atomic conditional ownership update'
   assert.match(secondFlow, /\$addToSet: \{ linked_student_ids: canonicalStudentId \}/);
   assert.doesNotMatch(firstFlow, /studentDoc\.save\(\)/);
   assert.doesNotMatch(secondFlow, /studentDoc\.save\(\)/);
+});
+
+test('parent payment history is limited to currently linked children', () => {
+  const start = routes.indexOf("router.get('/parent/payments/history'");
+  const end = routes.indexOf('// 5. Admin Payments Management', start);
+  assert.ok(start >= 0 && end > start);
+  const historyRoute = routes.slice(start, end);
+  assert.match(historyRoute, /query = \{ student_id: \{ \$in: Array\.from\(linked\) \} \}/);
+  assert.doesNotMatch(historyRoute, /parent_user_id/);
+  assert.match(historyRoute, /status\(403\)/);
+  assert.doesNotMatch(historyRoute, /query = \{\s*\}/);
+});
+
+test('development env loader never reads other processes environment variables', () => {
+  assert.doesNotMatch(envConfig, /\/proc/);
+  assert.doesNotMatch(envConfig, /readFileSync/);
+  assert.doesNotMatch(envConfig, /process\.env\.(MONGODB_URI|JWT_SECRET)\s*=/);
+});
+
+test('online gateway requests cannot be marked paid without provider verification', () => {
+  const start = routes.indexOf('if (isOnlineGateway) {');
+  assert.ok(start >= 0);
+  const guard = routes.slice(start, start + 500);
+  assert.match(guard, /status\(503\)/);
+  assert.match(guard, /verified payment gateway integration/);
+  assert.doesNotMatch(guard, /FeePaymentModel\.create/);
 });
