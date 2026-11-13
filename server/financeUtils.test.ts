@@ -5,6 +5,7 @@ import {
   calculatePayrollNet,
   getPayrollStatus,
   isValidIsoDate,
+  isValidPaymentIdempotencyKey,
 } from './financeUtils.ts';
 import { sumPayrollPayments } from '../src/utils/finance.ts';
 
@@ -72,4 +73,13 @@ test('cash payroll reporting follows actual payment dates rather than salary per
   assert.equal(sumPayrollPayments(records, '2026-11'), 25000);
   assert.equal(sumPayrollPayments(records), 35000);
   assert.throws(() => sumPayrollPayments(records, '2026-13'), RangeError);
+});
+
+test('validates stable payroll payment request keys', () => {
+  assert.equal(isValidPaymentIdempotencyKey('payment-req-123456'), true);
+  assert.equal(isValidPaymentIdempotencyKey('a'.repeat(100)), true);
+  assert.equal(isValidPaymentIdempotencyKey('short'), false);
+  assert.equal(isValidPaymentIdempotencyKey('bad key value'), false);
+  assert.equal(isValidPaymentIdempotencyKey('x'.repeat(101)), false);
+  assert.equal(isValidPaymentIdempotencyKey(null), false);
 });
