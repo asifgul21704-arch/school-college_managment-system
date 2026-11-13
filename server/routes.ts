@@ -11772,7 +11772,7 @@ router.get('/teacher/results', authenticateToken, requireExactRole(['teacher']),
       }
     }
 
-    const allResDocs = await ResultModel.find(teacherScopeFilter).sort({ created_at: -1, _id: -1 }).lean();
+    const allResDocs = await ResultModel.find().sort({ created_at: -1, _id: -1 }).lean();
     let results = allResDocs
       .map(toResultDto)
       .filter(r => isTeacherAssignedToClassSection(assignedClasses, assignmentScopes, r.class_name, r.section));
@@ -12499,7 +12499,7 @@ router.post('/teacher/ai/query', aiRateLimiter, authenticateToken, requireExactR
     }
 
     if (lower.includes('result') || lower.includes('mark') || lower.includes('score') || lower.includes('performance') || lower.includes('below 50')) {
-      const allResDocs = await ResultModel.find().sort({ created_at: -1, _id: -1 }).lean();
+      const allResDocs = await ResultModel.find(teacherScopeFilter).sort({ created_at: -1, _id: -1 }).lean();
       const classResults = allResDocs
         .map(toResultDto)
         .filter(r => isTeacherAssignedToClassSection(
