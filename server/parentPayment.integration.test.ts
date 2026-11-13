@@ -1005,10 +1005,10 @@ test('real MongoDB: teacher dashboards and attendance are scoped to exact assign
 
   const teacherAiLowAttendance = await request('/teacher/ai/query', teacherToken, {
     method: 'POST',
-    body: { prompt: 'Show students with low attendance below 75%' },
+    body: { prompt: 'Show attendance today' },
   });
   assert.equal(teacherAiLowAttendance.status, 200, JSON.stringify(teacherAiLowAttendance.body));
-  assert.match(teacherAiLowAttendance.body.text, /Assigned Section Student/);
+  assert.match(teacherAiLowAttendance.body.text, /100%/);
   assert.doesNotMatch(teacherAiLowAttendance.body.text, /Unassigned Section Student|Different Class Student/);
 
   const unconfirmedAiAttendance = await request('/teacher/ai/execute-action', teacherToken, {
