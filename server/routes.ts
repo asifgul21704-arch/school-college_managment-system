@@ -2953,9 +2953,14 @@ router.get('/dashboard/stats', authenticateToken, requireRole(['super_admin', 'a
   try {
     const isTeacher = req.user?.role === 'teacher';
     const today = new Date().toISOString().split('T')[0];
+    const teacher = isTeacher ? await getAuthenticatedTeacherMongo(req) : null;
+    const teacherIds = teacher
+      ? Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))))
+      : [];
+    const assignmentScopes = teacher ? await getTeacherAssignmentScopes(teacherIds) : [];
 
     const [
-      totalStudents,
+      studentCountOrDocs,
       totalTeachers,
       totalParents,
       totalClasses,
@@ -2967,21 +2972,24 @@ router.get('/dashboard/stats', authenticateToken, requireRole(['super_admin', 'a
       publishedAnnCount,
       unreadMessages,
       recentAnnDocs,
-      todayAttendanceDocs,
+      attendanceDocs,
       allFeeDocs,
     ] = await Promise.all([
-      StudentModel.countDocuments(),
-      TeacherModel.countDocuments(),
-      UserModel.countDocuments({ role: 'parent' }),
-      ClassModel.countDocuments(),
-      SectionModel.countDocuments(),
-      AdmissionModel.countDocuments({ status: { $in: ['Pending', 'Under Review'] } }),
-      AdmissionModel.countDocuments({ status: 'Approved' }),
+      isTeacher ? StudentModel.find().lean() : StudentModel.countDocuments(),
+      isTeacher ? Promise.resolve(0) : TeacherModel.countDocuments(),
+      isTeacher ? Promise.resolve(0) : UserModel.countDocuments({ role: 'parent' }),
+      isTeacher ? Promise.resolve(0) : ClassModel.countDocuments(),
+      isTeacher ? Promise.resolve(0) : SectionModel.countDocuments(),
+      isTeacher ? Promise.resolve(0) : AdmissionModel.countDocuments({ status: { $in: ['Pending', 'Under Review'] } }),
+      isTeacher ? Promise.resolve(0) : AdmissionModel.countDocuments({ status: 'Approved' }),
       isTeacher
         ? Promise.resolve([])
         : AdmissionModel.find().sort({ created_at: -1, _id: -1 }).limit(5).lean(),
       SchoolEventModel.countDocuments({ status: 'Upcoming' }),
-      AnnouncementModel.countDocuments({ published: { $ne: false } }),
+      AnnouncementModel.countDocuments({
+        published: { $ne: false },
+        ...(isTeacher ? { audience: { $in: ['All', 'Teachers', 'Public'] } } : {}),
+      }),
       isTeacher ? Promise.resolve(0) : ContactMessageModel.countDocuments({ read: false }),
       AnnouncementModel.find({
         published: { $ne: false },
@@ -2996,14 +3004,41 @@ router.get('/dashboard/stats', authenticateToken, requireRole(['super_admin', 'a
         : FeeModel.find().sort({ created_at: -1, _id: -1 }).lean(),
     ]);
 
-    const recentAdmissions = recentDocs.map(toAdmissionDto);
-    const totalAnnouncements = publishedAnnCount;
-    const activeAnnouncements = publishedAnnCount;
-    const recentAnnouncements = recentAnnDocs.map(toAnnouncementDto);
+    let totalStudents: number;
+    let totalMarkedToday: number;
+    let presentToday: number;
+    let absentStudentsToday: number;
+    let scopedTotalClasses = totalClasses as number;
+    let scopedTotalSections = totalSections as number;
 
-    const totalMarkedToday = todayAttendanceDocs.length;
-    const presentToday = todayAttendanceDocs.filter(a => a.status === 'Present').length;
-    const absentStudentsToday = todayAttendanceDocs.filter(a => a.status === 'Absent').length;
+    if (isTeacher) {
+      const assignedStudents = (Array.isArray(studentCountOrDocs) ? studentCountOrDocs : [])
+        .map(toStudentDto)
+        .filter(student => teacher && isTeacherAssignedToClassSection(
+          teacher.classes || [], assignmentScopes, student.class_name, student.section || 'A'
+        ));
+      totalStudents = assignedStudents.length;
+      scopedTotalClasses = new Set(assignedStudents.map(student => student.class_name.trim().toLowerCase()).filter(Boolean)).size;
+      scopedTotalSections = new Set(assignedStudents.map(student =>
+        `${student.class_name.trim().toLowerCase()}::${(student.section || 'A').trim().toLowerCase()}`
+      )).size;
+      const assignedAttendance = attendanceDocs.filter(attendance => teacher && isTeacherAssignedToClassSection(
+        teacher.classes || [], assignmentScopes, String(attendance.class_name || ''), String(attendance.section || 'A')
+      ));
+      totalMarkedToday = assignedAttendance.length;
+      presentToday = assignedAttendance.filter(attendance => attendance.status === 'Present').length;
+      absentStudentsToday = assignedAttendance.filter(attendance => attendance.status === 'Absent').length;
+    } else {
+      totalStudents = Number(studentCountOrDocs) || 0;
+      totalMarkedToday = attendanceDocs.length;
+      presentToday = attendanceDocs.filter(attendance => attendance.status === 'Present').length;
+      absentStudentsToday = attendanceDocs.filter(attendance => attendance.status === 'Absent').length;
+    }
+
+    const recentAdmissions = recentDocs.map(toAdmissionDto);
+    const totalAnnouncements = Number(publishedAnnCount) || 0;
+    const activeAnnouncements = totalAnnouncements;
+    const recentAnnouncements = recentAnnDocs.map(toAnnouncementDto);
     const attendanceRate = totalMarkedToday > 0 ? Math.round((presentToday / totalMarkedToday) * 100) : 100;
 
     const totalPendingFee = isTeacher ? 0 : allFeeDocs.reduce((acc, f) => acc + (Number(f.pending_amount) || 0), 0);
@@ -3014,8 +3049,8 @@ router.get('/dashboard/stats', authenticateToken, requireRole(['super_admin', 'a
       totalStudents,
       totalTeachers,
       totalParents,
-      totalClasses,
-      totalSections,
+      totalClasses: scopedTotalClasses,
+      totalSections: scopedTotalSections,
       pendingAdmissions,
       approvedAdmissions,
       todayMarked: totalMarkedToday,
