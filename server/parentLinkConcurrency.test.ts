@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { buildStudentParentClaimFilter } from './parentAccess.ts';
 import { isClassAssignedToTeacher, normalizeClassAccessLabel } from './classAccess.ts';
-import { isTeacherSubjectAssigned } from './teacherHomeworkAccess.ts';
+import { isTeacherSubjectAssigned, isTeacherAssignedToClassSection } from './teacherHomeworkAccess.ts';
 
 const routes = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
 const envConfig = readFileSync(new URL('./config/env.ts', import.meta.url), 'utf8');
@@ -221,4 +221,35 @@ test('teacher subject scope uses exact subject names and supports explicit compo
   assert.equal(isTeacherSubjectAssigned('Mathematics', [], 'Math'), false);
   assert.equal(isTeacherSubjectAssigned('Physics', [], 'Physical Education'), false);
   assert.equal(isTeacherSubjectAssigned('', [], 'Mathematics'), false);
+});
+
+test('teacher section scope denies access to other sections when explicit assignments exist', () => {
+  const teacherClasses = ['Class 1'];
+  const assignments = [{ class_name: 'Class 1', section: 'A', subject: 'Mathematics' }];
+  assert.equal(isTeacherAssignedToClassSection(teacherClasses, assignments, '1', 'A'), true);
+  assert.equal(isTeacherAssignedToClassSection(teacherClasses, assignments, 'Class 1', 'Section A'), true);
+  assert.equal(isTeacherAssignedToClassSection(teacherClasses, assignments, 'Class 1', 'B'), false);
+  assert.equal(isTeacherAssignedToClassSection(teacherClasses, assignments, 'Class 10', 'A'), false);
+});
+
+test('legacy class-level teacher assignment remains compatible when no section assignments exist', () => {
+  assert.equal(isTeacherAssignedToClassSection(['Grade 2'], [], '2', 'B'), true);
+  assert.equal(isTeacherAssignedToClassSection(['Grade 2'], [], '3', 'B'), false);
+});
+
+test('teacher portal read and write routes enforce section-level assignment checks', () => {
+  const routesToCheck = [
+    "router.get('/teacher/students'",
+    "router.get('/teacher/attendance'",
+    "router.get('/teacher/results'",
+    "router.post('/teacher/attendance'",
+    "router.post('/teacher/results'",
+    "router.get('/teacher/dashboard'",
+  ];
+  for (const marker of routesToCheck) {
+    const start = routes.indexOf(marker);
+    const end = routes.indexOf('\n});', start) + 4;
+    assert.ok(start >= 0 && end > start, marker);
+    assert.match(routes.slice(start, end), /isTeacherAssignedToClassSection/);
+  }
 });
