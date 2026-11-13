@@ -28,5 +28,5 @@ export * from './RateLimitBucket.ts';
 export * from './PasswordResetToken.ts';
 export * from './TeacherTask.ts';
 export * from './Homework.ts';
-
-
+export * from './Expense.ts';
+export * from './Payroll.ts';
