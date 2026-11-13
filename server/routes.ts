@@ -5944,7 +5944,7 @@ router.get('/admissions/track/:applicationNo', contactRateLimiter, async (req: R
   }
 });
 
-router.get('/admissions', authenticateToken, requireRole(['super_admin', 'admin', 'teacher']), async (req: AuthenticatedRequest, res: Response) => {
+router.get('/admissions', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
   const { status, class_applying, startDate, endDate, from, to } = req.query;
 
   const rawStart = (startDate ?? from) as string | undefined;
@@ -6018,7 +6018,7 @@ router.get('/admissions', authenticateToken, requireRole(['super_admin', 'admin'
   }
 });
 
-router.put('/admissions/:id/status', authenticateToken, requireRole(['super_admin', 'admin', 'teacher']), async (req: AuthenticatedRequest, res: Response) => {
+router.put('/admissions/:id/status', authenticateToken, requireRole(['super_admin', 'admin']), async (req: AuthenticatedRequest, res: Response) => {
   const { status, remarks } = req.body || {};
   if (!status) {
     return res.status(400).json({ error: 'Status is required' });
@@ -6432,18 +6432,26 @@ router.post('/attendance/batch', authenticateToken, requireRole(['super_admin', 
       resolvedEntries.push({ rec, studentDoc, canonicalStudentId, candidateIds });
     }
 
-    // Teacher object-level validation: can only mark attendance for assigned classes
+    // Teacher object-level validation: only the student's current assigned class AND section.
     if (req.user?.role === 'teacher') {
       const teacher = await getAuthenticatedTeacherMongo(req);
-      const assignedClasses = teacher?.classes || [];
+      if (!teacher) {
+        return res.status(404).json({ error: 'Teacher profile not linked.' });
+      }
+      const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+      const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
       for (const { rec, studentDoc } of resolvedEntries) {
-        const targetClass = String(rec.class_name || studentDoc.class_name || '');
+        const studentClass = String(studentDoc.class_name || '');
+        const studentSection = String(studentDoc.section || 'A');
+        const requestedClass = String(rec.class_name || studentClass);
+        const requestedSection = String(rec.section || studentSection);
         if (
-          !isClassAssignedToTeacher(assignedClasses, targetClass) ||
-          !isClassAssignedToTeacher(assignedClasses, studentDoc.class_name)
+          requestedClass.toLowerCase() !== studentClass.toLowerCase() ||
+          requestedSection.toLowerCase() !== studentSection.toLowerCase() ||
+          !isTeacherAssignedToClassSection(teacher.classes || [], assignmentScopes, studentClass, studentSection)
         ) {
           return res.status(403).json({
-            error: `Access denied: You are not assigned to class "${targetClass || studentDoc.class_name}".`,
+            error: 'Access denied: You may only mark attendance for students in your currently assigned class section.',
           });
         }
       }
