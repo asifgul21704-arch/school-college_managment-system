@@ -123,3 +123,9 @@
   .ssc-primary-btn,.ssc-secondary-btn { padding:8px 10px; font-size:11px; }
   .ssc-panel { border-radius:16px; }
 }
+
+.ssc-portal-shell { background:#f1f5ff; color:#17233d; }
+.ssc-portal-topbar { background:#102b57; border-color:#1d467a; }
+.ssc-portal-shell main { background:transparent; }
+.ssc-ai-panel { border-color:#e2e9f6; border-radius:20px; box-shadow:0 10px 32px rgba(24,55,105,.07); }
+.ssc-ai-header { background:linear-gradient(105deg,#f7f9ff,#fff); border-color:#e8edf7; }
