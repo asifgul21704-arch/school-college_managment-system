@@ -79,3 +79,47 @@
     background-color: #ffffff !important;
   }
 }
+
+/* Premium Shawan administrative dashboard */
+.ssc-overview {
+  color: #17233d;
+  padding: 1px;
+}
+.ssc-panel {
+  min-width: 0;
+  border: 1px solid #e5eaf5;
+  border-radius: 20px;
+  background: rgba(255,255,255,.94);
+  box-shadow: 0 8px 28px rgba(30,64,120,.055);
+}
+.ssc-panel-title { color:#142747; font-size:15px; font-weight:800; letter-spacing:-.025em; }
+.ssc-panel-subtitle { color:#8290a8; font-size:11px; margin-top:3px; }
+.ssc-stat-card {
+  display:flex; align-items:center; gap:13px; min-width:0; padding:16px;
+  border:1px solid #e7edf7; border-radius:18px; background:#fff;
+  box-shadow:0 5px 20px rgba(34,64,112,.045); transition:transform .2s ease,box-shadow .2s ease;
+}
+.ssc-stat-card:hover { transform:translateY(-2px); box-shadow:0 10px 26px rgba(34,64,112,.09); }
+.ssc-icon-tile { display:grid; place-items:center; width:42px; height:42px; flex:0 0 42px; border-radius:14px; }
+.ssc-icon-tile.blue { color:#2563eb; background:#e8f1ff; }
+.ssc-icon-tile.mint { color:#059669; background:#e1f8f0; }
+.ssc-icon-tile.violet { color:#7c3aed; background:#f0eaff; }
+.ssc-icon-tile.amber { color:#d97706; background:#fff2dc; }
+.ssc-primary-btn,.ssc-secondary-btn {
+  display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:39px;
+  border-radius:11px; padding:9px 14px; font-size:12px; font-weight:750; cursor:pointer;
+  transition:transform .18s ease,background .18s ease,box-shadow .18s ease;
+}
+.ssc-primary-btn { color:#fff; background:#1769e8; box-shadow:0 5px 14px rgba(23,105,232,.2); }
+.ssc-primary-btn:hover { background:#1059cb; transform:translateY(-1px); }
+.ssc-secondary-btn { color:#344563; background:#fff; border:1px solid #e2e8f2; }
+.ssc-secondary-btn:hover { background:#f6f9ff; }
+.ssc-soft-pill { display:inline-flex; align-items:center; gap:5px; border-radius:999px; padding:6px 10px; color:#2563eb; background:#edf4ff; font-size:10px; font-weight:750; }
+.ssc-action-tile { display:flex; align-items:center; gap:10px; min-width:0; padding:11px; border:1px solid #edf0f6; border-radius:14px; background:#fff; text-align:left; transition:background .18s ease,border-color .18s ease,transform .18s ease; }
+.ssc-action-tile:hover { background:#f7faff; border-color:#cbdcf8; transform:translateY(-1px); }
+@media (max-width:640px) {
+  .ssc-stat-card { padding:13px; gap:10px; }
+  .ssc-icon-tile { width:38px; height:38px; flex-basis:38px; }
+  .ssc-primary-btn,.ssc-secondary-btn { padding:8px 10px; font-size:11px; }
+  .ssc-panel { border-radius:16px; }
+}
