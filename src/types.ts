@@ -466,3 +466,53 @@ export interface OutstandingFeeSummary {
   pending_vouchers_count: number;
 }
 
+export interface ExpenseRecord {
+  id: string;
+  title: string;
+  category: 'Utilities' | 'Salaries' | 'Maintenance' | 'Supplies' | 'Transport' | 'Events' | 'Other';
+  amount: number;
+  expense_date: string;
+  payment_method: string;
+  reference?: string;
+  notes?: string;
+  created_by: string;
+  created_by_name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PayrollRecord {
+  id: string;
+  staff_id: string;
+  staff_name: string;
+  designation: string;
+  salary_month: number;
+  salary_year: number;
+  basic_salary: number;
+  allowances: number;
+  deductions: number;
+  net_salary: number;
+  paid_amount: number;
+  payment_date?: string;
+  payment_method?: string;
+  payment_history: Array<{ amount: number; payment_date: string; payment_method: string; recorded_by: string; recorded_at: string }>;
+  notes?: string;
+  status: 'Unpaid' | 'Partially Paid' | 'Paid';
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VerifiedFeeCollectionRecord {
+  id: string;
+  date: string;
+  amount: number;
+  method: string;
+  receipt_no: string;
+  student_id: string;
+  student_name: string;
+  class_name: string;
+  fee_month: string;
+  year: number | null;
+  verification_status: 'Verified';
+}
