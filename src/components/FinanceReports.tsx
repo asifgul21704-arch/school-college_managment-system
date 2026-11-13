@@ -265,7 +265,15 @@ export const FinanceReports: React.FC<FinanceReportsProps> = ({ onAskAI }) => {
     if (method === null) return;
     const allowed = ['Cash','Bank Transfer','Cheque','JazzCash','Easypaisa','Other'];
     if (!allowed.includes(method)) { setError('Choose a supported payment method.'); return; }
-    try { await api.recordFinanceSalaryPayment(row.id, { amount, payment_date: new Date().toISOString().slice(0, 10), payment_method: method }); await load(true); }
+    try {
+      await api.recordFinanceSalaryPayment(row.id, {
+        amount,
+        payment_date: new Date().toISOString().slice(0, 10),
+        payment_method: method,
+        idempotency_key: crypto.randomUUID(),
+      });
+      await load(true);
+    }
     catch (err: any) { setError(err?.message || 'Unable to record salary payment.'); }
   };
 
