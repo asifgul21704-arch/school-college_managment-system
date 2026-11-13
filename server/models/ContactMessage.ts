@@ -113,7 +113,6 @@ const ContactMessageSchema = new Schema<IContactMessage>(
       type: String,
       trim: true,
       sparse: true,
-      index: true,
     },
     name: {
       type: String,
