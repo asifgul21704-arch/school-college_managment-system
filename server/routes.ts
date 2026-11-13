@@ -8832,10 +8832,35 @@ router.patch('/results/:id/publish', authenticateToken, requireRole(['super_admi
 
     if (req.user?.role === 'teacher') {
       const teacher = await getAuthenticatedTeacherMongo(req);
-      const assignedClasses = teacher?.classes || [];
-      if (!isClassAssignedToTeacher(assignedClasses, existing.class_name)) {
+      if (!teacher) {
+        return res.status(404).json({ error: 'Teacher profile not linked.' });
+      }
+      const teacherIds = Array.from(new Set([teacher.id, req.user?.linked_id, req.user?.id].filter((id): id is string => Boolean(id))));
+      const assignmentScopes = await getTeacherAssignmentScopes(teacherIds);
+      const linkedStudent = await findStudentByAnyId(String(existing.student_id || ''));
+      const storedSection = String(existing.section || 'A');
+      const currentSection = String(linkedStudent?.section || 'A');
+      const storedScopeAllowed = isTeacherAssignedToClassSection(
+        teacher.classes || [], assignmentScopes, String(existing.class_name || ''), storedSection
+      );
+      const currentScopeAllowed = Boolean(linkedStudent) && isTeacherAssignedToClassSection(
+        teacher.classes || [], assignmentScopes, String(linkedStudent?.class_name || ''), currentSection
+      );
+      const matchingAssignments = assignmentScopes.filter(assignment =>
+        isTeacherAssignedToClassSection(
+          [assignment.class_name], [assignment], String(existing.class_name || ''), storedSection
+        )
+      );
+      const allowedSubjects = matchingAssignments.map(assignment => assignment.subject);
+      const resultSubjects = Array.isArray(existing.subjects)
+        ? existing.subjects.map((subject: any) => String(subject.subject_name || '')).filter(Boolean)
+        : [];
+      const subjectsAllowed = resultSubjects.length > 0 && resultSubjects.every(subject =>
+        isTeacherSubjectAssigned(teacher.subject, allowedSubjects, subject)
+      );
+      if (!storedScopeAllowed || !currentScopeAllowed || !subjectsAllowed) {
         return res.status(403).json({
-          error: `Access denied: You are not assigned to class "${existing.class_name}".`,
+          error: 'Access denied: You may only manage results for your currently assigned class section and subjects.',
         });
       }
     }
