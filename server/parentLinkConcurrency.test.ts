@@ -342,3 +342,32 @@ test('student attendance endpoint restricts teacher access to assigned sections 
   assert.match(route, /requireRole\(\['super_admin', 'admin', 'teacher', 'parent', 'student'\]\)/);
   assert.match(route, /isTeacherAssignedToClassSection/);
 });
+
+test('attendance list endpoint limits teacher records to assigned class sections', () => {
+  const start = routes.indexOf("router.get('/attendance'");
+  const end = routes.indexOf('\n});', start) + 4;
+  assert.ok(start >= 0 && end > start);
+  const route = routes.slice(start, end);
+  assert.match(route, /requireRole\(\['super_admin', 'admin', 'teacher', 'parent', 'student'\]\)/);
+  assert.match(route, /getTeacherAssignmentScopes\(teacherIds\)/);
+  assert.match(route, /filter\(a => isTeacherAssignedToClassSection/);
+});
+
+test('results list endpoint limits teacher records to assigned class sections', () => {
+  const start = routes.indexOf("router.get('/results'");
+  const end = routes.indexOf('\n});', start) + 4;
+  assert.ok(start >= 0 && end > start);
+  const route = routes.slice(start, end);
+  assert.match(route, /requireRole\(\['super_admin', 'admin', 'teacher', 'parent', 'student'\]\)/);
+  assert.match(route, /getTeacherAssignmentScopes\(teacherIds\)/);
+  assert.match(route, /filter\(r => isTeacherAssignedToClassSection/);
+});
+
+test('fee list endpoint rejects roles outside the declared school roles', () => {
+  const start = routes.indexOf("router.get('/fees'");
+  const end = routes.indexOf('\n});', start) + 4;
+  assert.ok(start >= 0 && end > start);
+  const route = routes.slice(start, end);
+  assert.match(route, /requireRole\(\['super_admin', 'admin', 'teacher', 'parent', 'student'\]\)/);
+  assert.match(route, /Teachers do not have access to fee records/);
+});
